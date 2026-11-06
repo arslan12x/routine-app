@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  MEMBER
+  ADMIN
+}
+
+enum Category {
+  FITNESS
+  LEARNING
+  HEALTH
+  PERSONAL_DEVELOPMENT
+  OTHER
+}
+
+enum CompletionType {
+  BOOLEAN
+  MEASURABLE
+}
+
+enum Recurrence {
+  DAILY
+  WEEKDAYS
+  WEEKLY_TOTAL
+}
+
+// ---- Better Auth core tables ----
+model User {
+  id            String        @id
+  name          String
+  email         String        @unique
+  emailVerified Boolean       @default(false)
+  image         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  settings      UserSettings?
+  tasks         Task[]
+  logs          TaskLog[]
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  @@index([identifier])
+}
+
+// ---- App tables ----
+model AllowedEmail {
+  id        String    @id @default(cuid())
+  email     String    @unique // always lowercase
+  role      Role      @default(MEMBER)
+  revokedAt DateTime?
+  addedBy   String?
+  createdAt DateTime  @default(now())
+}
+
+model UserSettings {
+  id                String  @id @default(cuid())
+  userId            String  @unique
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timezone          String  @default("Asia/Kolkata")
+  timezoneSet       Boolean @default(false)
+  weekStartsOn      Int     @default(1) // 1 = Monday, 7 = Sunday
+  displayName       String?
+  showOnLeaderboard Boolean @default(true)
+}
+
+// Identity + cosmetic fields. Result-affecting rules live in TaskVersion.
+model Task {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  category    Category      @default(OTHER)
+  sortOrder   Int           @default(0)
+  startDate   DateTime      @db.Date
+  archivedOn  DateTime?     @db.Date // exclusive end: not scheduled on/after this date
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  versions    TaskVersion[]
+  logs        TaskLog[]
+  @@index([userId, archivedOn])
+}
+
+model TaskVersion {
+  id             String         @id @default(cuid())
+  taskId         String
+  task           Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  effectiveFrom  DateTime       @db.Date
+  isMandatory    Boolean
+  completionType CompletionType
+  target         Float          @default(1)
+  unit           String?
+  recurrence     Recurrence
+  weekdays       Int[]
+  createdAt      DateTime       @default(now())
+  @@unique([taskId, effectiveFrom])
+}
+
+model TaskLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  localDate DateTime @db.Date
+  value     Float
+  updatedAt DateTime @updatedAt
+  @@unique([taskId, localDate])
+  @@index([userId, localDate])
+}

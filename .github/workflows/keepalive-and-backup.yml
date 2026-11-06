@@ -1,0 +1,28 @@
+name: keepalive-and-backup
+
+on:
+  schedule:
+    - cron: "0 3 */3 * *"   # every ~3 days: keep Supabase free project from pausing
+    - cron: "0 4 * * 0"     # weekly: database backup
+  workflow_dispatch: {}
+
+jobs:
+  keepalive:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 3 */3 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint (runs SELECT 1)
+        run: curl -fsS --retry 3 "${{ secrets.APP_URL }}/api/health"
+
+  backup:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 4 * * 0'
+    runs-on: ubuntu-latest
+    steps:
+      # Use the postgres major version your Supabase project runs (Dashboard > Database).
+      - name: pg_dump
+        run: docker run --rm postgres:17 pg_dump "${{ secrets.BACKUP_DB_URL }}" --no-owner --no-privileges | gzip > backup.sql.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: routine-backup-${{ github.run_id }}
+          path: backup.sql.gz
+          retention-days: 30

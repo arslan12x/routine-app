@@ -1,0 +1,176 @@
+import { prisma } from "@/lib/db";
+import { ApiError } from "@/lib/api";
+import type { AppUser } from "@/lib/auth/session";
+import type { TaskCreate, TaskPatch } from "@/lib/validation";
+import { addDays, hourIn, longDate, todayIn, weekStart } from "@/lib/domain/dates";
+import { isDone, logKey, progressOf, scheduledOn, versionOn, weekDays } from "@/lib/domain/schedule";
+import { computeStreaks } from "@/lib/domain/streaks";
+import type { Category, CompletionType, Recurrence, TaskDef } from "@/lib/domain/types";
+import { d2s, loadLogs, loadTasks, s2d } from "@/server/repositories/tasks";
+
+export const BACKDATE_DAYS = 7;
+
+export interface TaskView {
+  id: string; title: string; description: string | null; category: Category;
+  isMandatory: boolean; completionType: CompletionType; target: number; unit: string | null;
+  recurrence: Recurrence; weekdays: number[];
+}
+export interface DayItem extends TaskView { value: number; done: boolean; progress: number; weekSum: number | null }
+export interface DayView {
+  date: string; today: string; editable: boolean; greeting: string; longDate: string;
+  streak: number; progressPct: number; completed: number; total: number;
+  mandatory: DayItem[]; extra: DayItem[]; others: TaskView[];
+}
+
+const view = (t: TaskDef, v: NonNullable<ReturnType<typeof versionOn>>): TaskView => ({
+  id: t.id, title: t.title, description: t.description, category: t.category, isMandatory: v.isMandatory,
+  completionType: v.completionType, target: v.target, unit: v.unit, recurrence: v.recurrence, weekdays: v.weekdays,
+});
+
+function validateRules(m: { isMandatory: boolean; recurrence: Recurrence; weekdays: number[]; target: number }) {
+  if (m.recurrence === "WEEKLY_TOTAL" && m.isMandatory) throw new ApiError(400, "VALIDATION", "Weekly-total tasks cannot be mandatory");
+  if (m.recurrence === "WEEKDAYS" && m.weekdays.length === 0) throw new ApiError(400, "VALIDATION", "Pick at least one weekday");
+  if (!(m.target > 0)) throw new ApiError(400, "VALIDATION", "Target must be positive");
+}
+
+export async function dayView(user: AppUser, date: string): Promise<DayView> {
+  const today = todayIn(user.timezone);
+  if (date > today) throw new ApiError(400, "FUTURE_DATE", "Cannot view future dates");
+  const [tasks, logs] = await Promise.all([loadTasks(user.id), loadLogs(user.id)]);
+  const mandatory: DayItem[] = [], extra: DayItem[] = [];
+  const ws = weekStart(date, user.weekStartsOn);
+  for (const t of tasks) {
+    const v = scheduledOn(t, date);
+    if (!v) continue;
+    const value = logs.get(logKey(t.id, date)) ?? 0;
+    const weekly = v.recurrence === "WEEKLY_TOTAL";
+    const weekSum = weekly ? weekDays(ws).reduce((a, d) => a + (logs.get(logKey(t.id, d)) ?? 0), 0) : null;
+    const item: DayItem = {
+      ...view(t, v), value,
+      done: weekly ? (weekSum ?? 0) >= v.target : isDone(v, value),
+      progress: weekly ? Math.min(1, (weekSum ?? 0) / v.target) : progressOf(v, value),
+      weekSum,
+    };
+    (v.isMandatory ? mandatory : extra).push(item);
+  }
+  const daily = [...mandatory, ...extra].filter((i) => i.recurrence !== "WEEKLY_TOTAL");
+  const completed = daily.filter((i) => i.done).length;
+  const progressPct = daily.length ? Math.round((daily.reduce((a, i) => a + i.progress, 0) / daily.length) * 100) : 0;
+  const hour = hourIn(user.timezone);
+  const others: TaskView[] = [];
+  if (date === today) {
+    for (const t of tasks) {
+      if (t.archivedOn && t.archivedOn <= today) continue;
+      if (scheduledOn(t, date)) continue;
+      const v = versionOn(t, today) ?? t.versions[0];
+      if (v) others.push(view(t, v));
+    }
+  }
+  return {
+    date, today, editable: date >= addDays(today, -BACKDATE_DAYS),
+    greeting: hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening",
+    longDate: longDate(date),
+    streak: computeStreaks(tasks, logs, today).current,
+    progressPct, completed, total: daily.length, mandatory, extra, others,
+  };
+}
+
+export async function listTasks(userId: string) {
+  const tasks = await loadTasks(userId);
+  return tasks.map((t) => ({ ...t, current: t.versions[t.versions.length - 1] }));
+}
+
+export async function createTask(user: AppUser, input: TaskCreate) {
+  const today = todayIn(user.timezone);
+  const startDate = input.startDate ?? today;
+  if (startDate < today) throw new ApiError(400, "VALIDATION", "Start date cannot be in the past");
+  const agg = await prisma.task.aggregate({ where: { userId: user.id }, _max: { sortOrder: true } });
+  const target = input.completionType === "BOOLEAN" && input.recurrence !== "WEEKLY_TOTAL" ? 1 : input.target;
+  const task = await prisma.task.create({
+    data: {
+      userId: user.id, title: input.title, description: input.description ?? null, category: input.category,
+      startDate: s2d(startDate), sortOrder: (agg._max.sortOrder ?? -1) + 1,
+      versions: {
+        create: {
+          effectiveFrom: s2d(startDate), isMandatory: input.isMandatory, completionType: input.completionType,
+          target, unit: input.unit ?? null, recurrence: input.recurrence,
+          weekdays: input.recurrence === "WEEKDAYS" ? input.weekdays : [],
+        },
+      },
+    },
+  });
+  return { id: task.id };
+}
+
+/**
+ * Cosmetic fields (title, description, category) change in place.
+ * Result-affecting fields change as a NEW version effective today, so past days never change.
+ */
+export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
+  const task = await prisma.task.findFirst({ where: { id, userId: user.id }, include: { versions: { orderBy: { effectiveFrom: "asc" } } } });
+  if (!task) throw new ApiError(404, "NOT_FOUND", "Task not found");
+  if (task.archivedOn) throw new ApiError(409, "ARCHIVED", "Archived tasks cannot be edited");
+  const today = todayIn(user.timezone);
+  const start = d2s(task.startDate);
+  const eff = today > start ? today : start;
+  const cur = [...task.versions].reverse().find((v) => d2s(v.effectiveFrom) <= eff) ?? task.versions[0];
+
+  const recurrence = (patch.recurrence ?? cur.recurrence) as Recurrence;
+  const merged = {
+    isMandatory: patch.isMandatory ?? cur.isMandatory,
+    recurrence,
+    weekdays: recurrence === "WEEKDAYS" ? patch.weekdays ?? cur.weekdays : [],
+    unit: patch.unit !== undefined ? patch.unit : cur.unit,
+    target: cur.completionType === "BOOLEAN" && recurrence !== "WEEKLY_TOTAL" ? 1 : patch.target ?? cur.target,
+  };
+  validateRules(merged);
+  const changed =
+    merged.isMandatory !== cur.isMandatory || merged.recurrence !== cur.recurrence || merged.target !== cur.target ||
+    merged.unit !== cur.unit || merged.weekdays.join() !== cur.weekdays.join();
+
+  await prisma.$transaction(async (tx) => {
+    await tx.task.update({
+      where: { id },
+      data: { title: patch.title, description: patch.description, category: patch.category, archivedOn: patch.archived ? s2d(today) : undefined },
+    });
+    if (changed) {
+      await tx.taskVersion.upsert({
+        where: { taskId_effectiveFrom: { taskId: id, effectiveFrom: s2d(eff) } },
+        create: { taskId: id, effectiveFrom: s2d(eff), completionType: cur.completionType, ...merged },
+        update: merged,
+      });
+    }
+  });
+  return { id };
+}
+
+/** Hard delete only when there is no history; otherwise the client should archive. */
+export async function deleteTask(user: AppUser, id: string) {
+  const task = await prisma.task.findFirst({ where: { id, userId: user.id }, select: { id: true } });
+  if (!task) throw new ApiError(404, "NOT_FOUND", "Task not found");
+  const logs = await prisma.taskLog.count({ where: { taskId: id } });
+  if (logs > 0) throw new ApiError(409, "HAS_HISTORY", "This task has history. Archive it instead to keep your stats.");
+  await prisma.task.delete({ where: { id } });
+}
+
+/** Idempotent: sets an ABSOLUTE value for (task, date). Repeating the request changes nothing. */
+export async function setProgress(user: AppUser, taskId: string, date: string, value: number) {
+  const today = todayIn(user.timezone);
+  if (date > today) throw new ApiError(400, "FUTURE_DATE", "Cannot log future dates");
+  if (date < addDays(today, -BACKDATE_DAYS)) throw new ApiError(400, "TOO_OLD", `You can only edit the last ${BACKDATE_DAYS} days`);
+  const tasks = (await loadTasks(user.id)).filter((t) => t.id === taskId);
+  if (!tasks.length) throw new ApiError(404, "NOT_FOUND", "Task not found");
+  const v = scheduledOn(tasks[0], date);
+  if (!v) throw new ApiError(400, "NOT_SCHEDULED", "This task is not scheduled on that date");
+  const final = v.completionType === "BOOLEAN" ? (value > 0 ? 1 : 0) : value;
+  if (final === 0) {
+    await prisma.taskLog.deleteMany({ where: { taskId, userId: user.id, localDate: s2d(date) } });
+  } else {
+    await prisma.taskLog.upsert({
+      where: { taskId_localDate: { taskId, localDate: s2d(date) } },
+      create: { userId: user.id, taskId, localDate: s2d(date), value: final },
+      update: { value: final },
+    });
+  }
+  return { taskId, date, value: final };
+}

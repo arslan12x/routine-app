@@ -1,0 +1,73 @@
+import { ApiError } from "@/lib/api";
+import type { AppUser } from "@/lib/auth/session";
+import { prisma } from "@/lib/db";
+import { addDays, daysBetween, monthOf, monthRange, todayIn, weekStart } from "@/lib/domain/dates";
+import { computeInsights, type Group } from "@/lib/domain/analytics";
+import { rankRows, type BoardRow } from "@/lib/domain/ranking";
+import { computeStreaks, recentConsistency, statusRange } from "@/lib/domain/streaks";
+import { d2s, loadLogs, loadTasks } from "@/server/repositories/tasks";
+
+export async function streaks(user: AppUser) {
+  const [tasks, logs] = await Promise.all([loadTasks(user.id), loadLogs(user.id)]);
+  return computeStreaks(tasks, logs, todayIn(user.timezone));
+}
+
+export async function calendar(user: AppUser, month?: string) {
+  const today = todayIn(user.timezone);
+  const m = month ?? monthOf(today);
+  const [from, to] = monthRange(m);
+  const [tasks, logs] = await Promise.all([loadTasks(user.id), loadLogs(user.id)]);
+  const days = statusRange(tasks, logs, from, to, today);
+  const s = computeStreaks(tasks, logs, today);
+  return {
+    month: m, today, weekStartsOn: user.weekStartsOn, days,
+    summary: { ...s, monthSuccessDays: days.filter((d) => d.status === "SUCCESS").length },
+  };
+}
+
+export async function insights(user: AppUser, q: { range: "day" | "week" | "month" | "custom"; from?: string; to?: string; group?: Group }) {
+  const today = todayIn(user.timezone);
+  let from = today, to = today;
+  if (q.range === "week") from = weekStart(today, user.weekStartsOn);
+  if (q.range === "month") from = `${monthOf(today)}-01`;
+  if (q.range === "custom") {
+    if (!q.from || !q.to || q.from > q.to) throw new ApiError(400, "VALIDATION", "Provide a valid from/to range");
+    from = q.from; to = q.to;
+    if (daysBetween(from, to).length > 366) throw new ApiError(400, "VALIDATION", "Range is limited to 366 days");
+  }
+  const span = daysBetween(from, to).length;
+  const group: Group = q.group ?? (span > 92 ? "week" : "day");
+  const [tasks, logs] = await Promise.all([loadTasks(user.id), loadLogs(user.id)]);
+  return { from, to, group, ...computeInsights({ tasks, logs, from, to, group, today, weekStartsOn: user.weekStartsOn }) };
+}
+
+/** Public projection only: no ids, emails, task titles or per-day data ever leave this function. */
+export async function leaderboard(viewer: AppUser) {
+  const allowed = await prisma.allowedEmail.findMany({ where: { revokedAt: null }, select: { email: true } });
+  const users = await prisma.user.findMany({
+    where: { email: { in: allowed.map((a) => a.email) }, settings: { is: { showOnLeaderboard: true } } },
+    include: { settings: true },
+  });
+  type Row = BoardRow & { isMe: boolean };
+  const rows: Row[] = await Promise.all(
+    users.map(async (u): Promise<Row> => {
+      const [tasks, logs] = await Promise.all([loadTasks(u.id), loadLogs(u.id)]);
+      const today = todayIn(u.settings?.timezone ?? "Asia/Kolkata");
+      const s = computeStreaks(tasks, logs, today);
+      const c = recentConsistency(tasks, logs, today, 30, 7);
+      return {
+        tiebreakId: u.id, isMe: u.id === viewer.id,
+        displayName: u.settings?.displayName ?? u.name, image: u.image,
+        currentStreak: s.current, longestStreak: s.longest, consistency: c.rate,
+        successDays: s.successDays, mandatoryPerDay: c.mandatoryPerDay, joinedAt: u.createdAt.toISOString(),
+      };
+    }),
+  );
+  return rankRows(rows).map(({ tiebreakId: _t, joinedAt: _j, ...pub }) => pub);
+}
+
+export async function exportAll(user: AppUser) {
+  const [tasks, logs] = await Promise.all([loadTasks(user.id), prisma.taskLog.findMany({ where: { userId: user.id }, orderBy: { localDate: "asc" } })]);
+  return { exportedAt: new Date().toISOString(), tasks, logs: logs.map((l) => ({ taskId: l.taskId, date: d2s(l.localDate), value: l.value })) };
+}
+

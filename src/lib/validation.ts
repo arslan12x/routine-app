@@ -1,0 +1,59 @@
+import { z } from "zod";
+import { isValidDate, isValidTimezone } from "@/lib/domain/dates";
+
+export const dateStr = z.string().refine(isValidDate, "Use YYYY-MM-DD");
+export const categoryEnum = z.enum(["FITNESS", "LEARNING", "HEALTH", "PERSONAL_DEVELOPMENT", "OTHER"]);
+export const completionEnum = z.enum(["BOOLEAN", "MEASURABLE"]);
+export const recurrenceEnum = z.enum(["DAILY", "WEEKDAYS", "WEEKLY_TOTAL"]);
+const weekdays = z.array(z.number().int().min(1).max(7)).max(7);
+
+export const taskCreate = z
+  .object({
+    title: z.string().trim().min(1, "Title is required").max(80),
+    description: z.string().trim().max(300).nullable().optional(),
+    category: categoryEnum.default("OTHER"),
+    isMandatory: z.boolean().default(false),
+    completionType: completionEnum.default("BOOLEAN"),
+    target: z.number().positive().max(10_000_000).default(1),
+    unit: z.string().trim().max(20).nullable().optional(),
+    recurrence: recurrenceEnum.default("DAILY"),
+    weekdays: weekdays.default([]),
+    startDate: dateStr.optional(),
+  })
+  .refine((v) => !(v.recurrence === "WEEKLY_TOTAL" && v.isMandatory), { message: "Weekly-total tasks cannot be mandatory", path: ["isMandatory"] })
+  .refine((v) => v.recurrence !== "WEEKDAYS" || v.weekdays.length > 0, { message: "Pick at least one weekday", path: ["weekdays"] });
+
+export const taskPatch = z.object({
+  title: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(300).nullable().optional(),
+  category: categoryEnum.optional(),
+  isMandatory: z.boolean().optional(),
+  target: z.number().positive().max(10_000_000).optional(),
+  unit: z.string().trim().max(20).nullable().optional(),
+  recurrence: recurrenceEnum.optional(),
+  weekdays: weekdays.optional(),
+  archived: z.literal(true).optional(), // archiving is one-way (un-archiving would retroactively fail the gap)
+});
+
+export const progressBody = z.object({ date: dateStr, value: z.number().min(0).max(10_000_000) });
+export const dateQuery = z.object({ date: dateStr.optional() });
+export const monthQuery = z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() });
+
+export const settingsPatch = z.object({
+  timezone: z.string().refine(isValidTimezone, "Unknown timezone").optional(),
+  weekStartsOn: z.union([z.literal(1), z.literal(7)]).optional(),
+  displayName: z.string().trim().min(1).max(30).nullable().optional(),
+  showOnLeaderboard: z.boolean().optional(),
+});
+
+export const insightsQuery = z.object({
+  range: z.enum(["day", "week", "month", "custom"]).default("week"),
+  from: dateStr.optional(),
+  to: dateStr.optional(),
+  group: z.enum(["day", "week", "month"]).optional(),
+});
+
+export const allowedEmailBody = z.object({ email: z.email().max(200), role: z.enum(["MEMBER", "ADMIN"]).default("MEMBER") });
+
+export type TaskCreate = z.infer<typeof taskCreate>;
+export type TaskPatch = z.infer<typeof taskPatch>;
