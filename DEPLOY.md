@@ -4,11 +4,12 @@
 2. **Supabase**: New project (pick the region nearest your users, e.g. Mumbai). Save the DB password.
    Dashboard > Connect: copy the *Transaction pooler* string (port 6543) -> `DATABASE_URL`
    and the *Session pooler* string (port 5432) -> `DIRECT_URL`. Do not add `?sslmode=`.
-3. **Google OAuth**: console.cloud.google.com > new project > APIs & Services > OAuth consent screen (External;
-   scopes openid/email/profile only; publish to Production) > Credentials > OAuth client ID (Web).
-   Authorized redirect URIs: `http://localhost:3000/api/auth/callback/google` and
-   `https://<your-app>.vercel.app/api/auth/callback/google`.
-4. **Vercel**: Import the GitHub repo. Add env vars from `.env.example` (`BETTER_AUTH_URL` = your Vercel URL).
-   Deploy. The build runs `prisma migrate deploy`.
-5. **GitHub Actions secrets**: `APP_URL` (your Vercel URL), `BACKUP_DB_URL` (the session-pooler string).
-6. **Invite friends** at `/admin`. **Install**: iPhone Safari > Share > Add to Home Screen; Android Chrome > Install app.
+3. **Vercel**: Import the GitHub repo. Add `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
+   `INITIAL_ADMIN_USERNAME`, and `INITIAL_ADMIN_PASSWORD` in Project Settings > Environment Variables.
+   Set `BETTER_AUTH_URL` to the stable production domain assigned to the app. Use a unique, strong admin password;
+   never commit credentials. Deploy; the build runs `prisma migrate deploy`.
+4. **Create the admin account**: from the project folder, configure `.env` with the production Supabase URLs and
+   the same `INITIAL_ADMIN_USERNAME` / `INITIAL_ADMIN_PASSWORD`, then run `npm run db:seed`. This stores a password
+   hash in the database; it does not store the plaintext password.
+5. **Create users** at `/admin` using a username and temporary password. Share passwords privately.
+   **Install**: iPhone Safari > Share > Add to Home Screen; Android Chrome > Install app.

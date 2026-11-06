@@ -1,6 +1,6 @@
 # Routine — private habit & streak tracker (PWA)
 
-Next.js 16 · TypeScript (strict) · Prisma 7 · Supabase Postgres · Better Auth (Google) · Tailwind 4 · Recharts
+Next.js 16 · TypeScript (strict) · Prisma 7 · Supabase Postgres · Better Auth (username/password) · Tailwind 4 · Recharts
 
 ## What is verified and what is not
 - `src/lib/domain/*` (streaks, schedules, analytics, ranking) is pure TypeScript, type-checks, and `tests/domain.test.ts` passes (18 tests).
@@ -11,9 +11,8 @@ Next.js 16 · TypeScript (strict) · Prisma 7 · Supabase Postgres · Better Aut
 ## Local setup
 ```bash
 npm install
-# Configure .env using .env.example and DEPLOY.md.
-# Migrations are already checked in; do not regenerate 0001_init.
-npx prisma migrate deploy       # applies 0001_init, then 0002_rls_and_checks
+npx prisma migrate deploy       # applies all checked-in migrations
+npm run db:seed                 # creates/resets admin from INITIAL_ADMIN_* in .env
 npm run dev                     # http://localhost:3000
 ```
 
@@ -25,9 +24,8 @@ After the first run, change the schema normally with `npm run db:migrate` and co
 `npm test` runs Vitest on the domain logic.
 
 ## First-run verification checklist
-1. Sign in with `INITIAL_ADMIN_EMAIL`: you land on /tasks and /admin works.
-2. Sign in with a Google account that is NOT invited: you see /access-denied and **no row** appears in the `User` table.
-3. Invite a friend at /admin, sign in as them, then revoke: their next request redirects to /access-denied.
-4. Create a mandatory task, tick it, confirm the streak shows 1; open Calendar and click today.
-5. Open /api/leaderboard in the browser: response contains only display name, avatar, streak and aggregate numbers.
-6. DevTools > Application: manifest valid, service worker registered (production build only), "Install" available.
+1. Sign in with `INITIAL_ADMIN_USERNAME` and `INITIAL_ADMIN_PASSWORD`: /tasks loads and /admin works.
+2. Create a user account at /admin, sign in as that user, then revoke it; their next request is denied.
+3. Create a mandatory task, tick it, confirm the streak shows 1; open Calendar and click today.
+4. Open /api/leaderboard in the browser: response contains only display name, avatar, streak and aggregate numbers.
+5. DevTools > Application: manifest valid, service worker registered (production build only), "Install" available.

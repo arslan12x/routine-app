@@ -4,7 +4,7 @@ import type { z } from "zod";
 import type { settingsPatch } from "@/lib/validation";
 
 export const profile = (u: AppUser) => ({
-  email: u.email, name: u.name, image: u.image, role: u.role,
+  username: u.username, name: u.name, image: u.image, role: u.role,
   settings: { timezone: u.timezone, weekStartsOn: u.weekStartsOn, displayName: u.displayName, showOnLeaderboard: u.showOnLeaderboard },
 });
 

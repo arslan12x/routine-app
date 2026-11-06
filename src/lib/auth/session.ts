@@ -3,10 +3,11 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/api";
+import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
 
 export interface AppUser {
   id: string;
-  email: string;
+  username: string;
   name: string;
   image: string | null;
   role: "ADMIN" | "MEMBER";
@@ -21,6 +22,8 @@ export interface AppUser {
 export async function requireUser(): Promise<AppUser> {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) throw new ApiError(401, "UNAUTHENTICATED", "Please sign in");
+  const username = usernameFromCredentialEmail(s.user.email);
+  if (!username) throw new ApiError(403, "FORBIDDEN", "Access denied");
   const allowed = await prisma.allowedEmail.findUnique({ where: { email: s.user.email.toLowerCase() } });
   if (!allowed || allowed.revokedAt) throw new ApiError(403, "FORBIDDEN", "Access denied");
   const st =
@@ -28,7 +31,7 @@ export async function requireUser(): Promise<AppUser> {
     (await prisma.userSettings.create({ data: { userId: s.user.id } }));
   return {
     id: s.user.id,
-    email: s.user.email,
+    username,
     name: s.user.name,
     image: s.user.image ?? null,
     role: allowed.role,

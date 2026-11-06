@@ -53,7 +53,11 @@ export const insightsQuery = z.object({
   group: z.enum(["day", "week", "month"]).optional(),
 });
 
-export const allowedEmailBody = z.object({ email: z.email().max(200), role: z.enum(["MEMBER", "ADMIN"]).default("MEMBER") });
+export const accountCreateBody = z.object({
+  username: z.string().trim().min(3).max(30).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, underscores, or periods"),
+  password: z.string().min(8).max(128),
+  role: z.enum(["MEMBER", "ADMIN"]).default("MEMBER"),
+});
 
 export type TaskCreate = z.infer<typeof taskCreate>;
 export type TaskPatch = z.infer<typeof taskPatch>;

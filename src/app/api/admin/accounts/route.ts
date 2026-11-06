@@ -1,13 +1,15 @@
-import { route, parseBody, parseQuery } from "@/lib/api";
+import { route, parseBody } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth/session";
-import { allowedEmailBody } from "@/lib/validation";
+import { accountCreateBody } from "@/lib/validation";
 import { addAllowed, listAllowed } from "@/server/services/admin";
+
 export const GET = route(async () => {
   await requireAdmin();
   return listAllowed();
 });
+
 export const POST = route(async (req) => {
   const admin = await requireAdmin();
-  const b = await parseBody(req, allowedEmailBody);
-  return addAllowed(admin, b.email, b.role);
+  const body = await parseBody(req, accountCreateBody);
+  return addAllowed(admin, body.username, body.password, body.role);
 }, 201);
