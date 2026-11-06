@@ -27,6 +27,11 @@ async function main() {
       update: { name: username, email, emailVerified: true },
       create: { id: crypto.randomUUID(), username, name: username, email, emailVerified: true },
     });
+    await tx.userSettings.upsert({
+      where: { userId: user.id },
+      update: {},
+      create: { userId: user.id },
+    });
     const account = await tx.account.findFirst({ where: { userId: user.id, providerId: "credential" } });
     if (account) {
       await tx.account.update({ where: { id: account.id }, data: { password: passwordHash } });

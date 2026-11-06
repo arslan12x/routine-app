@@ -48,10 +48,16 @@ export default function CalendarScreen({ initial }: { initial: CalendarData }) {
 
   const onProgress = async (item: DayItem, value: number) => {
     if (!day) return;
+    const previous = day;
     setDay(applyLocal(day, item.id, value));
-    try { await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: day.date, value }) }); setErr(null); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Could not save"); }
-    await Promise.all([loadDay(day.date), loadMonth(cal.month)]);
+    try {
+      await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: day.date, value }) });
+      setErr(null);
+      void Promise.all([loadDay(day.date), loadMonth(cal.month)]);
+    } catch (e) {
+      setDay(previous);
+      setErr(e instanceof Error ? e.message : "Could not save");
+    }
   };
 
   const [first] = monthRange(cal.month);

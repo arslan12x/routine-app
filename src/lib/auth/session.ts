@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth";
 import { prisma } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
+import { cache } from "react";
 
 export interface AppUser {
   id: string;
@@ -19,16 +20,17 @@ export interface AppUser {
 }
 
 /** Authoritative check used by every API route and page: valid session AND still whitelisted. */
-export async function requireUser(): Promise<AppUser> {
+export const requireUser = cache(async (): Promise<AppUser> => {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) throw new ApiError(401, "UNAUTHENTICATED", "Please sign in");
   const username = usernameFromCredentialEmail(s.user.email);
   if (!username) throw new ApiError(403, "FORBIDDEN", "Access denied");
-  const allowed = await prisma.allowedEmail.findUnique({ where: { email: s.user.email.toLowerCase() } });
+  const [allowed, settings] = await Promise.all([
+    prisma.allowedEmail.findUnique({ where: { email: s.user.email.toLowerCase() } }),
+    prisma.userSettings.findUnique({ where: { userId: s.user.id } }),
+  ]);
   if (!allowed || allowed.revokedAt) throw new ApiError(403, "FORBIDDEN", "Access denied");
-  const st =
-    (await prisma.userSettings.findUnique({ where: { userId: s.user.id } })) ??
-    (await prisma.userSettings.create({ data: { userId: s.user.id } }));
+  const st = settings ?? await prisma.userSettings.create({ data: { userId: s.user.id } });
   return {
     id: s.user.id,
     username,
@@ -41,7 +43,7 @@ export async function requireUser(): Promise<AppUser> {
     displayName: st.displayName,
     showOnLeaderboard: st.showOnLeaderboard,
   };
-}
+});
 
 export async function requireAdmin(): Promise<AppUser> {
   const u = await requireUser();

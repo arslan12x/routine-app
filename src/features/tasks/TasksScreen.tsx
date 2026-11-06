@@ -25,13 +25,16 @@ export default function TasksScreen({ initial }: { initial: DayView }) {
 
   const onProgress = useCallback(async (item: DayItem, value: number) => {
     setError(null);
+    const previous = data;
     setData((d) => applyLocal(d, item.id, value)); // optimistic
     try {
       await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: data.date, value }) });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save");
+      setData(previous);
+      return;
     }
-    await refetch(); // server is the source of truth: confirms on success, rolls back on failure
+    void refetch(); // reconcile streaks in the background without delaying the interaction
   }, [data.date, refetch]);
 
   return (

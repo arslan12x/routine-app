@@ -27,6 +27,7 @@ export async function addAllowed(admin: AppUser, usernameRaw: string, password: 
       create: { email, role, addedBy: admin.id },
     });
     await tx.user.create({ data: { id: userId, username, name: username, email, emailVerified: true } });
+    await tx.userSettings.create({ data: { userId } });
     await tx.account.create({
       data: { id: crypto.randomUUID(), accountId: userId, providerId: "credential", userId, password: passwordHash },
     });
