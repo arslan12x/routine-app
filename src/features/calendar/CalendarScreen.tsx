@@ -1,13 +1,16 @@
 "use client";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Skeleton, Stat } from "@/components/ui";
 import { cn, pct } from "@/lib/cn";
 import { isoWeekday, monthRange, parse } from "@/lib/domain/dates";
 import type { DayInfo } from "@/lib/domain/types";
 import { api } from "@/lib/fetcher";
+import { useVisibleInterval } from "@/lib/useVisibleInterval";
 import DayTasks, { applyLocal } from "@/features/tasks/DayTasks";
 import type { DayItem, DayView } from "@/server/services/tasks";
+
+const SYNC_INTERVAL_MS = 5_000;
 
 export interface CalendarData {
   month: string; today: string; weekStartsOn: 1 | 7; days: DayInfo[];
@@ -36,6 +39,9 @@ export default function CalendarScreen({ initial }: { initial: CalendarData }) {
   const [sel, setSel] = useState<string | null>(null);
   const [day, setDay] = useState<DayView | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const refreshInFlight = useRef(false);
+  const writesInFlight = useRef(0);
+  const localChanges = useRef(0);
 
   const loadMonth = useCallback(async (m: string) => {
     setLoading(true);
@@ -46,18 +52,47 @@ export default function CalendarScreen({ initial }: { initial: CalendarData }) {
   }, []);
   useEffect(() => { if (sel) loadDay(sel); }, [sel, loadDay]);
 
+  const syncVisibleData = useCallback(async () => {
+    if (refreshInFlight.current || writesInFlight.current > 0) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+    refreshInFlight.current = true;
+    const version = localChanges.current;
+    try {
+      const [nextMonth, nextDay] = await Promise.all([
+        api<CalendarData>(`/api/calendar?month=${cal.month}`),
+        sel ? api<DayView>(`/api/calendar/${sel}`) : Promise.resolve(null),
+      ]);
+      if (version !== localChanges.current) return;
+      setCal((current) => JSON.stringify(current) === JSON.stringify(nextMonth) ? current : nextMonth);
+      if (nextDay) setDay((current) => current && JSON.stringify(current) === JSON.stringify(nextDay) ? current : nextDay);
+    } catch {
+      // Keep the current view and retry on the next poll or when the app returns online.
+    } finally {
+      refreshInFlight.current = false;
+    }
+  }, [cal.month, sel]);
+
+  useVisibleInterval(syncVisibleData, SYNC_INTERVAL_MS);
+
   const onProgress = async (item: DayItem, value: number) => {
     if (!day) return;
     const previous = day;
+    localChanges.current += 1;
+    writesInFlight.current += 1;
     setDay(applyLocal(day, item.id, value));
+    let saved = false;
     try {
       await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: day.date, value }) });
       setErr(null);
-      void Promise.all([loadDay(day.date), loadMonth(cal.month)]);
+      saved = true;
     } catch (e) {
       setDay(previous);
       setErr(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      writesInFlight.current -= 1;
     }
+    if (saved) void syncVisibleData();
   };
 
   const [first] = monthRange(cal.month);

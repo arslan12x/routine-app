@@ -23,6 +23,8 @@ After the first run, change the schema normally with `npm run db:migrate` and co
 ## Tests
 `npm test` runs Vitest on the domain logic.
 
+Task progress syncs between open devices while the app is visible. Other devices check for updates every five seconds and refresh immediately when brought back to the foreground.
+
 ## First-run verification checklist
 1. Sign in with `INITIAL_ADMIN_USERNAME` and `INITIAL_ADMIN_PASSWORD`: /tasks loads and /admin works.
 2. Create a user account at /admin, sign in as that user, then revoke it; their next request is denied.

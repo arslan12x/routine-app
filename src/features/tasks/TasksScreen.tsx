@@ -1,40 +1,58 @@
 "use client";
 import { Flame, Plus } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Card, Ring } from "@/components/ui";
 import { api } from "@/lib/fetcher";
+import { useVisibleInterval } from "@/lib/useVisibleInterval";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import DayTasks, { applyLocal } from "./DayTasks";
 import TaskDialog from "./TaskDialog";
+
+const SYNC_INTERVAL_MS = 5_000;
 
 export default function TasksScreen({ initial }: { initial: DayView }) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ task: TaskView | null } | null>(null);
+  const refreshInFlight = useRef(false);
+  const writesInFlight = useRef(0);
+  const localChanges = useRef(0);
 
   const refetch = useCallback(async () => {
-    try { setData(await api<DayView>("/api/today")); } catch { /* keep last known state */ }
+    if (refreshInFlight.current || writesInFlight.current > 0) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+    refreshInFlight.current = true;
+    const version = localChanges.current;
+    try {
+      const next = await api<DayView>("/api/today");
+      if (version !== localChanges.current) return;
+      setData((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+    } catch {
+      // Keep the last known state and retry on the next poll or when the app returns online.
+    } finally {
+      refreshInFlight.current = false;
+    }
   }, []);
 
-  // Pick up a new local day (or changes from another device) when the app returns to the foreground.
-  useEffect(() => {
-    const v = () => document.visibilityState === "visible" && refetch();
-    document.addEventListener("visibilitychange", v);
-    return () => document.removeEventListener("visibilitychange", v);
-  }, [refetch]);
+  useVisibleInterval(refetch, SYNC_INTERVAL_MS);
 
   const onProgress = useCallback(async (item: DayItem, value: number) => {
     setError(null);
-    const previous = data;
+    localChanges.current += 1;
+    writesInFlight.current += 1;
     setData((d) => applyLocal(d, item.id, value)); // optimistic
+    let saved = false;
     try {
       await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: data.date, value }) });
+      saved = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save");
-      setData(previous);
-      return;
+      setData((current) => applyLocal(current, item.id, item.value));
+    } finally {
+      writesInFlight.current -= 1;
     }
-    void refetch(); // reconcile streaks in the background without delaying the interaction
+    if (saved) void refetch(); // refresh derived streaks without delaying the interaction
   }, [data.date, refetch]);
 
   return (
