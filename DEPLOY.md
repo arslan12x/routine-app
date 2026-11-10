@@ -64,3 +64,16 @@ To confirm or remove the scheduled job, use Supabase SQL Editor:
 select jobid, jobname, schedule, active from cron.job where jobname = 'routine-task-reminders';
 select cron.unschedule(jobid) from cron.job where jobname = 'routine-task-reminders';
 ```
+
+## Real-time task synchronization
+
+The Tasks screen uses Supabase Realtime for cross-device updates instead of a five-second polling loop. The app uses Better Auth for user sessions, so it does not expose all users' change events through the Supabase anon key:
+
+1. In Supabase Project Settings > API, copy the Project URL, anon/public key, and the project's JWT signing secret. Add them to Vercel:
+   - `NEXT_PUBLIC_SUPABASE_URL` — project URL
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — public anon key
+   - `SUPABASE_JWT_SECRET` — server-only JWT signing secret; never use a `NEXT_PUBLIC_` prefix
+2. Ensure Realtime is enabled for the project. Deployment applies migration `0005_realtime_task_sync`, which adds own-row SELECT policies for authenticated Realtime tokens, enables the two tables in `supabase_realtime`, and configures a private per-user Broadcast for delete events.
+3. Redeploy after configuring the environment variables and applying the migration. The server issues a short-lived Realtime token from the current Better Auth session; the browser uses it to receive only events for that same user.
+
+The migration does not grant browser-side write access and does not replace the server's ownership checks. Do not remove the owner-scoped RLS policies or change the subscriptions to an unfiltered public channel.

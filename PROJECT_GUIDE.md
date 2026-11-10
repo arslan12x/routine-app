@@ -10,7 +10,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 Routine is a private, installable daily habit/routine tracker for a small group. An administrator provisions accounts. Members record daily or weekly task progress, review their history and trends, optionally share aggregate streak statistics on a friends leaderboard, and can enable device-specific push reminders.
 
-The app is not a public self-registration service. It uses username/password credentials; Google sign-in is not part of the current sign-in flow. The UI is responsive and installable as a PWA. Task changes are stored in PostgreSQL and can be seen on other open devices through periodic refresh.
+The app is not a public self-registration service. It uses username/password credentials; Google sign-in is not part of the current sign-in flow. The UI is responsive and installable as a PWA. Task changes are stored in PostgreSQL and synchronized to other open `/tasks` screens using Supabase Realtime.
 
 ## Stack and runtime
 
@@ -18,6 +18,7 @@ The app is not a public self-registration service. It uses username/password cre
 - Tailwind CSS 4 and shared UI components under `src/components/`.
 - Better Auth with the username plugin and a Prisma adapter.
 - Prisma 7 with the PostgreSQL driver adapter; Supabase Postgres is the deployment database.
+- Supabase JS Realtime client for owner-scoped live updates in Tasks.
 - Vercel hosts the Next.js app and Vercel Analytics is mounted in the root layout.
 - Web Push (`web-push`) and a service worker deliver optional reminders.
 - Vitest tests pure domain rules in `tests/domain.test.ts`.
@@ -29,7 +30,7 @@ The app is not a public self-registration service. It uses username/password cre
 3. Route handlers call server services under `src/server/services/`.
 4. Services use Prisma (`src/lib/db.ts`) directly or use `src/server/repositories/tasks.ts` to load user-scoped task definitions and logs.
 5. Date/schedule/streak/analytics calculations live in mostly pure functions under `src/lib/domain/`.
-6. Server-rendered page components pass initial data to interactive client screens under `src/features/`. Client screens use `src/lib/fetcher.ts` for API calls.
+6. Server-rendered page components pass initial data to interactive client screens under `src/features/`. Client screens use `src/lib/fetcher.ts` for API calls; the Tasks screen also uses `src/lib/supabase.ts` for authenticated Realtime events.
 
 ## User roles and account lifecycle
 
@@ -70,7 +71,7 @@ Redirects to `/tasks`; page authorization then sends a signed-out user to `/logi
 - User can create, edit, archive, or delete a task, and mark progress.
 - Boolean tasks toggle complete/incomplete. Measurable tasks accept a numeric value. Weekly-total tasks accumulate progress over the configured week.
 - Optimistic UI updates progress immediately; a failed write restores the previous value and displays an error.
-- This screen refreshes from the server about every five seconds while visible and online, and refreshes when the browser returns online/foreground.
+- This screen listens for owner-scoped database events and refreshes from the server when an event arrives. It also refreshes when the browser returns online/foreground to cover missed events.
 - Past days can be opened via Calendar; task progress can be edited today and for the preceding seven days. Older dates and future dates are read-only/not editable.
 
 Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/TasksScreen.tsx`, `TaskDialog.tsx`, `DayTasks.tsx`, and `src/server/services/tasks.ts`.
@@ -149,9 +150,13 @@ Calculation implementation: `src/lib/domain/dates.ts`, `schedule.ts`, `streaks.t
 ## Cross-device synchronization and responsiveness
 
 - Task progress is written to PostgreSQL by `PUT /api/tasks/[id]/progress`.
-- Tasks and Calendar screens poll their API data every five seconds when the tab is visible and the browser is online. They also refresh on foreground/online transitions.
-- Polling is skipped during local writes, while an input is being edited, or while another refresh is in flight. Local edits are optimistic and reconciled with server data after successful writes.
-- This is periodic polling/eventual consistency, not a realtime database subscription or WebSocket. A backgrounded/offline device updates when it comes online or becomes visible.
+- `/tasks` subscribes to owner-filtered Supabase Postgres Changes for `INSERT` and `UPDATE` on `TaskLog` and `Task`. Events trigger a debounced `GET /api/today`; the server remains the source of truth for the refreshed view.
+- The client obtains a short-lived Supabase-compatible JWT from `GET /api/realtime-token`. The route authenticates the Better Auth session and signs a JWT with `SUPABASE_JWT_SECRET`, setting the current user ID as `sub` and the role as `authenticated`. The JWT secret is server-only and must never be exposed as a `NEXT_PUBLIC_` variable.
+- RLS SELECT policies on `Task` and `TaskLog` permit Realtime access only where the row's `"userId"` matches `auth.uid()`. The public anon key alone cannot read those rows; it is only the project's client key.
+- Supabase Postgres Changes cannot safely filter DELETE events by owner. To avoid leaking other users' deleted row IDs, migration `0005_realtime_task_sync` uses a private per-user Broadcast containing only a generic change signal for deletes. The client joins only its `user:<userId>` topic, protected by a `realtime.messages` SELECT policy.
+- Local task changes remain optimistic and reconcile after successful writes. Input focus and in-flight writes still prevent a refresh from overwriting local interaction.
+- Calendar continues to poll its current month/selected day about every five seconds while visible and online; this phase replaces polling only on `/tasks`.
+- Tasks also refresh when the browser returns online/foreground, covering missed events while disconnected. Realtime subscription errors are surfaced in the Tasks screen.
 - Dashboard route changes have a shared loading skeleton in `src/app/(dashboard)/loading.tsx`.
 
 ## PWA and offline behavior
@@ -193,6 +198,7 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `GET /api/health` | Public | DB `SELECT 1` check for uptime/keepalive; returns no user data. |
 | `/api/auth/[...all]` | Better Auth | Sign in/out and session/auth operations. |
 | `GET /api/me` | Signed-in user | Profile and safe settings projection. |
+| `GET /api/realtime-token` | Signed-in user | Issue a short-lived Supabase Realtime JWT bound to the current Better Auth user. |
 | `PATCH /api/me/settings` | Signed-in user | Update timezone, week start, display name, leaderboard opt-in. |
 | `GET /api/today?date=YYYY-MM-DD` | Signed-in user | Daily task view; date defaults to user's local today. |
 | `GET /api/tasks` | Signed-in user | List own tasks and current rule versions. |
@@ -231,7 +237,7 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `PushSubscription`: one Web Push endpoint and key set per enabled device, linked to a user.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
 
-Database foreign keys cascade user deletion. SQL migrations additionally add task/log checks and enable deny-all RLS for app tables because Prisma connects through a privileged server-side connection. Do not access private application tables directly from client-side Supabase/PostgREST code.
+Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Most application tables remain deny-all to browser roles; migration `0005_realtime_task_sync` adds authenticated own-row SELECT only for `Task` and `TaskLog` to support Realtime, plus private-channel authorization for DELETE change signals. Prisma still connects through a privileged server-side connection. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
 ## Configuration and operations
 
@@ -240,6 +246,7 @@ Database foreign keys cascade user deletion. SQL migrations additionally add tas
 Configure actual values in a local ignored `.env` or the hosting provider's secret manager. Never commit actual values.
 
 - Database/auth: `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`.
+- Realtime: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
 - Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`.
 - Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `REMINDER_CRON_SECRET`.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
@@ -299,6 +306,7 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 | Accounts/admin | `src/server/services/admin.ts`, `src/features/admin/`, `src/app/api/admin/accounts/` |
 | Settings/timezone/export | `src/server/services/me.ts`, `src/features/settings/`, `src/components/TimezoneSync.tsx` |
 | Push subscriptions/reminder dispatch | `src/lib/domain/reminders.ts`, `src/server/services/reminders.ts`, `src/features/settings/PushReminderToggle.tsx`, `src/app/api/me/push-subscriptions/`, `src/app/api/cron/reminders/`, `public/sw.js` |
+| Realtime task synchronization | `src/lib/supabase.ts`, `src/app/api/realtime-token/route.ts`, `src/features/tasks/TasksScreen.tsx`, `prisma/migrations/0005_realtime_task_sync/migration.sql` |
 | Database schema and evolution | `prisma/schema.prisma`, `prisma/migrations/`, `prisma/seed.ts` |
 | Hosting/scheduler instructions | `DEPLOY.md`, `.github/workflows/keepalive-and-backup.yml` |
 
@@ -306,6 +314,8 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 
 - Never put credentials, auth secrets, private VAPID keys, cron bearer tokens, or real `.env` content in documentation, commits, screenshots, logs, or prompts to third-party tools.
 - Keep account/task/progress queries scoped by authenticated user ID. Any endpoint taking a task ID must verify ownership server-side.
+- Realtime JWTs must be minted only after checking the Better Auth session and active account allowlist. Keep `SUPABASE_JWT_SECRET` server-only; preserve own-row SELECT policies and private-channel topic authorization.
+- Do not subscribe to unfiltered Postgres DELETE changes. Supabase cannot safely filter DELETE payloads by owner; use the private owner-scoped delete Broadcast or another equally scoped mechanism.
 - Preserve the allowlist check at sign-in and on protected requests so revocation remains effective.
 - Do not expose emails, user IDs, task titles, or detailed logs through the Friends/leaderboard response.
 - Do not cache authenticated HTML or API data in the service worker.
@@ -314,7 +324,7 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 
 ## Known limitations to keep in mind
 
-- Cross-device task updates use five-second polling, not instantaneous push/realtime synchronization.
+- Cross-device task updates on `/tasks` use Realtime events and debounced server revalidation; Calendar still uses five-second polling.
 - Push reminders depend on browser/OS notification support, permission, PWA installation on iPhone, valid VAPID configuration, and the external Supabase scheduler. A subscription opt-in by itself does not schedule server jobs.
 - The Settings page marks its reminder toggle as available only in production because service worker registration is production-only.
 - Current tests are unit tests for domain rules, not a full integration suite.

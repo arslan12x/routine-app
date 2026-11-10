@@ -1,16 +1,16 @@
 "use client";
 import { Flame, Plus } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Ring } from "@/components/ui";
 import { api } from "@/lib/fetcher";
-import { useVisibleInterval } from "@/lib/useVisibleInterval";
+import { getSupabaseClient } from "@/lib/supabase";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import DayTasks, { applyLocal } from "./DayTasks";
 import TaskDialog from "./TaskDialog";
 
-const SYNC_INTERVAL_MS = 5_000;
+const TOKEN_REFRESH_MS = 45 * 60 * 1_000;
 
-export default function TasksScreen({ initial }: { initial: DayView }) {
+export default function TasksScreen({ initial, userId }: { initial: DayView; userId: string }) {
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ task: TaskView | null } | null>(null);
@@ -28,14 +28,118 @@ export default function TasksScreen({ initial }: { initial: DayView }) {
       const next = await api<DayView>("/api/today");
       if (version !== localChanges.current) return;
       setData((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
-    } catch {
-      // Keep the last known state and retry on the next poll or when the app returns online.
+    } catch (e) {
+      setError(e instanceof Error ? `Could not refresh tasks: ${e.message}` : "Could not refresh tasks.");
     } finally {
       refreshInFlight.current = false;
     }
   }, []);
 
-  useVisibleInterval(refetch, SYNC_INTERVAL_MS);
+  useEffect(() => {
+    let active = true;
+    let channel: ReturnType<ReturnType<typeof getSupabaseClient>["channel"]> | null = null;
+    let connecting = false;
+    let tokenTimer: number | undefined;
+    let refreshTimer: number | undefined;
+
+    const scheduleRefresh = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = undefined;
+        void refetch();
+      }, 100);
+    };
+
+    const refreshToken = async () => {
+      const { token } = await api<{ token: string }>("/api/realtime-token");
+      if (!active) return;
+      await getSupabaseClient().realtime.setAuth(token);
+    };
+
+    const connect = async () => {
+      if (connecting || channel) return;
+      connecting = true;
+      try {
+        const client = getSupabaseClient();
+        await refreshToken();
+        if (!active) return;
+
+        channel = client
+          .channel(`user:${userId}`, { config: { private: true } })
+          .on("postgres_changes", {
+            event: "INSERT",
+            schema: "public",
+            table: "TaskLog",
+            filter: `userId=eq.${userId}`,
+          }, scheduleRefresh)
+          .on("postgres_changes", {
+            event: "UPDATE",
+            schema: "public",
+            table: "TaskLog",
+            filter: `userId=eq.${userId}`,
+          }, scheduleRefresh)
+          .on("postgres_changes", {
+            event: "INSERT",
+            schema: "public",
+            table: "Task",
+            filter: `userId=eq.${userId}`,
+          }, scheduleRefresh)
+          .on("postgres_changes", {
+            event: "UPDATE",
+            schema: "public",
+            table: "Task",
+            filter: `userId=eq.${userId}`,
+          }, scheduleRefresh)
+          .on("broadcast", { event: "task-change" }, scheduleRefresh)
+          .subscribe((status) => {
+            if (!active) return;
+            if (status === "SUBSCRIBED") {
+              setError(null);
+              scheduleRefresh();
+            } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+              setError("Live sync disconnected. Check your connection or reload the page.");
+            }
+          });
+
+        tokenTimer = window.setInterval(() => {
+          void refreshToken().catch((e: unknown) => {
+            if (active) setError(e instanceof Error ? `Live sync authorization failed: ${e.message}` : "Live sync authorization failed.");
+          });
+        }, TOKEN_REFRESH_MS);
+      } finally {
+        connecting = false;
+      }
+    };
+
+    const refreshWhenActive = () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine) return;
+      scheduleRefresh();
+      const refresh = channel ? refreshToken() : connect();
+      void refresh.catch((e: unknown) => {
+        if (active) setError(e instanceof Error ? `Live sync authorization failed: ${e.message}` : "Live sync authorization failed.");
+      });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshWhenActive();
+    };
+    window.addEventListener("online", refreshWhenActive);
+    document.addEventListener("focusout", refreshWhenActive);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void connect().catch((e: unknown) => {
+      if (active) setError(e instanceof Error ? `Live sync could not start: ${e.message}` : "Live sync could not start.");
+    });
+
+    return () => {
+      active = false;
+      if (tokenTimer !== undefined) window.clearInterval(tokenTimer);
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      window.removeEventListener("online", refreshWhenActive);
+      document.removeEventListener("focusout", refreshWhenActive);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (channel) void getSupabaseClient().removeChannel(channel);
+    };
+  }, [refetch, userId]);
 
   const onProgress = useCallback(async (item: DayItem, value: number) => {
     setError(null);

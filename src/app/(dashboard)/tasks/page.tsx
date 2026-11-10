@@ -6,5 +6,5 @@ import { dayView } from "@/server/services/tasks";
 export default async function TasksPage() {
   const user = await pageUser();
   const data = await dayView(user, todayIn(user.timezone));
-  return <TasksScreen key={data.date} initial={data} />;
+  return <TasksScreen key={data.date} userId={user.id} initial={data} />;
 }
