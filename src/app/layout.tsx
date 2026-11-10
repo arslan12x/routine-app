@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import Providers from "@/components/Providers";
 
@@ -17,7 +18,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="min-h-dvh antialiased"><Providers>{children}</Providers></body>
+      <body className="min-h-dvh antialiased">
+        <Providers>{children}</Providers>
+        <Analytics />
+      </body>
     </html>
   );
 }
