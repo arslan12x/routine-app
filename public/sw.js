@@ -35,3 +35,32 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(req).catch(() => caches.match(OFFLINE_URL)));
   }
 });
+
+self.addEventListener("push", (event) => {
+  const payload = event.data?.json() ?? {};
+  event.waitUntil(
+    self.registration.showNotification(payload.title || "Routine reminder", {
+      body: payload.body || "You have tasks left to complete today.",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: payload.tag || "routine-reminder",
+      data: { url: payload.url || "/tasks" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const requestedUrl = new URL(event.notification.data?.url || "/tasks", self.location.origin);
+  const targetUrl = requestedUrl.origin === self.location.origin ? requestedUrl.href : new URL("/tasks", self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      const client = clients.find((candidate) => new URL(candidate.url).origin === self.location.origin);
+      if (client) {
+        if ("navigate" in client) client.navigate(targetUrl);
+        return client.focus();
+      }
+      return self.clients.openWindow(targetUrl);
+    }),
+  );
+});

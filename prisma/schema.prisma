@@ -46,6 +46,7 @@ model User {
   settings      UserSettings?
   tasks         Task[]
   logs          TaskLog[]
+  pushSubscriptions PushSubscription[]
 }
 
 model Session {
@@ -108,6 +109,28 @@ model UserSettings {
   weekStartsOn      Int     @default(1) // 1 = Monday, 7 = Sunday
   displayName       String?
   showOnLeaderboard Boolean @default(true)
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  deliveries ReminderDelivery[]
+  @@index([userId])
+}
+
+model ReminderDelivery {
+  id             String           @id @default(cuid())
+  subscriptionId String
+  subscription   PushSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  localDate      DateTime         @db.Date
+  reminderHour   Int
+  createdAt      DateTime         @default(now())
+  @@unique([subscriptionId, localDate, reminderHour])
 }
 
 // Identity + cosmetic fields. Result-affecting rules live in TaskVersion.

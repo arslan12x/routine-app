@@ -4,6 +4,7 @@ import { dayInfo, logKey } from "../src/lib/domain/schedule.ts";
 import { computeStreaks, recentConsistency } from "../src/lib/domain/streaks.ts";
 import { computeInsights } from "../src/lib/domain/analytics.ts";
 import { rankRows } from "../src/lib/domain/ranking.ts";
+import { getReminderSlot, reminderMessage } from "../src/lib/domain/reminders.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
@@ -18,6 +19,27 @@ const logs = (id: string, days: [string, number][]): LogMap => new Map(days.map(
 const done = (id: string, ...days: string[]) => logs(id, days.map((d) => [d, 1]));
 
 // Nov 2026: 1=Sun, 2=Mon ... 6=Fri, 7=Sat, 8=Sun, 9=Mon
+
+describe("task reminders", () => {
+  it("uses the user's timezone to identify the 9 PM reminder", () => {
+    expect(getReminderSlot(new Date("2026-11-10T15:30:00.000Z"), "Asia/Kolkata")).toEqual({ date: "2026-11-10", hour: 21 });
+  });
+  it("allows a short scheduler delay but does not repeat outside the reminder window", () => {
+    expect(getReminderSlot(new Date("2026-11-10T15:34:00.000Z"), "Asia/Kolkata")).toEqual({ date: "2026-11-10", hour: 21 });
+    expect(getReminderSlot(new Date("2026-11-10T15:35:00.000Z"), "Asia/Kolkata")).toBeNull();
+  });
+  it("does not schedule reminders before 9 PM", () => {
+    expect(getReminderSlot(new Date("2026-11-10T15:29:00.000Z"), "Asia/Kolkata")).toBeNull();
+  });
+  it("recognizes the 10 PM and 11 PM slots in the user's timezone", () => {
+    expect(getReminderSlot(new Date("2026-11-10T16:30:00.000Z"), "Asia/Kolkata")).toEqual({ date: "2026-11-10", hour: 22 });
+    expect(getReminderSlot(new Date("2026-11-10T17:30:00.000Z"), "Asia/Kolkata")).toEqual({ date: "2026-11-10", hour: 23 });
+  });
+  it("includes remaining task count and hours left in the message", () => {
+    expect(reminderMessage(1, 23)).toBe("You have 1 task left and 1 hour before the day ends.");
+    expect(reminderMessage(3, 21)).toBe("You have 3 tasks left and 3 hours before the day ends.");
+  });
+});
 
 describe("streaks", () => {
   it("counts consecutive completed days", () => {

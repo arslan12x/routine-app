@@ -25,6 +25,8 @@ After the first run, change the schema normally with `npm run db:migrate` and co
 
 Task progress syncs between open devices while the app is visible. Other devices check for updates every five seconds and refresh immediately when brought back to the foreground.
 
+Daily push reminders can be enabled per device in Settings. Production setup, VAPID keys, and the Supabase scheduler are documented in [DEPLOY.md](./DEPLOY.md).
+
 ## First-run verification checklist
 1. Sign in with `INITIAL_ADMIN_USERNAME` and `INITIAL_ADMIN_PASSWORD`: /tasks loads and /admin works.
 2. Create a user account at /admin, sign in as that user, then revoke it; their next request is denied.

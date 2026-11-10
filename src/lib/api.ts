@@ -19,11 +19,11 @@ export function route<P extends Record<string, string> = {}>(
   fn: (req: Request, params: P) => Promise<unknown>,
   status = 200,
 ) {
-  return async (req: Request, ctx: { params: Promise<P> }) => {
+  return async (req: Request, ctx: { params: Promise<unknown> }) => {
     const headers = { "Cache-Control": "private, no-store" };
     try {
       assertSameOrigin(req);
-      const data = await fn(req, await ctx.params);
+      const data = await fn(req, await ctx.params as P);
       if (data === undefined) return new Response(null, { status: 204, headers });
       return Response.json({ data }, { status, headers });
     } catch (e) {
