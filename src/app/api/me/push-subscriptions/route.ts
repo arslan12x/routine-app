@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ApiError, route, parseBody } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
-import { prisma } from "@/lib/db";
+import { systemDb, withUserDb } from "@/lib/db";
 
 const endpoint = z.url({ protocol: /^https$/ }).max(2048).refine((value) => {
   const { hostname, port } = new URL(value);
@@ -28,14 +28,14 @@ export const GET = route(async () => ({
 export const POST = route(async (req) => {
   const user = await requireUser();
   const subscription = await parseBody(req, subscriptionBody);
-  const existing = await prisma.pushSubscription.findUnique({
+  const existing = await systemDb.pushSubscription.findUnique({
     where: { endpoint: subscription.endpoint },
     select: { userId: true },
   });
   if (existing && existing.userId !== user.id) {
     throw new ApiError(409, "SUBSCRIPTION_IN_USE", "This push subscription belongs to another account.");
   }
-  await prisma.pushSubscription.upsert({
+  await withUserDb(user.id, (tx) => tx.pushSubscription.upsert({
     where: { endpoint: subscription.endpoint },
     create: {
       endpoint: subscription.endpoint,
@@ -47,13 +47,13 @@ export const POST = route(async (req) => {
       p256dh: subscription.keys.p256dh,
       auth: subscription.keys.auth,
     },
-  });
+  }));
   return { ok: true };
 });
 
 export const DELETE = route(async (req) => {
   const user = await requireUser();
   const { endpoint } = await parseBody(req, endpointBody);
-  await prisma.pushSubscription.deleteMany({ where: { endpoint, userId: user.id } });
+  await withUserDb(user.id, (tx) => tx.pushSubscription.deleteMany({ where: { endpoint, userId: user.id } }));
   return { ok: true };
 });

@@ -1,5 +1,5 @@
 import type { AppUser } from "@/lib/auth/session";
-import { prisma } from "@/lib/db";
+import { withUserDb } from "@/lib/db";
 import type { z } from "zod";
 import type { settingsPatch } from "@/lib/validation";
 
@@ -9,8 +9,8 @@ export const profile = (u: AppUser) => ({
 });
 
 export async function updateSettings(u: AppUser, p: z.infer<typeof settingsPatch>) {
-  await prisma.userSettings.update({
+  await withUserDb(u.id, (tx) => tx.userSettings.update({
     where: { userId: u.id },
     data: { ...p, timezoneSet: p.timezone ? true : undefined },
-  });
+  }));
 }

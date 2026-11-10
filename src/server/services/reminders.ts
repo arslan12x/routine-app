@@ -1,5 +1,5 @@
 import * as webpush from "web-push";
-import { prisma } from "@/lib/db";
+import { systemDb } from "@/lib/db";
 import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
 import { getReminderSlot, reminderMessage } from "@/lib/domain/reminders";
 import { dayView } from "@/server/services/tasks";
@@ -19,18 +19,32 @@ function isUniqueConstraintError(error: unknown): boolean {
 
 export async function dispatchTaskReminders(now = new Date()) {
   configurePush();
-  const subscriptions = await prisma.pushSubscription.findMany({
+  const subscriptions = await systemDb.pushSubscription.findMany({
     select: { id: true, endpoint: true, p256dh: true, auth: true, userId: true },
   });
   if (subscriptions.length === 0) return { sent: 0 };
 
   const userIds = [...new Set(subscriptions.map((subscription) => subscription.userId))];
   const [users, allowed] = await Promise.all([
-    prisma.user.findMany({
+    systemDb.user.findMany({
       where: { id: { in: userIds } },
-      include: { settings: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        image: true,
+        settings: {
+          select: {
+            timezone: true,
+            timezoneSet: true,
+            weekStartsOn: true,
+            displayName: true,
+            showOnLeaderboard: true,
+          },
+        },
+      },
     }),
-    prisma.allowedEmail.findMany({
+    systemDb.allowedEmail.findMany({
       where: { revokedAt: null },
       select: { email: true, role: true },
     }),
@@ -70,7 +84,7 @@ export async function dispatchTaskReminders(now = new Date()) {
 
     for (const subscription of subscriptionsByUser.get(user.id) ?? []) {
       try {
-        await prisma.reminderDelivery.create({
+        await systemDb.reminderDelivery.create({
           data: {
             subscriptionId: subscription.id,
             localDate: new Date(`${slot.date}T00:00:00.000Z`),
@@ -98,9 +112,9 @@ export async function dispatchTaskReminders(now = new Date()) {
           ? error.statusCode
           : undefined;
         if (statusCode === 404 || statusCode === 410) {
-          await prisma.pushSubscription.delete({ where: { id: subscription.id } });
+          await systemDb.pushSubscription.delete({ where: { id: subscription.id } });
         } else {
-          await prisma.reminderDelivery.deleteMany({
+          await systemDb.reminderDelivery.deleteMany({
             where: {
               subscriptionId: subscription.id,
               localDate: new Date(`${slot.date}T00:00:00.000Z`),
