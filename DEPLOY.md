@@ -77,3 +77,11 @@ The Tasks screen uses Supabase Realtime for cross-device updates instead of a fi
 3. Redeploy after configuring the environment variables and applying the migration. The server issues a short-lived Realtime token from the current Better Auth session; the browser uses it to receive only events for that same user.
 
 The migration does not grant browser-side write access and does not replace the server's ownership checks. Do not remove the owner-scoped RLS policies or change the subscriptions to an unfiltered public channel.
+
+If Tasks shows a live-sync error, open the browser developer tools **Console** and **Network** tabs. The console logs the Supabase subscription status and server error; the Network tab should show a successful authenticated `GET /api/realtime-token` request. Common checks are:
+- Confirm the Vercel deployment has the correct Supabase URL and anon key for the same project, and the server-only JWT signing secret for that project.
+- Confirm `0005_realtime_task_sync` is applied and `Task` and `TaskLog` are listed in the `supabase_realtime` publication.
+- Check that the signed token's signing secret is supported by that Supabase project's Realtime JWT verification settings.
+- A `401` from the token endpoint means the browser session is missing/expired; a `503` means `SUPABASE_JWT_SECRET` is not configured.
+
+While Realtime is disconnected, Tasks temporarily refreshes every 30 seconds; that fallback stops when the socket reconnects.
