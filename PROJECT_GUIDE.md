@@ -156,7 +156,7 @@ Calculation implementation: `src/lib/domain/dates.ts`, `schedule.ts`, `streaks.t
 - Supabase Postgres Changes cannot safely filter DELETE events by owner. To avoid leaking other users' deleted row IDs, migration `0005_realtime_task_sync` uses a private per-user Broadcast containing only a generic change signal for deletes. The client joins only its `user:<userId>` topic, protected by a `realtime.messages` SELECT policy.
 - Local task changes remain optimistic and reconcile after successful writes. Input focus and in-flight writes still prevent a refresh from overwriting local interaction.
 - Calendar continues to poll its current month/selected day about every five seconds while visible and online; this phase replaces polling only on `/tasks`.
-- Tasks also refresh when the browser returns online/foreground, covering missed events while disconnected. Realtime subscription errors are surfaced in the Tasks screen.
+- Tasks also refresh when the browser returns online/foreground, covering missed events while disconnected. Realtime status and server error details are logged to the browser console and shown in the Tasks screen. While the subscription is disconnected, a 30-second fallback refresh keeps data reasonably current; this stops after Realtime reconnects.
 - Dashboard route changes have a shared loading skeleton in `src/app/(dashboard)/loading.tsx`.
 
 ## PWA and offline behavior
@@ -316,6 +316,7 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 - Keep account/task/progress queries scoped by authenticated user ID. Any endpoint taking a task ID must verify ownership server-side.
 - Realtime JWTs must be minted only after checking the Better Auth session and active account allowlist. Keep `SUPABASE_JWT_SECRET` server-only; preserve own-row SELECT policies and private-channel topic authorization.
 - Do not subscribe to unfiltered Postgres DELETE changes. Supabase cannot safely filter DELETE payloads by owner; use the private owner-scoped delete Broadcast or another equally scoped mechanism.
+- If Realtime fails, keep the full Supabase subscription error visible in the browser console and provide a low-frequency fallback refresh rather than silently leaving the task screen stale.
 - Preserve the allowlist check at sign-in and on protected requests so revocation remains effective.
 - Do not expose emails, user IDs, task titles, or detailed logs through the Friends/leaderboard response.
 - Do not cache authenticated HTML or API data in the service worker.

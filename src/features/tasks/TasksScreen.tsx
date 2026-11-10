@@ -41,6 +41,7 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
     let connecting = false;
     let tokenTimer: number | undefined;
     let refreshTimer: number | undefined;
+    let fallbackTimer: number | undefined;
 
     const scheduleRefresh = () => {
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
@@ -48,6 +49,19 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
         refreshTimer = undefined;
         void refetch();
       }, 100);
+    };
+
+    const startFallbackRefresh = () => {
+      if (fallbackTimer === undefined) {
+        fallbackTimer = window.setInterval(() => void refetch(), 30_000);
+      }
+    };
+
+    const stopFallbackRefresh = () => {
+      if (fallbackTimer !== undefined) {
+        window.clearInterval(fallbackTimer);
+        fallbackTimer = undefined;
+      }
     };
 
     const refreshToken = async () => {
@@ -91,13 +105,22 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
             filter: `userId=eq.${userId}`,
           }, scheduleRefresh)
           .on("broadcast", { event: "task-change" }, scheduleRefresh)
-          .subscribe((status) => {
+          .subscribe((status, err) => {
             if (!active) return;
             if (status === "SUBSCRIBED") {
+              stopFallbackRefresh();
               setError(null);
               scheduleRefresh();
             } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-              setError("Live sync disconnected. Check your connection or reload the page.");
+              console.error("[Realtime] Task sync subscription failed", {
+                status,
+                message: err?.message,
+                error: err,
+              });
+              startFallbackRefresh();
+              scheduleRefresh();
+              const details = err?.message ? ` ${err.message}` : "";
+              setError(`Live sync ${status === "TIMED_OUT" ? "timed out" : "disconnected"}.${details} Sync will retry automatically.`);
             }
           });
 
@@ -134,6 +157,7 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
       active = false;
       if (tokenTimer !== undefined) window.clearInterval(tokenTimer);
       if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      stopFallbackRefresh();
       window.removeEventListener("online", refreshWhenActive);
       document.removeEventListener("focusout", refreshWhenActive);
       document.removeEventListener("visibilitychange", onVisibilityChange);
