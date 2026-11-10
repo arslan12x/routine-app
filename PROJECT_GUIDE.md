@@ -19,6 +19,7 @@ The app is not a public self-registration service. It uses username/password cre
 - Better Auth with the username plugin and a Prisma adapter.
 - Prisma 7 with the PostgreSQL driver adapter; Supabase Postgres is the deployment database.
 - Supabase JS Realtime client for owner-scoped live updates in Tasks.
+- Inngest schedules and runs retryable background workers for push reminders.
 - Vercel hosts the Next.js app and Vercel Analytics is mounted in the root layout.
 - Web Push (`web-push`) and a service worker deliver optional reminders.
 - Vitest tests pure domain rules in `tests/domain.test.ts`.
@@ -180,14 +181,14 @@ Calculation implementation: `src/lib/domain/dates.ts`, `schedule.ts`, `streaks.t
 
 ### Scheduled delivery
 
-1. Supabase `pg_cron` invokes `POST /api/cron/reminders` once per minute via `pg_net`.
-2. The route checks `Authorization: Bearer …` against `REMINDER_CRON_SECRET` using a timing-safe comparison. The exact configured route is **`/api/cron/reminders`** (not `/api/reminders`). Never put a real bearer token in shell history, chat, source control, or screenshots.
-3. The service checks each account's saved timezone and only matches 9 PM, 10 PM, or 11 PM during the first five minutes of that local hour. This allows for minor scheduler delays.
-4. It loads the user's day view and skips delivery if there are no unfinished task entries. It sends a notification with remaining count and hours before midnight to each enabled device.
-5. A unique delivery record per device/local date/hour prevents duplicate sends from overlapping scheduler calls. Expired push endpoints (404/410) are removed. A transient delivery error removes the delivery marker so a later scheduler attempt can retry.
-6. Revoked or invalid accounts are skipped. Existing push subscriptions remain stored after an account is revoked; restore can make them eligible again.
+1. Inngest synchronizes with GET/POST/PUT /api/inngest, which registers the functions in src/inngest/functions.ts.
+2. schedule-task-reminders runs once per minute, looks up active provisioned users with settings and push subscriptions, and queues notification.send events during the first five minutes of 9 PM, 10 PM, or 11 PM in each user's timezone.
+3. Event IDs are deterministic per user/local date/hour, reducing duplicate fan-out during the five-minute window. send-task-reminder reloads the account, confirms it remains active and the event's local hour has not passed (so retries can finish during that hour), and skips it when no scheduled tasks remain.
+4. Each enabled device receives a notification with the remaining count and time before midnight. ReminderDelivery's unique device/local date/hour key prevents duplicate delivery. Expired push endpoints (404/410) are removed.
+5. Transient push failures remove the delivery marker and throw so Inngest retries the worker (up to five retries). The unique key lets successful devices be skipped on retry while failed devices are retried.
+6. Revoked or invalid accounts are skipped. Existing push subscriptions remain stored after an account is revoked; restoring access can make them eligible again.
 
-Scheduler and VAPID setup steps are in `DEPLOY.md`. Required Vercel settings are named there; this guide intentionally contains no secret values.
+Inngest account registration, INNGEST_EVENT_KEY, INNGEST_SIGNING_KEY, local development, and VAPID setup are documented in DEPLOY.md. The old Supabase pg_cron/pg_net integration and /api/cron/reminders endpoint have been removed.
 
 ## API reference
 
@@ -219,7 +220,7 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `GET /api/me/push-subscriptions` | Public key only | Return the VAPID public key; no user subscription data. |
 | `POST /api/me/push-subscriptions` | Signed-in user | Register/update this user's device subscription. |
 | `DELETE /api/me/push-subscriptions` | Signed-in user | Remove this user's device subscription. |
-| `POST /api/cron/reminders` | Scheduler secret | Run reminder dispatch; should only be called by the configured scheduler. |
+| `GET/POST/PUT /api/inngest` | Inngest signature | Register functions and receive scheduled/event invocations. |
 
 Implementation for validation and route wrappers: `src/lib/validation.ts`, `src/lib/api.ts`, and `src/app/api/`.
 
@@ -249,7 +250,7 @@ Configure actual values in a local ignored `.env` or the hosting provider's secr
 - Realtime: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
 - RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
 - Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`.
-- Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `REMINDER_CRON_SECRET`.
+- Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
 - GitHub backup workflow secrets: `APP_URL` and `BACKUP_DB_URL`.
 
@@ -271,7 +272,7 @@ Use `npm run db:migrate` when changing the Prisma schema locally; review and com
 - The package `build` script runs `prisma generate`, `prisma migrate deploy`, and `next build`; deployment therefore needs reachable database credentials and applies pending migrations.
 - Set Vercel variables for the appropriate deployment environments and redeploy after changing them.
 - Admin seeding is a separate command using production-safe database configuration; the hosting build does not automatically seed credentials.
-- Push reminders require VAPID configuration plus Supabase `pg_cron`, `pg_net`, Vault secrets, and a cron job. A working endpoint without correct scheduler secrets returns 401/503 rather than sending.
+- Push reminders require VAPID configuration and a registered Inngest app configured with `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
 - Database migration `0006_user_scoped_rls` must be applied before the scoped data path is deployed; standard `npm run build` applies migrations. The runtime database role must be able to switch locally to PostgreSQL role `authenticated`.
 
 ### GitHub scheduled workflow
@@ -307,7 +308,7 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 | Calendar/insights/ranking | `src/server/services/stats.ts`, `src/lib/domain/analytics.ts`, `ranking.ts`, `src/features/calendar/`, `src/features/insights/` |
 | Accounts/admin | `src/server/services/admin.ts`, `src/features/admin/`, `src/app/api/admin/accounts/` |
 | Settings/timezone/export | `src/server/services/me.ts`, `src/features/settings/`, `src/components/TimezoneSync.tsx` |
-| Push subscriptions/reminder dispatch | `src/lib/domain/reminders.ts`, `src/server/services/reminders.ts`, `src/features/settings/PushReminderToggle.tsx`, `src/app/api/me/push-subscriptions/`, `src/app/api/cron/reminders/`, `public/sw.js` |
+| Push subscriptions/reminder dispatch | `src/lib/domain/reminders.ts`, `src/server/services/reminders.ts`, `src/inngest/`, `src/features/settings/PushReminderToggle.tsx`, `src/app/api/me/push-subscriptions/`, `src/app/api/inngest/`, `public/sw.js` |
 | Realtime task synchronization | `src/lib/supabase.ts`, `src/app/api/realtime-token/route.ts`, `src/features/tasks/TasksScreen.tsx`, `prisma/migrations/0005_realtime_task_sync/migration.sql` |
 | User-scoped database access/RLS | `src/lib/db.ts`, `prisma/migrations/0006_user_scoped_rls/migration.sql`, `src/server/repositories/tasks.ts` |
 | Database schema and evolution | `prisma/schema.prisma`, `prisma/migrations/`, `prisma/seed.ts` |
@@ -315,7 +316,7 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 
 ## Security and privacy expectations
 
-- Never put credentials, auth secrets, private VAPID keys, cron bearer tokens, or real `.env` content in documentation, commits, screenshots, logs, or prompts to third-party tools.
+- Never put credentials, auth secrets, private VAPID keys, Inngest signing keys, or real `.env` content in documentation, commits, screenshots, logs, or prompts to third-party tools.
 - Keep account/task/progress queries scoped by authenticated user ID. Any endpoint taking a task ID must verify ownership server-side.
 - Keep each user-scoped database operation inside `withUserDb`; the claims use transaction-local settings and are invalid outside that transaction. Never interpolate a user ID into raw SQL.
 - Keep `systemDb` use explicit and limited to the documented server/system workflows. Its connection is intentionally privileged and bypasses RLS.
