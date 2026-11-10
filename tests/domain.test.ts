@@ -4,7 +4,7 @@ import { dayInfo, logKey } from "../src/lib/domain/schedule.ts";
 import { computeStreaks, recentConsistency } from "../src/lib/domain/streaks.ts";
 import { computeInsights } from "../src/lib/domain/analytics.ts";
 import { rankRows } from "../src/lib/domain/ranking.ts";
-import { getReminderSlot, reminderMessage } from "../src/lib/domain/reminders.ts";
+import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
@@ -34,6 +34,12 @@ describe("task reminders", () => {
   it("recognizes the 10 PM and 11 PM slots in the user's timezone", () => {
     expect(getReminderSlot(new Date("2026-11-10T16:30:00.000Z"), "Asia/Kolkata")).toEqual({ date: "2026-11-10", hour: 22 });
     expect(getReminderSlot(new Date("2026-11-10T17:30:00.000Z"), "Asia/Kolkata")).toEqual({ date: "2026-11-10", hour: 23 });
+  });
+  it("allows retries later in the same local hour but rejects a different hour or date", () => {
+    const slot = { date: "2026-11-10", hour: 21 as const };
+    expect(isReminderHour(new Date("2026-11-10T15:59:00.000Z"), "Asia/Kolkata", slot)).toBe(true);
+    expect(isReminderHour(new Date("2026-11-10T16:30:00.000Z"), "Asia/Kolkata", slot)).toBe(false);
+    expect(isReminderHour(new Date("2026-11-10T18:31:00.000Z"), "Asia/Kolkata", slot)).toBe(false);
   });
   it("includes remaining task count and hours left in the message", () => {
     expect(reminderMessage(1, 23)).toBe("You have 1 task left and 1 hour before the day ends.");

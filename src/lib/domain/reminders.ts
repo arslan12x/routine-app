@@ -23,6 +23,19 @@ export function getReminderSlot(now: Date, timezone: string): ReminderSlot | nul
   return { date: `${values.year}-${values.month}-${values.day}`, hour: hour as ReminderSlot["hour"] };
 }
 
+export function isReminderHour(now: Date, timezone: string, slot: ReminderSlot): boolean {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}` === slot.date && Number(values.hour) === slot.hour;
+}
+
 export function reminderMessage(remainingTasks: number, reminderHour: number): string {
   const hoursLeft = 24 - reminderHour;
   const taskLabel = remainingTasks === 1 ? "task" : "tasks";
