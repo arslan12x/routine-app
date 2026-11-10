@@ -2,11 +2,9 @@
 
 Next.js 16 · TypeScript (strict) · Prisma 7 · Supabase Postgres · Better Auth (username/password) · Tailwind 4 · Recharts
 
-## What is verified and what is not
-- `src/lib/domain/*` (streaks, schedules, analytics, ranking) is pure TypeScript, type-checks, and `tests/domain.test.ts` passes (18 tests).
-- Everything else (Next.js pages, API routes, Prisma, Better Auth, PWA) was written against the libraries' documented APIs
-  but **has not been built or run**. Expect to fix small compile or API-name issues on first `npm run build`.
-- Not included: component tests, Playwright E2E, DB integration tests (whitelist, ownership). See "Testing".
+## Project documentation
+
+See [PROJECT_GUIDE.md](./PROJECT_GUIDE.md) for user flows, behavior rules, API routes, data model, architecture, deployment, and the development map. Update that guide in the same change whenever app behavior or operations change.
 
 ## Local setup
 ```bash
@@ -21,7 +19,7 @@ If you already ran the earlier empty `0001_init` and `0002_rls_and_checks` faile
 After the first run, change the schema normally with `npm run db:migrate` and commit the generated folders.
 
 ## Tests
-`npm test` runs Vitest on the domain logic.
+`npm test` runs Vitest on the domain logic. The current suite has 23 tests; it does not include full browser E2E or database integration tests.
 
 Task progress syncs between open devices while the app is visible. Other devices check for updates every five seconds and refresh immediately when brought back to the foreground.
 
