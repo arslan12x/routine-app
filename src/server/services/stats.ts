@@ -1,6 +1,6 @@
 import { ApiError } from "@/lib/api";
 import type { AppUser } from "@/lib/auth/session";
-import { prisma } from "@/lib/db";
+import { systemDb, withUserDb } from "@/lib/db";
 import { addDays, daysBetween, monthOf, monthRange, todayIn, weekStart } from "@/lib/domain/dates";
 import { computeInsights, type Group } from "@/lib/domain/analytics";
 import { rankRows, type BoardRow } from "@/lib/domain/ranking";
@@ -43,10 +43,16 @@ export async function insights(user: AppUser, q: { range: "day" | "week" | "mont
 
 /** Public projection only: no ids, emails, task titles or per-day data ever leave this function. */
 export async function leaderboard(viewer: AppUser) {
-  const allowed = await prisma.allowedEmail.findMany({ where: { revokedAt: null }, select: { email: true } });
-  const users = await prisma.user.findMany({
+  const allowed = await systemDb.allowedEmail.findMany({ where: { revokedAt: null }, select: { email: true } });
+  const users = await systemDb.user.findMany({
     where: { email: { in: allowed.map((a) => a.email) }, settings: { is: { showOnLeaderboard: true } } },
-    include: { settings: true },
+    select: {
+      id: true,
+      name: true,
+      image: true,
+      createdAt: true,
+      settings: { select: { timezone: true, displayName: true } },
+    },
   });
   type Row = BoardRow & { isMe: boolean };
   const rows: Row[] = await Promise.all(
@@ -67,7 +73,9 @@ export async function leaderboard(viewer: AppUser) {
 }
 
 export async function exportAll(user: AppUser) {
-  const [tasks, logs] = await Promise.all([loadTasks(user.id), prisma.taskLog.findMany({ where: { userId: user.id }, orderBy: { localDate: "asc" } })]);
+  const [tasks, logs] = await Promise.all([
+    loadTasks(user.id),
+    withUserDb(user.id, (tx) => tx.taskLog.findMany({ where: { userId: user.id }, orderBy: { localDate: "asc" } })),
+  ]);
   return { exportedAt: new Date().toISOString(), tasks, logs: logs.map((l) => ({ taskId: l.taskId, date: d2s(l.localDate), value: l.value })) };
 }
-

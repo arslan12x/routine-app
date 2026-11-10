@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { withUserDb } from "@/lib/db";
 import { logKey } from "@/lib/domain/schedule";
 import type { Category, CompletionType, LogMap, Recurrence, TaskDef } from "@/lib/domain/types";
 
@@ -7,11 +7,11 @@ export const s2d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 
 // Every query here is scoped by userId. That is the IDOR defence: there is no way to load another user's rows.
 export async function loadTasks(userId: string): Promise<TaskDef[]> {
-  const rows = await prisma.task.findMany({
+  const rows = await withUserDb(userId, (tx) => tx.task.findMany({
     where: { userId },
     include: { versions: { orderBy: { effectiveFrom: "asc" } } },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-  });
+  }));
   return rows.map((t) => ({
     id: t.id,
     title: t.title,
@@ -33,6 +33,6 @@ export async function loadTasks(userId: string): Promise<TaskDef[]> {
 }
 
 export async function loadLogs(userId: string): Promise<LogMap> {
-  const rows = await prisma.taskLog.findMany({ where: { userId }, select: { taskId: true, localDate: true, value: true } });
+  const rows = await withUserDb(userId, (tx) => tx.taskLog.findMany({ where: { userId }, select: { taskId: true, localDate: true, value: true } }));
   return new Map(rows.map((r) => [logKey(r.taskId, d2s(r.localDate)), r.value]));
 }

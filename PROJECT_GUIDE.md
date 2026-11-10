@@ -4,7 +4,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 **Maintenance rule for future changes:** when changing user-visible behavior, business rules, API routes, data models, authentication, deployment, or scheduled jobs, update the relevant sections of this guide in the same change. Re-read the implementation and make the guide match the code; code is authoritative if this document ever disagrees. Update the “Guide checked” date below. Do not copy secrets, real account credentials, or `.env` values into this file.
 
-**Guide checked:** 2026-11-10
+**Guide checked:** 2026-11-11
 
 ## What the app does
 
@@ -28,7 +28,7 @@ The app is not a public self-registration service. It uses username/password cre
 1. A route or server page calls `requireUser()` / `pageUser()` to authenticate and confirm that the account is still allowed.
 2. API route handlers use the shared `route()` wrapper in `src/lib/api.ts`. It applies same-origin checks to mutations, validates request data with Zod, returns private/no-store JSON, and translates known `ApiError`s into client responses.
 3. Route handlers call server services under `src/server/services/`.
-4. Services use Prisma (`src/lib/db.ts`) directly or use `src/server/repositories/tasks.ts` to load user-scoped task definitions and logs.
+4. User services use `withUserDb(userId, callback)` from `src/lib/db.ts`, which applies the authenticated PostgreSQL role and user claims within one transaction. Explicit `systemDb` use is reserved for authentication, account administration, health checks, and scheduled/global aggregate work.
 5. Date/schedule/streak/analytics calculations live in mostly pure functions under `src/lib/domain/`.
 6. Server-rendered page components pass initial data to interactive client screens under `src/features/`. Client screens use `src/lib/fetcher.ts` for API calls; the Tasks screen also uses `src/lib/supabase.ts` for authenticated Realtime events.
 
@@ -237,7 +237,7 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `PushSubscription`: one Web Push endpoint and key set per enabled device, linked to a user.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
 
-Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Most application tables remain deny-all to browser roles; migration `0005_realtime_task_sync` adds authenticated own-row SELECT only for `Task` and `TaskLog` to support Realtime, plus private-channel authorization for DELETE change signals. Prisma still connects through a privileged server-side connection. Do not access private application tables directly from client-side Supabase/PostgREST code.
+Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
 ## Configuration and operations
 
@@ -247,6 +247,7 @@ Configure actual values in a local ignored `.env` or the hosting provider's secr
 
 - Database/auth: `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`.
 - Realtime: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
+- RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
 - Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`.
 - Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `REMINDER_CRON_SECRET`.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
@@ -271,6 +272,7 @@ Use `npm run db:migrate` when changing the Prisma schema locally; review and com
 - Set Vercel variables for the appropriate deployment environments and redeploy after changing them.
 - Admin seeding is a separate command using production-safe database configuration; the hosting build does not automatically seed credentials.
 - Push reminders require VAPID configuration plus Supabase `pg_cron`, `pg_net`, Vault secrets, and a cron job. A working endpoint without correct scheduler secrets returns 401/503 rather than sending.
+- Database migration `0006_user_scoped_rls` must be applied before the scoped data path is deployed; standard `npm run build` applies migrations. The runtime database role must be able to switch locally to PostgreSQL role `authenticated`.
 
 ### GitHub scheduled workflow
 
@@ -307,6 +309,7 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 | Settings/timezone/export | `src/server/services/me.ts`, `src/features/settings/`, `src/components/TimezoneSync.tsx` |
 | Push subscriptions/reminder dispatch | `src/lib/domain/reminders.ts`, `src/server/services/reminders.ts`, `src/features/settings/PushReminderToggle.tsx`, `src/app/api/me/push-subscriptions/`, `src/app/api/cron/reminders/`, `public/sw.js` |
 | Realtime task synchronization | `src/lib/supabase.ts`, `src/app/api/realtime-token/route.ts`, `src/features/tasks/TasksScreen.tsx`, `prisma/migrations/0005_realtime_task_sync/migration.sql` |
+| User-scoped database access/RLS | `src/lib/db.ts`, `prisma/migrations/0006_user_scoped_rls/migration.sql`, `src/server/repositories/tasks.ts` |
 | Database schema and evolution | `prisma/schema.prisma`, `prisma/migrations/`, `prisma/seed.ts` |
 | Hosting/scheduler instructions | `DEPLOY.md`, `.github/workflows/keepalive-and-backup.yml` |
 
@@ -314,9 +317,14 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 
 - Never put credentials, auth secrets, private VAPID keys, cron bearer tokens, or real `.env` content in documentation, commits, screenshots, logs, or prompts to third-party tools.
 - Keep account/task/progress queries scoped by authenticated user ID. Any endpoint taking a task ID must verify ownership server-side.
+- Keep each user-scoped database operation inside `withUserDb`; the claims use transaction-local settings and are invalid outside that transaction. Never interpolate a user ID into raw SQL.
+- Keep `systemDb` use explicit and limited to the documented server/system workflows. Its connection is intentionally privileged and bypasses RLS.
 - Realtime JWTs must be minted only after checking the Better Auth session and active account allowlist. Keep `SUPABASE_JWT_SECRET` server-only; preserve own-row SELECT policies and private-channel topic authorization.
 - Do not subscribe to unfiltered Postgres DELETE changes. Supabase cannot safely filter DELETE payloads by owner; use the private owner-scoped delete Broadcast or another equally scoped mechanism.
+- Tenant-owned table queries must use `withUserDb(user.id, tx => ...)`. Keep `systemDb` usage explicit and limited to authentication, provisioning/admin, global aggregate, and background scheduler work; never replace the user wrapper with a standalone `set_config` call outside the query transaction.
 - If Realtime fails, keep the full Supabase subscription error visible in the browser console and provide a low-frequency fallback refresh rather than silently leaving the task screen stale.
+- `JwtSignatureError: Failed to validate JWT signature` means the deployed Supabase Realtime service rejected the token signed by the server; verify `SUPABASE_JWT_SECRET` matches the correct Supabase project's active Realtime-compatible JWT signing configuration, then redeploy.
+- If the token signature is accepted but the private topic is denied, verify the Realtime publication includes `Task` and `TaskLog` and that the policies from `0005_realtime_task_sync` were applied.
 - Preserve the allowlist check at sign-in and on protected requests so revocation remains effective.
 - Do not expose emails, user IDs, task titles, or detailed logs through the Friends/leaderboard response.
 - Do not cache authenticated HTML or API data in the service worker.

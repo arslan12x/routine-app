@@ -85,3 +85,34 @@ If Tasks shows a live-sync error, open the browser developer tools **Console** a
 - A `401` from the token endpoint means the browser session is missing/expired; a `503` means `SUPABASE_JWT_SECRET` is not configured.
 
 While Realtime is disconnected, Tasks temporarily refreshes every 30 seconds; that fallback stops when the socket reconnects.
+
+### JWT signature or private-channel authorization errors
+
+If the console reports **`JwtSignatureError: Failed to validate JWT signature`**, Supabase rejected the token signature before it could authorize the channel. The most likely cause is that `SUPABASE_JWT_SECRET` is missing, copied from the wrong Supabase project, rotated/stale, or is not the signing key/format configured for Realtime. In Supabase, verify the project's JWT signing configuration and set the matching signing secret in Vercel as a server-only variable. Do not use the anon key, service-role key, database password, or a secret from a different project. Redeploy after changing it. Never paste the secret or the full `/api/realtime-token` response into logs, screenshots, or chat.
+
+If signature validation succeeds but the channel still reports **`Unauthorized: You do not have permissions to read from that Channel topic`**, verify that the database migration and policies are present:
+
+```sql
+select schemaname, tablename
+from pg_catalog.pg_publication_tables
+where pubname = 'supabase_realtime'
+  and schemaname = 'public'
+  and tablename in ('Task', 'TaskLog');
+
+select schemaname, tablename, policyname, roles, cmd, qual
+from pg_catalog.pg_policies
+where (schemaname = 'public' and tablename in ('Task', 'TaskLog'))
+   or (schemaname = 'realtime' and tablename = 'messages');
+```
+
+Both tables must be in the publication and the own-row SELECT policies plus private-topic SELECT policy from `0005_realtime_task_sync` must exist. After correcting either the signing key or policies, reload the Tasks page and confirm the channel reaches `SUBSCRIBED`. The `vercel.live` CSP warning, if present, concerns the Vercel toolbar and is separate from Supabase Realtime.
+
+## Database Row-Level Security for app queries
+
+Migration `0006_user_scoped_rls` adds PostgreSQL owner policies and grants the `authenticated` database role the app-table privileges used by signed-in members. The app enters that role and sets the Better Auth user ID as transaction-local claims before a user-scoped Prisma operation; do not run the claim-setting SQL outside that same transaction.
+
+The regular Vercel build applies the migration using `prisma migrate deploy`. Before deploying, ensure the runtime database login used by `DATABASE_URL` can `SET LOCAL ROLE authenticated` (the Supabase server-side database role is expected to have this ability). The code uses an explicit privileged `systemDb` only for Better Auth persistence, admin account management, health checks, and global/background jobs; member CRUD and data reads use the scoped transaction helper. Do not expose the privileged database URL to a browser or change user-scoped operations to `systemDb`.
+
+The migration does not modify the Prisma schema. If deploying outside the standard Vercel build, run `npx prisma migrate deploy` against the intended database with `DIRECT_URL`. Never reset a database to apply this migration.
+
+After deployment, verify `npx prisma migrate status` reports the migration as applied, then smoke-test with two accounts: create a task and progress entry for account A, confirm account B cannot see them, and confirm B cannot change or delete A's task. Also verify each account can still create/update its own tasks, progress, and settings. If any scoped query fails with a permission error, check the `DATABASE_URL` role's ability to `SET LOCAL ROLE authenticated`; do not work around the error by routing member operations through `systemDb`.

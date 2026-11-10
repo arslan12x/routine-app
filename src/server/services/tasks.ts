@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import type { AppUser } from "@/lib/auth/session";
 import type { TaskCreate, TaskPatch } from "@/lib/validation";
@@ -84,20 +84,22 @@ export async function createTask(user: AppUser, input: TaskCreate) {
   const today = todayIn(user.timezone);
   const startDate = input.startDate ?? today;
   if (startDate < today) throw new ApiError(400, "VALIDATION", "Start date cannot be in the past");
-  const agg = await prisma.task.aggregate({ where: { userId: user.id }, _max: { sortOrder: true } });
   const target = input.completionType === "BOOLEAN" && input.recurrence !== "WEEKLY_TOTAL" ? 1 : input.target;
-  const task = await prisma.task.create({
-    data: {
-      userId: user.id, title: input.title, description: input.description ?? null, category: input.category,
-      startDate: s2d(startDate), sortOrder: (agg._max.sortOrder ?? -1) + 1,
-      versions: {
-        create: {
-          effectiveFrom: s2d(startDate), isMandatory: input.isMandatory, completionType: input.completionType,
-          target, unit: input.unit ?? null, recurrence: input.recurrence,
-          weekdays: input.recurrence === "WEEKDAYS" ? input.weekdays : [],
+  const task = await withUserDb(user.id, async (tx) => {
+    const agg = await tx.task.aggregate({ where: { userId: user.id }, _max: { sortOrder: true } });
+    return tx.task.create({
+      data: {
+        userId: user.id, title: input.title, description: input.description ?? null, category: input.category,
+        startDate: s2d(startDate), sortOrder: (agg._max.sortOrder ?? -1) + 1,
+        versions: {
+          create: {
+            effectiveFrom: s2d(startDate), isMandatory: input.isMandatory, completionType: input.completionType,
+            target, unit: input.unit ?? null, recurrence: input.recurrence,
+            weekdays: input.recurrence === "WEEKDAYS" ? input.weekdays : [],
+          },
         },
       },
-    },
+    });
   });
   return { id: task.id };
 }
@@ -107,28 +109,28 @@ export async function createTask(user: AppUser, input: TaskCreate) {
  * Result-affecting fields change as a NEW version effective today, so past days never change.
  */
 export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
-  const task = await prisma.task.findFirst({ where: { id, userId: user.id }, include: { versions: { orderBy: { effectiveFrom: "asc" } } } });
-  if (!task) throw new ApiError(404, "NOT_FOUND", "Task not found");
-  if (task.archivedOn) throw new ApiError(409, "ARCHIVED", "Archived tasks cannot be edited");
-  const today = todayIn(user.timezone);
-  const start = d2s(task.startDate);
-  const eff = today > start ? today : start;
-  const cur = [...task.versions].reverse().find((v) => d2s(v.effectiveFrom) <= eff) ?? task.versions[0];
+  await withUserDb(user.id, async (tx) => {
+    const task = await tx.task.findFirst({ where: { id, userId: user.id }, include: { versions: { orderBy: { effectiveFrom: "asc" } } } });
+    if (!task) throw new ApiError(404, "NOT_FOUND", "Task not found");
+    if (task.archivedOn) throw new ApiError(409, "ARCHIVED", "Archived tasks cannot be edited");
+    const today = todayIn(user.timezone);
+    const start = d2s(task.startDate);
+    const eff = today > start ? today : start;
+    const cur = [...task.versions].reverse().find((v) => d2s(v.effectiveFrom) <= eff) ?? task.versions[0];
 
-  const recurrence = (patch.recurrence ?? cur.recurrence) as Recurrence;
-  const merged = {
-    isMandatory: patch.isMandatory ?? cur.isMandatory,
-    recurrence,
-    weekdays: recurrence === "WEEKDAYS" ? patch.weekdays ?? cur.weekdays : [],
-    unit: patch.unit !== undefined ? patch.unit : cur.unit,
-    target: cur.completionType === "BOOLEAN" && recurrence !== "WEEKLY_TOTAL" ? 1 : patch.target ?? cur.target,
-  };
-  validateRules(merged);
-  const changed =
-    merged.isMandatory !== cur.isMandatory || merged.recurrence !== cur.recurrence || merged.target !== cur.target ||
-    merged.unit !== cur.unit || merged.weekdays.join() !== cur.weekdays.join();
+    const recurrence = (patch.recurrence ?? cur.recurrence) as Recurrence;
+    const merged = {
+      isMandatory: patch.isMandatory ?? cur.isMandatory,
+      recurrence,
+      weekdays: recurrence === "WEEKDAYS" ? patch.weekdays ?? cur.weekdays : [],
+      unit: patch.unit !== undefined ? patch.unit : cur.unit,
+      target: cur.completionType === "BOOLEAN" && recurrence !== "WEEKLY_TOTAL" ? 1 : patch.target ?? cur.target,
+    };
+    validateRules(merged);
+    const changed =
+      merged.isMandatory !== cur.isMandatory || merged.recurrence !== cur.recurrence || merged.target !== cur.target ||
+      merged.unit !== cur.unit || merged.weekdays.join() !== cur.weekdays.join();
 
-  await prisma.$transaction(async (tx) => {
     await tx.task.update({
       where: { id },
       data: { title: patch.title, description: patch.description, category: patch.category, archivedOn: patch.archived ? s2d(today) : undefined },
@@ -146,11 +148,13 @@ export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
 
 /** Hard delete only when there is no history; otherwise the client should archive. */
 export async function deleteTask(user: AppUser, id: string) {
-  const task = await prisma.task.findFirst({ where: { id, userId: user.id }, select: { id: true } });
-  if (!task) throw new ApiError(404, "NOT_FOUND", "Task not found");
-  const logs = await prisma.taskLog.count({ where: { taskId: id } });
-  if (logs > 0) throw new ApiError(409, "HAS_HISTORY", "This task has history. Archive it instead to keep your stats.");
-  await prisma.task.delete({ where: { id } });
+  await withUserDb(user.id, async (tx) => {
+    const task = await tx.task.findFirst({ where: { id, userId: user.id }, select: { id: true } });
+    if (!task) throw new ApiError(404, "NOT_FOUND", "Task not found");
+    const logs = await tx.taskLog.count({ where: { taskId: id, userId: user.id } });
+    if (logs > 0) throw new ApiError(409, "HAS_HISTORY", "This task has history. Archive it instead to keep your stats.");
+    await tx.task.delete({ where: { id } });
+  });
 }
 
 /** Idempotent: sets an ABSOLUTE value for (task, date). Repeating the request changes nothing. */
@@ -163,14 +167,16 @@ export async function setProgress(user: AppUser, taskId: string, date: string, v
   const v = scheduledOn(tasks[0], date);
   if (!v) throw new ApiError(400, "NOT_SCHEDULED", "This task is not scheduled on that date");
   const final = v.completionType === "BOOLEAN" ? (value > 0 ? 1 : 0) : value;
-  if (final === 0) {
-    await prisma.taskLog.deleteMany({ where: { taskId, userId: user.id, localDate: s2d(date) } });
-  } else {
-    await prisma.taskLog.upsert({
-      where: { taskId_localDate: { taskId, localDate: s2d(date) } },
-      create: { userId: user.id, taskId, localDate: s2d(date), value: final },
-      update: { value: final },
-    });
-  }
+  await withUserDb(user.id, async (tx) => {
+    if (final === 0) {
+      await tx.taskLog.deleteMany({ where: { taskId, userId: user.id, localDate: s2d(date) } });
+    } else {
+      await tx.taskLog.upsert({
+        where: { taskId_localDate: { taskId, localDate: s2d(date) } },
+        create: { userId: user.id, taskId, localDate: s2d(date), value: final },
+        update: { value: final },
+      });
+    }
+  });
   return { taskId, date, value: final };
 }

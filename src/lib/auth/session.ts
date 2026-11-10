@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
-import { prisma } from "@/lib/db";
+import { systemDb, withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
 import { cache } from "react";
@@ -26,11 +26,11 @@ export const requireUser = cache(async (): Promise<AppUser> => {
   const username = usernameFromCredentialEmail(s.user.email);
   if (!username) throw new ApiError(403, "FORBIDDEN", "Access denied");
   const [allowed, settings] = await Promise.all([
-    prisma.allowedEmail.findUnique({ where: { email: s.user.email.toLowerCase() } }),
-    prisma.userSettings.findUnique({ where: { userId: s.user.id } }),
+    systemDb.allowedEmail.findUnique({ where: { email: s.user.email.toLowerCase() } }),
+    withUserDb(s.user.id, (tx) => tx.userSettings.findUnique({ where: { userId: s.user.id } })),
   ]);
   if (!allowed || allowed.revokedAt) throw new ApiError(403, "FORBIDDEN", "Access denied");
-  const st = settings ?? await prisma.userSettings.create({ data: { userId: s.user.id } });
+  const st = settings ?? await withUserDb(s.user.id, (tx) => tx.userSettings.create({ data: { userId: s.user.id } }));
   return {
     id: s.user.id,
     username,
