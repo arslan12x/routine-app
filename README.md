@@ -21,7 +21,7 @@ After the first run, change the schema normally with `npm run db:migrate` and co
 ## Tests
 `npm test` runs Vitest on the domain logic. The current suite has 23 tests; it does not include full browser E2E or database integration tests.
 
-Task progress syncs between open devices while the app is visible. Other devices check for updates every five seconds and refresh immediately when brought back to the foreground.
+Task progress syncs between open `/tasks` screens through Supabase Realtime; Calendar retains periodic refresh. Setup details and the required server-side signing secret are documented in [DEPLOY.md](./DEPLOY.md).
 
 Daily push reminders can be enabled per device in Settings. Production setup, VAPID keys, and the Supabase scheduler are documented in [DEPLOY.md](./DEPLOY.md).
 
