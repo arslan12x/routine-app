@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/auth";
 import { systemDb, withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
-import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
 import { cache } from "react";
 
 export interface AppUser {
@@ -19,24 +18,45 @@ export interface AppUser {
   showOnLeaderboard: boolean;
 }
 
-/** Authoritative check used by every API route and page: valid session AND still whitelisted. */
+function normalizeAppRole(role: string | null): "ADMIN" | "MEMBER" {
+  return role && ["owner", "admin"].includes(role.toLowerCase()) ? "ADMIN" : "MEMBER";
+}
+
+/** Authoritative check used by every API route and page: valid session and active organization membership. */
 export const requireUser = cache(async (): Promise<AppUser> => {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) throw new ApiError(401, "UNAUTHENTICATED", "Please sign in");
-  const username = usernameFromCredentialEmail(s.user.email);
-  if (!username) throw new ApiError(403, "FORBIDDEN", "Access denied");
-  const [allowed, settings] = await Promise.all([
-    systemDb.allowedEmail.findUnique({ where: { email: s.user.email.toLowerCase() } }),
+
+  const [user, settings] = await Promise.all([
+    systemDb.user.findUnique({
+      where: { id: s.user.id },
+      select: {
+        id: true,
+        username: true,
+        name: true,
+        image: true,
+        banned: true,
+        members: {
+          select: { role: true, organization: { select: { slug: true } } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    }),
     withUserDb(s.user.id, (tx) => tx.userSettings.findUnique({ where: { userId: s.user.id } })),
   ]);
-  if (!allowed || allowed.revokedAt) throw new ApiError(403, "FORBIDDEN", "Access denied");
+
+  if (!user || user.banned || user.members.length === 0) throw new ApiError(403, "FORBIDDEN", "Access denied");
+
+  const username = s.user.username ?? user.username ?? user.name;
+  const member = user.members[0];
   const st = settings ?? await withUserDb(s.user.id, (tx) => tx.userSettings.create({ data: { userId: s.user.id } }));
+
   return {
     id: s.user.id,
     username,
     name: s.user.name,
     image: s.user.image ?? null,
-    role: allowed.role,
+    role: normalizeAppRole(member.role),
     timezone: st.timezone,
     timezoneSet: st.timezoneSet,
     weekStartsOn: st.weekStartsOn === 7 ? 7 : 1,

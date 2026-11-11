@@ -43,9 +43,12 @@ export async function insights(user: AppUser, q: { range: "day" | "week" | "mont
 
 /** Public projection only: no ids, emails, task titles or per-day data ever leave this function. */
 export async function leaderboard(viewer: AppUser) {
-  const allowed = await systemDb.allowedEmail.findMany({ where: { revokedAt: null }, select: { email: true } });
   const users = await systemDb.user.findMany({
-    where: { email: { in: allowed.map((a) => a.email) }, settings: { is: { showOnLeaderboard: true } } },
+    where: {
+      banned: false,
+      settings: { is: { showOnLeaderboard: true } },
+      members: { some: { organization: { slug: "routine-workspace" } } },
+    },
     select: {
       id: true,
       name: true,

@@ -3,11 +3,13 @@ export function normalizeUsername(username: string): string {
 }
 
 export function credentialEmail(username: string): string {
-  return `${normalizeUsername(username)}@users.routine.invalid`;
+  const normalized = normalizeUsername(username);
+  return `${normalized}@routine.local`;
 }
 
 export function usernameFromCredentialEmail(email: string): string | null {
-  const suffix = "@users.routine.invalid";
-  const normalized = email.toLowerCase();
-  return normalized.endsWith(suffix) ? normalized.slice(0, -suffix.length) : null;
+  const normalized = email.toLowerCase().trim();
+  if (!normalized.includes("@")) return null;
+  const [localPart] = normalized.split("@", 2);
+  return localPart ? normalizeUsername(localPart) : null;
 }

@@ -1,6 +1,5 @@
 import * as webpush from "web-push";
 import { systemDb } from "@/lib/db";
-import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
 import { isReminderHour, reminderMessage } from "@/lib/domain/reminders";
 import { dayView } from "@/server/services/tasks";
 import type { AppUser } from "@/lib/auth/session";
@@ -22,9 +21,12 @@ export async function dispatchUserTaskReminder(userId: string, date: string, hou
     where: { id: userId },
     select: {
       id: true,
+      username: true,
       email: true,
       name: true,
       image: true,
+      banned: true,
+      members: { select: { role: true }, take: 1 },
       settings: {
         select: {
           timezone: true,
@@ -37,23 +39,17 @@ export async function dispatchUserTaskReminder(userId: string, date: string, hou
       pushSubscriptions: { select: { id: true, endpoint: true, p256dh: true, auth: true } },
     },
   });
-  if (!user?.settings || user.pushSubscriptions.length === 0) return { sent: 0 };
+  if (!user?.settings || user.banned || user.pushSubscriptions.length === 0 || user.members.length === 0) return { sent: 0 };
 
-  const username = usernameFromCredentialEmail(user.email);
-  const allowed = username && await systemDb.allowedEmail.findUnique({
-    where: { email: user.email.toLowerCase() },
-    select: { role: true, revokedAt: true },
-  });
-  if (!username || !allowed || allowed.revokedAt) return { sent: 0 };
-
+  const memberRole = user.members[0]?.role ?? "member";
   if (!isReminderHour(now, user.settings.timezone, { date, hour })) return { sent: 0 };
 
   const appUser: AppUser = {
     id: user.id,
-    username,
+    username: user.username ?? user.name,
     name: user.name,
     image: user.image,
-    role: allowed.role,
+    role: memberRole === "owner" || memberRole === "admin" ? "ADMIN" : "MEMBER",
     timezone: user.settings.timezone,
     timezoneSet: user.settings.timezoneSet,
     weekStartsOn: user.settings.weekStartsOn === 7 ? 7 : 1,
