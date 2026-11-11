@@ -51,7 +51,7 @@ The app is not a public self-registration service. It uses username/password cre
 
 1. An admin creates/provisions an account with a username, real email address, and temporary password. Public sign-up is disabled in Better Auth.
 2. The account is inserted into the `User` table and automatically assigned a `Member` record in the default workspace organization (for example `routine-workspace`).
-3. Better Auth uses the username plugin for password sign-in. Organization membership roles (`owner`, `admin`, `member`) are separate from Better Auth's global user roles; the admin plugin's global `adminRoles` only includes the configured global `admin` role.
+3. Sign-in accepts either the account username or its registered email address. Better Auth's username plugin handles username sign-in; email addresses use Better Auth's credential email sign-in. Organization membership roles (`owner`, `admin`, `member`) are separate from Better Auth's global user roles; the admin plugin's global `adminRoles` only includes the configured global `admin` role.
 4. Passwords are hashed by Better Auth's password utility and stored in the credential account record; plaintext passwords are not stored.
 5. Protected server requests re-check the session and the user's active organization membership. A banned or revoked user is denied; revocation deletes their sessions.
 6. Unauthenticated page visits go to `/login`; an account without active workspace membership goes to `/access-denied`.
