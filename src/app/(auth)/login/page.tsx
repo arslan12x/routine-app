@@ -6,8 +6,9 @@ import { authClient } from "@/lib/auth/client";
 
 export default function Login() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +17,10 @@ export default function Login() {
     setBusy(true);
     setError(null);
     try {
-      const result = await authClient.signIn.username({ username, password, callbackURL: "/tasks" });
+      const normalizedIdentifier = identifier.trim();
+      const result = normalizedIdentifier.includes("@")
+        ? await authClient.signIn.email({ email: normalizedIdentifier, password, callbackURL: "/tasks" })
+        : await authClient.signIn.username({ username: normalizedIdentifier, password, callbackURL: "/tasks" });
       if (result.error) {
         setError("Username or password is incorrect.");
         return;
@@ -36,10 +40,21 @@ export default function Login() {
         <h1 className="display text-5xl font-semibold">Routine</h1>
         <p className="mt-3 text-muted">A private streak tracker for a small group of friends.</p>
         <form className="mt-8 space-y-3 text-left" onSubmit={submit}>
-          <label className="block text-sm font-medium" htmlFor="username">Username</label>
-          <input id="username" autoComplete="username" required value={username} onChange={(e) => setUsername(e.target.value)} className={inputCls} />
+          <label className="block text-sm font-medium" htmlFor="identifier">Username or email</label>
+          <input id="identifier" autoComplete="username" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} className={inputCls} />
           <label className="block text-sm font-medium" htmlFor="password">Password</label>
-          <input id="password" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className={inputCls} />
+          <div className="relative">
+            <input id="password" type={showPassword ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} className={`${inputCls} pr-20`} />
+            <button
+              type="button"
+              onClick={() => setShowPassword((visible) => !visible)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              className="absolute inset-y-0 right-3 my-auto h-fit text-sm font-medium text-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
           {error && <p role="alert" className="rounded-xl bg-bad/10 p-3 text-sm text-bad">{error}</p>}
           <Button className="w-full" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
         </form>
