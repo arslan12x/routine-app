@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
-import { username } from "better-auth/plugins";
+import { admin, organization, username } from "better-auth/plugins";
 import { systemDb } from "@/lib/db";
 
 const trustedOrigins = [
@@ -20,18 +20,27 @@ export const auth = betterAuth({
     enabled: true,
     disableSignUp: true,
   },
-  session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 }, // DB-backed; no cookie cache, so revocation is immediate
+  session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   advanced: { useSecureCookies: process.env.NODE_ENV === "production" },
   onAPIError: { errorURL: "/access-denied" },
-  plugins: [username({ displayUsername: false, immutableUsername: true }), nextCookies()],
+  plugins: [
+    username({ displayUsername: false, immutableUsername: true }),
+    organization({
+      allowUserToCreateOrganization: false,
+      creatorRole: "owner",
+    }),
+    admin({
+      defaultRole: "user",
+      adminRoles: ["admin", "owner"],
+    }),
+    nextCookies(),
+  ],
   databaseHooks: {
     user: {
       create: {
-        // Only pre-provisioned accounts can be created; public sign-up is disabled.
         before: async (user) => {
-          const row = await systemDb.allowedEmail.findUnique({ where: { email: user.email.toLowerCase() } });
-          if (!row || row.revokedAt) {
-            throw new APIError("FORBIDDEN", { message: "This account has not been provisioned." });
+          if (!user.email || !user.email.includes("@")) {
+            throw new APIError("FORBIDDEN", { message: "A real email address is required for this account." });
           }
           return { data: user };
         },
@@ -39,12 +48,13 @@ export const auth = betterAuth({
     },
     session: {
       create: {
-        // Runs on EVERY sign-in: revoked users are blocked even though they already have an account.
         before: async (session) => {
-          const u = await systemDb.user.findUnique({ where: { id: session.userId }, select: { email: true } });
-          const row = u && await systemDb.allowedEmail.findUnique({ where: { email: u.email.toLowerCase() } });
-          if (!row || row.revokedAt) {
-            throw new APIError("FORBIDDEN", { message: "Access has been revoked." });
+          const user = await systemDb.user.findUnique({
+            where: { id: session.userId },
+            select: { id: true, banned: true, members: { select: { id: true }, take: 1 } },
+          });
+          if (!user || user.banned || user.members.length === 0) {
+            throw new APIError("FORBIDDEN", { message: "This account is not active in an organization." });
           }
           return { data: session };
         },

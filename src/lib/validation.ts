@@ -55,6 +55,7 @@ export const insightsQuery = z.object({
 
 export const accountCreateBody = z.object({
   username: z.string().trim().min(3).max(30).regex(/^[a-zA-Z0-9_.]+$/, "Use letters, numbers, underscores, or periods"),
+  email: z.string().trim().email("Use a valid email address").max(255),
   password: z.string().min(8).max(128),
   role: z.enum(["MEMBER", "ADMIN"]).default("MEMBER"),
 });

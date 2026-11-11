@@ -8,6 +8,7 @@ interface Row { username: string; role: "ADMIN" | "MEMBER"; revokedAt: string | 
 export default function AdminScreen() {
   const [rows, setRows] = useState<Row[]>([]);
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,17 +25,19 @@ export default function AdminScreen() {
   return (
     <>
       <h1 className="display mt-2 text-3xl font-semibold">User accounts</h1>
-      <p className="text-sm text-muted">Create accounts with a username and temporary password. Share the password privately. Revoking signs them out immediately.</p>
-      <form className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_auto]" onSubmit={(e) => {
+      <p className="text-sm text-muted">Create accounts with a username, real email, and temporary password. Share the password privately. Revoking signs them out immediately.</p>
+      <form className="mt-4 grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]" onSubmit={(e) => {
         e.preventDefault();
         act(async () => {
-          const created = await api<{ username: string }>("/api/admin/accounts", { method: "POST", body: JSON.stringify({ username, password }) });
+          const created = await api<{ username: string }>("/api/admin/accounts", { method: "POST", body: JSON.stringify({ username, email, password }) });
           setRows((current) => [{ username: created.username, role: "MEMBER", revokedAt: null }, ...current.filter((r) => r.username !== created.username)]);
           setUsername("");
+          setEmail("");
           setPassword("");
         });
       }}>
         <input required disabled={busy} minLength={3} maxLength={30} pattern="[A-Za-z0-9_.]+" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" aria-label="Username" className={inputCls} />
+        <input required disabled={busy} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email address" aria-label="Email address" className={inputCls} />
         <input required disabled={busy} minLength={8} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temporary password" aria-label="Temporary password" className={inputCls} />
         <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create account"}</Button>
       </form>

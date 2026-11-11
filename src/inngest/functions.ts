@@ -1,29 +1,20 @@
 import { inngest, reminderSendEvent } from "@/inngest/client";
 import { getReminderSlot } from "@/lib/domain/reminders";
 import { systemDb } from "@/lib/db";
-import { usernameFromCredentialEmail } from "@/lib/auth/credentials";
 import { dispatchUserTaskReminder } from "@/server/services/reminders";
 
 export const scheduleTaskReminders = inngest.createFunction(
   { id: "schedule-task-reminders", triggers: { cron: "* * * * *" } },
   async ({ step }) => {
     const events = await step.run("find-reminder-recipients", async () => {
-      const allowedAccounts = await systemDb.allowedEmail.findMany({
-        where: { revokedAt: null },
-        select: { email: true },
-      });
-      const activeEmails = allowedAccounts
-        .map(({ email }) => email)
-        .filter((email) => usernameFromCredentialEmail(email));
-      if (activeEmails.length === 0) return [];
-
       const users = await systemDb.user.findMany({
         where: {
-          email: { in: activeEmails },
+          banned: false,
           settings: { isNot: null },
           pushSubscriptions: { some: {} },
+          members: { some: { organization: { slug: "routine-workspace" } } },
         },
-        select: { id: true, email: true, settings: { select: { timezone: true } } },
+        select: { id: true, settings: { select: { timezone: true } } },
       });
       const now = new Date();
       return users.flatMap((user) => {

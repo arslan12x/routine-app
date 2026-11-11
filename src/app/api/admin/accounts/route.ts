@@ -11,5 +11,5 @@ export const GET = route(async () => {
 export const POST = route(async (req) => {
   const admin = await requireAdmin();
   const body = await parseBody(req, accountCreateBody);
-  return addAllowed(admin, body.username, body.password, body.role);
+  return addAllowed(admin, body.username, body.email, body.password, body.role);
 }, 201);

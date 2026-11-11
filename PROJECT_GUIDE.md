@@ -8,7 +8,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 ## What the app does
 
-Routine is a private, installable daily habit/routine tracker for a small group. An administrator provisions accounts. Members record daily or weekly task progress, review their history and trends, optionally share aggregate streak statistics on a friends leaderboard, and can enable device-specific push reminders.
+Routine is a private, installable daily habit/routine tracker for a small group. Administrators provision accounts inside a single workspace organization and assign member/admin/owner roles. Members record daily or weekly task progress, review their history and trends, optionally share aggregate streak statistics on a friends leaderboard, and can enable device-specific push reminders.
 
 The app is not a public self-registration service. It uses username/password credentials; Google sign-in is not part of the current sign-in flow. The UI is responsive and installable as a PWA. Task changes are stored in PostgreSQL and synchronized to other open `/tasks` screens using Supabase Realtime.
 
@@ -40,24 +40,24 @@ The app is not a public self-registration service. It uses username/password cre
 - Can sign in, manage their own tasks and progress, inspect calendar/insights, adjust settings, export their own task data, and opt into push reminders.
 - Appears on Friends only when “Show me on the friends leaderboard” is enabled.
 
-### Admin
+### Admin / Owner
 
 - Has member capabilities plus access to `/admin`.
-- Can create a username/password account, revoke access, and restore access.
-- The account creation API supports a role, defaulting to `MEMBER`; the current admin screen creates member accounts.
+- Can create a username/password account with a real email, revoke access, and restore access.
+- Accounts are provisioned into the default workspace organization and assigned a member/admin/owner role from the organization membership model.
 - An administrator cannot revoke their own account through the UI/API.
 
 ### Sign-in and authorization
 
-1. Admin creates/provisions an account. Public sign-up is disabled in Better Auth.
-2. The account username is normalized to lowercase and mapped internally to a synthetic email ending in `@users.routine.invalid`. This is an internal Better Auth identifier, not a user-provided email address.
-3. Passwords are hashed by Better Auth's password utility and stored in its credential account record; plaintext passwords are not stored.
-4. Better Auth creates a database-backed session after checking that the matching `AllowedEmail` record is active.
-5. Protected server requests re-check the session and active allowlist record. A revoked user is denied; revocation also deletes their sessions.
-6. Unauthenticated page visits go to `/login`; an account without active access goes to `/access-denied`.
+1. An admin creates/provisions an account with a username, real email address, and temporary password. Public sign-up is disabled in Better Auth.
+2. The account is inserted into the `User` table and automatically assigned a `Member` record in the default workspace organization (for example `routine-workspace`).
+3. Better Auth uses the username plugin for password sign-in while the organization + admin plugins track workspace membership and role-based authorization.
+4. Passwords are hashed by Better Auth's password utility and stored in the credential account record; plaintext passwords are not stored.
+5. Protected server requests re-check the session and the user's active organization membership. A banned or revoked user is denied; revocation deletes their sessions.
+6. Unauthenticated page visits go to `/login`; an account without active workspace membership goes to `/access-denied`.
 7. Sign-out calls Better Auth and returns the user to `/login`.
 
-Important auth implementation: `src/lib/auth/auth.ts`, `src/lib/auth/credentials.ts`, `src/lib/auth/session.ts`, `src/app/(auth)/login/page.tsx`, and `src/server/services/admin.ts`.
+Important auth implementation: `src/lib/auth/auth.ts`, `src/lib/auth/session.ts`, `src/app/(auth)/login/page.tsx`, `src/server/services/admin.ts`, and `prisma/schema.prisma`.
 
 ## Screens and user journeys
 
@@ -230,7 +230,7 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 
 - `User`: Better Auth identity, optional unique username, and relations to owned data.
 - `Session`, `Account`, `Verification`: Better Auth persistence, including credential password hash in `Account`.
-- `AllowedEmail`: legacy model name retained in the schema; for this app it is the account allowlist/role/revocation record keyed by the synthetic credential email.
+- `Organization`, `Member`, and `Invitation`: workspace-level tenancy model. A user becomes active only when they belong to an organization and have an assigned role such as `member`, `admin`, or `owner`.
 - `UserSettings`: timezone, timezone initialization flag, week start, public display name, leaderboard visibility.
 - `Task`: stable task identity and cosmetic fields, owner, start/archive dates, order.
 - `TaskVersion`: effective-dated recurrence, mandatory status, completion type, target, unit, weekdays.
@@ -249,7 +249,7 @@ Configure actual values in a local ignored `.env` or the hosting provider's secr
 - Database/auth: `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`.
 - Realtime: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
 - RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
-- Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`.
+- Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`.
 - Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
 - GitHub backup workflow secrets: `APP_URL` and `BACKUP_DB_URL`.
@@ -320,13 +320,13 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-ti
 - Keep account/task/progress queries scoped by authenticated user ID. Any endpoint taking a task ID must verify ownership server-side.
 - Keep each user-scoped database operation inside `withUserDb`; the claims use transaction-local settings and are invalid outside that transaction. Never interpolate a user ID into raw SQL.
 - Keep `systemDb` use explicit and limited to the documented server/system workflows. Its connection is intentionally privileged and bypasses RLS.
-- Realtime JWTs must be minted only after checking the Better Auth session and active account allowlist. Keep `SUPABASE_JWT_SECRET` server-only; preserve own-row SELECT policies and private-channel topic authorization.
+- Realtime JWTs must be minted only after checking the Better Auth session and the active organization membership. Keep `SUPABASE_JWT_SECRET` server-only; preserve own-row SELECT policies and private-channel topic authorization.
 - Do not subscribe to unfiltered Postgres DELETE changes. Supabase cannot safely filter DELETE payloads by owner; use the private owner-scoped delete Broadcast or another equally scoped mechanism.
 - Tenant-owned table queries must use `withUserDb(user.id, tx => ...)`. Keep `systemDb` usage explicit and limited to authentication, provisioning/admin, global aggregate, and background scheduler work; never replace the user wrapper with a standalone `set_config` call outside the query transaction.
 - If Realtime fails, keep the full Supabase subscription error visible in the browser console and provide a low-frequency fallback refresh rather than silently leaving the task screen stale.
 - `JwtSignatureError: Failed to validate JWT signature` means the deployed Supabase Realtime service rejected the token signed by the server; verify `SUPABASE_JWT_SECRET` matches the correct Supabase project's active Realtime-compatible JWT signing configuration, then redeploy.
 - If the token signature is accepted but the private topic is denied, verify the Realtime publication includes `Task` and `TaskLog` and that the policies from `0005_realtime_task_sync` were applied.
-- Preserve the allowlist check at sign-in and on protected requests so revocation remains effective.
+- Preserve the organization membership check at sign-in and on protected requests so revoked or banned users stay blocked.
 - Do not expose emails, user IDs, task titles, or detailed logs through the Friends/leaderboard response.
 - Do not cache authenticated HTML or API data in the service worker.
 - Keep scheduler routes secret-protected and do not test them with a production secret unless intentionally triggering real dispatch.
