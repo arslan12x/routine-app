@@ -51,12 +51,12 @@ async function main() {
     select: { id: true, username: true, email: true },
   });
 
-  if (syntheticUsers.length === 0) {
+  const mappingEntries = Object.entries(legacyMap);
+  if (syntheticUsers.length === 0 && mappingEntries.length === 0) {
     console.log("No synthetic users found. Nothing to migrate.");
     return;
   }
 
-  const mappingEntries = Object.entries(legacyMap);
   const directFallback = mappingEntries.length === 1 && !mappingEntries[0][0].includes("@") && mappingEntries[0][1].includes("@")
     ? { [mappingEntries[0][0]]: mappingEntries[0][1] }
     : {};
@@ -94,8 +94,63 @@ async function main() {
     throw new Error(`Target email ${conflict.email} is already assigned to another account.`);
   }
 
-  await prisma.$transaction(
-    updates
+  const allowlistEmailTargets = new Map<string, string>();
+  for (const { user, targetEmail } of updates) {
+    allowlistEmailTargets.set(user.email.toLowerCase(), targetEmail.toLowerCase());
+  }
+  for (const [legacyIdentifier, targetEmail] of mappingEntries) {
+    const legacyEmail = legacyIdentifier.includes("@")
+      ? legacyIdentifier
+      : `${legacyIdentifier}@users.routine.invalid`;
+    if (legacyEmail.endsWith("@users.routine.invalid")) {
+      allowlistEmailTargets.set(legacyEmail, targetEmail);
+    }
+  }
+
+  const mappedTargets = [...allowlistEmailTargets.values()];
+  if (new Set(mappedTargets).size !== mappedTargets.length) {
+    throw new Error("Multiple legacy accounts map to the same email address.");
+  }
+
+  const mappedTargetUsers = await prisma.user.findMany({
+    where: { email: { in: mappedTargets } },
+    select: { id: true, email: true },
+  });
+  const mappedTargetUserEmails = new Set(mappedTargetUsers.map(({ email }) => email.toLowerCase()));
+  const pendingTargetUserEmails = new Set(updates.map(({ targetEmail }) => targetEmail.toLowerCase()));
+  const missingTarget = mappedTargets.find(
+    (email) => !mappedTargetUserEmails.has(email) && !pendingTargetUserEmails.has(email),
+  );
+  if (missingTarget) {
+    throw new Error(`No account exists for mapped email ${missingTarget}.`);
+  }
+
+  const allowlistRows = await prisma.$queryRaw<
+    Array<{ id: string; email: string; role: string; revokedAt: Date | null }>
+  >`SELECT "id", "email", "role"::TEXT AS "role", "revokedAt" FROM public."AllowedEmail"`;
+  const allowlistByEmail = new Map(allowlistRows.map((row) => [row.email.toLowerCase(), row]));
+  const allowlistUpdates: Array<{ id: string; targetEmail: string }> = [];
+
+  for (const [legacyEmail, targetEmail] of allowlistEmailTargets) {
+    const legacyRow = allowlistByEmail.get(legacyEmail);
+    if (!legacyRow) continue;
+
+    const targetRow = allowlistByEmail.get(targetEmail);
+    if (targetRow) {
+      const sameRevocation =
+        legacyRow.revokedAt?.getTime() === targetRow.revokedAt?.getTime() ||
+        (!legacyRow.revokedAt && !targetRow.revokedAt);
+      if (legacyRow.role !== targetRow.role || !sameRevocation) {
+        throw new Error(`Legacy and real-email allowlist entries conflict for ${targetEmail}.`);
+      }
+      continue;
+    }
+
+    allowlistUpdates.push({ id: legacyRow.id, targetEmail });
+  }
+
+  const operations = [
+    ...updates
       .filter(({ user, targetEmail }) => user.email.toLowerCase() !== targetEmail.toLowerCase())
       .map(({ user, targetEmail }) =>
         prisma.$executeRaw`
@@ -104,7 +159,16 @@ async function main() {
           WHERE "id" = ${user.id}
         `,
       ),
-  );
+    ...allowlistUpdates.map(({ id, targetEmail }) =>
+      prisma.$executeRaw`
+        UPDATE public."AllowedEmail"
+        SET "email" = ${targetEmail}
+        WHERE "id" = ${id}
+      `,
+    ),
+  ];
+
+  if (operations.length > 0) await prisma.$transaction(operations);
 
   for (const { user, username, targetEmail } of updates) {
     if (user.email.toLowerCase() === targetEmail.toLowerCase()) {
@@ -112,6 +176,12 @@ async function main() {
     } else {
       console.log(`Updated ${user.username ?? username} -> ${targetEmail}`);
     }
+  }
+  for (const { targetEmail } of allowlistUpdates) {
+    console.log(`Updated legacy allowlist entry -> ${targetEmail}`);
+  }
+  if (syntheticUsers.length === 0 && allowlistUpdates.length === 0) {
+    console.log("No synthetic users or legacy allowlist entries required updates.");
   }
 }
 

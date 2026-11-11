@@ -69,7 +69,7 @@ If a legacy database still contains `*@users.routine.invalid` records, run the m
 npm run db:prepare-enterprise
 ```
 
-This script reads `LEGACY_ACCOUNT_EMAILS` (for example `arslan=alamxarslan@gmail.com,suzanne=suzanne.dsouza@gmail.com`) or falls back to `INITIAL_ADMIN_EMAIL` when only one legacy account needs a mapping. It updates synthetic emails to real addresses before the `0007_enterprise_organizations` migration is applied.
+This script reads `LEGACY_ACCOUNT_EMAILS` (for example `arslan=alamxarslan@gmail.com,suzanne=suzanne.dsouza@gmail.com`) or falls back to `INITIAL_ADMIN_EMAIL` when only one legacy account needs a mapping. It updates synthetic `User` emails and matching legacy `AllowedEmail` entries together so the organization migration can preserve each account's role and revocation state.
 
 ## Screens and user journeys
 
