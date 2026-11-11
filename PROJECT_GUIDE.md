@@ -59,6 +59,18 @@ The app is not a public self-registration service. It uses username/password cre
 
 Important auth implementation: `src/lib/auth/auth.ts`, `src/lib/auth/session.ts`, `src/app/(auth)/login/page.tsx`, `src/server/services/admin.ts`, and `prisma/schema.prisma`.
 
+### Enterprise migration path
+
+The app has moved away from the legacy synthetic-email allowlist model toward an organization-scoped workspace model. Accounts are now created with real email addresses and joined to the default `routine-workspace` organization via a `Member` row. The `organization` and `admin` Better Auth plugins enforce workspace membership and role checks, while `systemDb` is reserved for global admin/system operations and `withUserDb()` is used for user-scoped database access.
+
+If a legacy database still contains `*@users.routine.invalid` records, run the migration prep step before applying the tenant migration:
+
+```bash
+npm run db:prepare-enterprise
+```
+
+This script reads `LEGACY_ACCOUNT_EMAILS` (for example `arslan=alamxarslan@gmail.com,suzanne=suzanne.dsouza@gmail.com`) or falls back to `INITIAL_ADMIN_EMAIL` when only one legacy account needs a mapping. It updates synthetic emails to real addresses before the `0007_enterprise_organizations` migration is applied.
+
 ## Screens and user journeys
 
 ### `/` — entry
