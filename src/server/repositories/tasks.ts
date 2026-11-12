@@ -9,7 +9,27 @@ export const s2d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 export async function loadTasks(userId: string): Promise<TaskDef[]> {
   const rows = await withUserDb(userId, (tx) => tx.task.findMany({
     where: { userId },
-    include: { versions: { orderBy: { effectiveFrom: "asc" } } },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      category: true,
+      sortOrder: true,
+      startDate: true,
+      archivedOn: true,
+      versions: {
+        select: {
+          effectiveFrom: true,
+          isMandatory: true,
+          completionType: true,
+          target: true,
+          unit: true,
+          recurrence: true,
+          weekdays: true,
+        },
+        orderBy: { effectiveFrom: "asc" },
+      },
+    },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
   }));
   return rows.map((t) => ({

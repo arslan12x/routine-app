@@ -1,12 +1,26 @@
 "use client";
+import dynamic from "next/dynamic";
 import { Flame, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Card, Ring } from "@/components/ui";
+import { Card, Ring, Skeleton } from "@/components/ui";
 import { api } from "@/lib/fetcher";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import DayTasks, { applyLocal } from "./DayTasks";
-import TaskDialog from "./TaskDialog";
+
+const TaskDialog = dynamic(() => import("./TaskDialog"), {
+  ssr: false,
+  loading: () => (
+    <div aria-label="Loading task editor" aria-busy="true" className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
+      <div className="w-full space-y-4 rounded-t-3xl bg-bg p-5 sm:max-w-lg sm:rounded-3xl">
+        <Skeleton className="h-7 w-40" />
+        <Skeleton className="h-11" />
+        <Skeleton className="h-11" />
+        <Skeleton className="h-11" />
+      </div>
+    </div>
+  ),
+});
 
 const TOKEN_REFRESH_MS = 45 * 60 * 1_000;
 
