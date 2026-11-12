@@ -16,6 +16,8 @@ The app is not a public self-registration service. It uses username/password cre
 
 - Next.js 16 App Router, React 19, TypeScript (strict mode).
 - Tailwind CSS 4 and shared UI components under `src/components/`.
+- Sonner provides app-wide toast feedback; Capacitor Haptics provides light impact feedback in native builds.
+- IndexedDB via `idb-keyval` caches the daily task view and stores user-scoped offline progress mutations for reconnect sync.
 - Better Auth with the username plugin and a Prisma adapter.
 - Prisma 7 with the PostgreSQL driver adapter; Supabase Postgres is the deployment database.
 - Supabase JS Realtime client for owner-scoped live updates in Tasks.
@@ -82,9 +84,12 @@ Redirects to `/tasks`; page authorization then sends a signed-out user to `/logi
 - After authentication, the page streams its task-data region under React Suspense with a task skeleton fallback. The server fetches tasks and logs in parallel before rendering the interactive screen, using the user's saved timezone.
 - Shows the day greeting/date, task progress, current streak, and Mandatory/Extra sections.
 - User can create, edit, archive, or delete a task, and mark progress.
+- When an account has no tasks, the dashboard offers one-click daily measurable templates for walking 10,000 steps or reading 10 pages. Choosing one creates the task and refreshes the dashboard.
 - The task editor modal is dynamically loaded when opened, keeping its form code out of the initial Tasks client bundle.
 - Boolean tasks toggle complete/incomplete. Measurable tasks accept a numeric value. Weekly-total tasks accumulate progress over the configured week.
-- Optimistic UI updates progress immediately; a failed write restores the previous value and displays an error.
+- Task completion updates optimistically without a spinner and triggers light haptics on supported native platforms. Progress writes run in the background in per-task order; failures restore the prior value and show an error toast.
+- Completing every mandatory task for today triggers a confetti reward, success toast, and success haptic on supported native platforms. The reward fires once per day and does not trigger for an initially completed screen or historical dates.
+- The latest daily task view is cached per account in IndexedDB. Progress changes made offline are queued per account and replayed in order when the browser emits its `online` event.
 - This screen listens for owner-scoped database events and refreshes from the server when an event arrives. It also refreshes when the browser returns online/foreground to cover missed events.
 - Past days can be opened via Calendar; task progress can be edited today and for the preceding seven days. Older dates and future dates are read-only/not editable.
 
@@ -105,6 +110,7 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 ### `/calendar` — history
 
 - Shows a month grid, status for past/today/future dates, current and longest streak, success-day count, completion rate, and successful days this month.
+- Calendar date cells show the mandatory-task completion percentage (or a dash when neutral/future); hover or keyboard focus reveals scheduled task completion details.
 - User can change months; future dates cannot be selected.
 - Selecting a day loads that day's tasks. Editable selected dates follow the same backdate limit as Tasks.
 - Calendar refreshes visible data approximately every five seconds and after online/foreground transitions.

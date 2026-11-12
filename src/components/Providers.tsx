@@ -1,5 +1,6 @@
 "use client";
 import { ThemeProvider } from "next-themes";
+import { Toaster } from "sonner";
 import { useEffect, type ReactNode } from "react";
 
 export default function Providers({ children }: { children: ReactNode }) {
@@ -8,5 +9,10 @@ export default function Providers({ children }: { children: ReactNode }) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
   }, []);
-  return <ThemeProvider attribute="class" defaultTheme="system" enableSystem>{children}</ThemeProvider>;
+  return (
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      {children}
+      <Toaster position="top-center" richColors />
+    </ThemeProvider>
+  );
 }

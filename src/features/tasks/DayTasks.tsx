@@ -3,6 +3,7 @@ import { Check, Pencil } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, Empty } from "@/components/ui";
 import { cn, fmtNum } from "@/lib/cn";
+import { triggerLightImpact } from "@/lib/haptics";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import { catLabel } from "./constants";
 
@@ -42,7 +43,10 @@ function Row({ item, editable, onProgress, onEdit }: { item: DayItem; editable: 
         disabled={!editable}
         aria-pressed={item.done}
         aria-label={`${item.done ? "Mark incomplete" : "Mark complete"}: ${item.title}`}
-        onClick={() => onProgress(item, measurable ? (item.value >= item.target ? 0 : item.target) : item.value > 0 ? 0 : 1)}
+        onClick={() => {
+          triggerLightImpact();
+          onProgress(item, measurable ? (item.value >= item.target ? 0 : item.target) : item.value > 0 ? 0 : 1);
+        }}
         className={cn("grid size-11 shrink-0 place-items-center rounded-full border-2 transition", item.done ? "pop border-ok bg-ok text-white" : "border-border bg-card", !editable && "opacity-50")}
       >
         {item.done && <Check size={20} strokeWidth={3} />}

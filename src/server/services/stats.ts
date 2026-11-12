@@ -4,6 +4,7 @@ import { systemDb, withUserDb } from "@/lib/db";
 import { addDays, daysBetween, monthOf, monthRange, todayIn, weekStart } from "@/lib/domain/dates";
 import { computeInsights, type Group } from "@/lib/domain/analytics";
 import { rankRows, type BoardRow } from "@/lib/domain/ranking";
+import { isDone, logKey, scheduledOn, weekDays } from "@/lib/domain/schedule";
 import { computeStreaks, recentConsistency, statusRange } from "@/lib/domain/streaks";
 import { d2s, loadLogs, loadTasks } from "@/server/repositories/tasks";
 
@@ -17,7 +18,26 @@ export async function calendar(user: AppUser, month?: string) {
   const m = month ?? monthOf(today);
   const [from, to] = monthRange(m);
   const [tasks, logs] = await Promise.all([loadTasks(user.id), loadLogs(user.id)]);
-  const days = statusRange(tasks, logs, from, to, today);
+  const days = statusRange(tasks, logs, from, to, today).map((day) => {
+    const scheduledTasks = tasks.flatMap((task) => {
+      const version = scheduledOn(task, day.date);
+      if (!version) return [];
+      const isCompleted = version.recurrence === "WEEKLY_TOTAL"
+        ? weekDays(weekStart(day.date, user.weekStartsOn)).reduce(
+            (sum, date) => sum + (logs.get(logKey(task.id, date)) ?? 0),
+            0,
+          ) >= version.target
+        : isDone(version, logs.get(logKey(task.id, day.date)));
+      return [{ title: task.title, isCompleted, isMandatory: version.isMandatory && version.recurrence !== "WEEKLY_TOTAL" }];
+    });
+
+    return {
+      ...day,
+      totalMandatoryTasks: day.mandatoryTotal,
+      completedMandatoryTasks: day.mandatoryDone,
+      tasks: scheduledTasks,
+    };
+  });
   const s = computeStreaks(tasks, logs, today);
   return {
     month: m, today, weekStartsOn: user.weekStartsOn, days,
