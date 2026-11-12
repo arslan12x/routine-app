@@ -5,8 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Ring, Skeleton } from "@/components/ui";
 import { api } from "@/lib/fetcher";
 import { getSupabaseClient } from "@/lib/supabase";
+import { cacheToday, enqueueProgress, getCachedToday, syncOfflineProgress } from "@/lib/offline-store";
+import { triggerSuccessNotification } from "@/lib/haptics";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
+import { toast } from "sonner";
 import DayTasks, { applyLocal } from "./DayTasks";
+import EmptyDashboardState from "./EmptyDashboardState";
 
 const TaskDialog = dynamic(() => import("./TaskDialog"), {
   ssr: false,
@@ -26,11 +30,66 @@ const TOKEN_REFRESH_MS = 45 * 60 * 1_000;
 
 export default function TasksScreen({ initial, userId }: { initial: DayView; userId: string }) {
   const [data, setData] = useState(initial);
+  const dataRef = useRef(initial);
+  const isMandatoryComplete =
+    initial.date === initial.today &&
+    initial.mandatory.length > 0 &&
+    initial.mandatory.every((item) => item.done);
+  const previousMandatoryComplete = useRef(isMandatoryComplete);
+  const celebratedDates = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ task: TaskView | null } | null>(null);
   const refreshInFlight = useRef(false);
   const writesInFlight = useRef(0);
   const localChanges = useRef(0);
+  const taskWriteVersions = useRef(new Map<string, number>());
+  const taskWriteQueues = useRef(new Map<string, Promise<void>>());
+
+  const updateData = useCallback((update: (current: DayView) => DayView) => {
+    const next = update(dataRef.current);
+    dataRef.current = next;
+    setData(next);
+  }, []);
+
+  const mandatoryComplete =
+    data.date === data.today &&
+    data.mandatory.length > 0 &&
+    data.mandatory.every((item) => item.done);
+
+  useEffect(() => {
+    const wasComplete = previousMandatoryComplete.current;
+    previousMandatoryComplete.current = mandatoryComplete;
+    if (!wasComplete && mandatoryComplete && !celebratedDates.current.has(data.date)) {
+      celebratedDates.current.add(data.date);
+      triggerSuccessNotification();
+      toast.success("All mandatory tasks complete! Great work.");
+      void import("canvas-confetti")
+        .then(({ default: confetti }) => {
+          confetti({
+            particleCount: 120,
+            spread: 75,
+            origin: { y: 0.65 },
+            colors: ["#e24b24", "#f4b942", "#38a169", "#4b8bf4"],
+          });
+        })
+        .catch((error: unknown) => {
+          console.error("[Tasks] Could not load completion confetti", error);
+        });
+    }
+  }, [data.date, mandatoryComplete]);
+
+  const loadToday = useCallback(async () => {
+    try {
+      const next = await api<DayView>("/api/today");
+      await cacheToday(userId, next);
+      return next;
+    } catch (error) {
+      if (navigator.onLine && !(error instanceof TypeError)) throw error;
+      const cached = await getCachedToday(userId);
+      if (cached) return cached;
+      throw error;
+    }
+  }, [userId]);
 
   const refetch = useCallback(async () => {
     if (refreshInFlight.current || writesInFlight.current > 0) return;
@@ -39,15 +98,27 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
     refreshInFlight.current = true;
     const version = localChanges.current;
     try {
-      const next = await api<DayView>("/api/today");
+      const next = await loadToday();
       if (version !== localChanges.current) return;
-      setData((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
+      updateData((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     } catch (e) {
       setError(e instanceof Error ? `Could not refresh tasks: ${e.message}` : "Could not refresh tasks.");
     } finally {
       refreshInFlight.current = false;
     }
-  }, []);
+  }, [loadToday, updateData]);
+
+  const refreshAfterCreate = useCallback(async () => {
+    localChanges.current += 1;
+    const next = await loadToday();
+    updateData(() => next);
+  }, [loadToday, updateData]);
+
+  useEffect(() => {
+    void cacheToday(userId, initial).catch((error: unknown) => {
+      console.error("[Offline] Could not cache today's tasks", error);
+    });
+  }, [initial, userId]);
 
   useEffect(() => {
     let active = true;
@@ -179,23 +250,72 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
     };
   }, [refetch, userId]);
 
-  const onProgress = useCallback(async (item: DayItem, value: number) => {
+  useEffect(() => {
+    let active = true;
+    const sync = async () => {
+      if (!navigator.onLine) return;
+      try {
+        await syncOfflineProgress(userId);
+        if (active) void refetch();
+      } catch (error) {
+        console.error("[Offline] Could not sync queued task progress", error);
+        if (active) toast.error("Some offline progress could not sync. It will be retried.");
+      }
+    };
+
+    window.addEventListener("online", sync);
+    void sync();
+    return () => {
+      active = false;
+      window.removeEventListener("online", sync);
+    };
+  }, [refetch, userId]);
+
+  const onProgress = useCallback((item: DayItem, value: number) => {
     setError(null);
+    const currentItem = [...dataRef.current.mandatory, ...dataRef.current.extra].find(({ id }) => id === item.id);
+    const previousValue = currentItem?.value ?? item.value;
+    const version = (taskWriteVersions.current.get(item.id) ?? 0) + 1;
+    taskWriteVersions.current.set(item.id, version);
     localChanges.current += 1;
     writesInFlight.current += 1;
-    setData((d) => applyLocal(d, item.id, value)); // optimistic
-    let saved = false;
-    try {
-      await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: data.date, value }) });
-      saved = true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save");
-      setData((current) => applyLocal(current, item.id, item.value));
-    } finally {
+    updateData((current) => applyLocal(current, item.id, value));
+
+    const previousWrite = taskWriteQueues.current.get(item.id) ?? Promise.resolve();
+    const write = previousWrite
+      .catch(() => undefined)
+      .then(async () => {
+        if (!navigator.onLine) {
+          await enqueueProgress(userId, { taskId: item.id, date: dataRef.current.date, value });
+          toast.info("Saved offline. Progress will sync when you're back online.");
+          return;
+        }
+
+        await syncOfflineProgress(userId);
+        try {
+          await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: dataRef.current.date, value }) });
+        } catch (error) {
+          if (error instanceof TypeError || !navigator.onLine) {
+            await enqueueProgress(userId, { taskId: item.id, date: dataRef.current.date, value });
+            toast.info("Saved offline. Progress will sync when you're back online.");
+            return;
+          }
+          throw error;
+        }
+      });
+    taskWriteQueues.current.set(item.id, write);
+
+    void write.catch(() => {
+      toast.error("Failed to save progress. Please try again.");
+      if (taskWriteVersions.current.get(item.id) === version) {
+        updateData((current) => applyLocal(current, item.id, previousValue));
+      }
+    }).finally(() => {
       writesInFlight.current -= 1;
-    }
-    if (saved) void refetch(); // refresh derived streaks without delaying the interaction
-  }, [data.date, refetch]);
+      if (taskWriteQueues.current.get(item.id) === write) taskWriteQueues.current.delete(item.id);
+      if (writesInFlight.current === 0 && navigator.onLine) void refetch();
+    });
+  }, [refetch, updateData, userId]);
 
   return (
     <>
@@ -219,10 +339,12 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
 
       {error && <p role="alert" className="mt-4 rounded-xl bg-bad/10 p-3 text-sm text-bad">{error}</p>}
 
-      {data.mandatory.length + data.extra.length === 0 && data.others.length === 0 ? (
+      {!data.hasTasks ? (
+        <EmptyDashboardState onCreated={refreshAfterCreate} />
+      ) : data.mandatory.length + data.extra.length === 0 && data.others.length === 0 ? (
         <div className="mt-8 rounded-2xl border border-dashed border-border p-8 text-center">
-          <div className="display text-xl font-semibold">Start your routine</div>
-          <p className="mt-1 text-sm text-muted">Add a mandatory task (like 10 pages of reading) to begin a streak.</p>
+          <div className="display text-xl font-semibold">No tasks scheduled today</div>
+          <p className="mt-1 text-sm text-muted">Add or adjust a task to build your routine.</p>
         </div>
       ) : (
         <DayTasks data={data} onProgress={onProgress} onEdit={(t) => setDialog({ task: t })} />

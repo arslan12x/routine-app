@@ -13,19 +13,24 @@ import type { DayItem, DayView } from "@/server/services/tasks";
 const SYNC_INTERVAL_MS = 5_000;
 
 export interface CalendarData {
-  month: string; today: string; weekStartsOn: 1 | 7; days: DayInfo[];
+  month: string; today: string; weekStartsOn: 1 | 7;
+  days: (DayInfo & {
+    totalMandatoryTasks: number;
+    completedMandatoryTasks: number;
+    tasks: { title: string; isCompleted: boolean; isMandatory: boolean }[];
+  })[];
   summary: { current: number; longest: number; successDays: number; failedDays: number; completionRate: number | null; monthSuccessDays: number };
 }
 
-function look(d: DayInfo): { cls: string; glyph: string; label: string } {
+function look(d: DayInfo): { cls: string; label: string } {
   switch (d.status) {
-    case "SUCCESS": return { cls: "bg-ok text-white", glyph: "✓", label: "all mandatory tasks done" };
+    case "SUCCESS": return { cls: "bg-ok text-white", label: "all mandatory tasks done" };
     case "FAILED": return d.mandatoryDone > 0
-      ? { cls: "bg-warn/25 text-fg border border-warn", glyph: "½", label: "partially completed" }
-      : { cls: "bg-bad/20 text-bad border border-bad/50", glyph: "✕", label: "no mandatory tasks done" };
-    case "PENDING": return { cls: "border-2 border-dashed border-brand", glyph: "…", label: "in progress" };
-    case "NEUTRAL": return { cls: "bg-soft text-muted", glyph: "–", label: "no mandatory tasks scheduled" };
-    default: return { cls: "text-muted/50", glyph: "", label: "upcoming" };
+      ? { cls: "bg-warn/25 text-fg border border-warn", label: "partially completed" }
+      : { cls: "bg-bad/20 text-bad border border-bad/50", label: "no mandatory tasks done" };
+    case "PENDING": return { cls: "border-2 border-dashed border-brand", label: "in progress" };
+    case "NEUTRAL": return { cls: "bg-soft text-muted", label: "no mandatory tasks scheduled" };
+    default: return { cls: "text-muted/50", label: "upcoming" };
   }
 }
 
@@ -122,21 +127,40 @@ export default function CalendarScreen({ initial }: { initial: CalendarData }) {
           <div className="grid grid-cols-7 gap-1.5 text-center">
             {heads.map((h, i) => <div key={i} className="text-xs text-muted">{h}</div>)}
             {Array.from({ length: offset }, (_, i) => <div key={`b${i}`} />)}
-            {cal.days.map((d) => {
+            {cal.days.map((d, index) => {
               const l = look(d); const n = Number(d.date.slice(8));
+              const percentage = d.totalMandatoryTasks > 0 && d.status !== "FUTURE"
+                ? `${Math.round((d.completedMandatoryTasks / d.totalMandatoryTasks) * 100)}%`
+                : "–";
+              const column = (offset + index) % 7;
+              const tooltipPosition = column >= 5 ? "right-0" : "left-0";
               return (
-                <button key={d.date} disabled={d.status === "FUTURE"} onClick={() => setSel(d.date)} aria-pressed={sel === d.date}
-                  aria-label={`${n} ${title}: ${l.label}`}
-                  className={cn("relative grid aspect-square place-items-center rounded-xl text-sm font-medium transition", l.cls, sel === d.date && "ring-2 ring-fg ring-offset-2 ring-offset-card", d.date === cal.today && "underline underline-offset-4")}>
-                  <span>{n}</span><span aria-hidden className="absolute bottom-0.5 text-[10px] leading-none opacity-80">{l.glyph}</span>
-                </button>
+                <div key={d.date} className="group relative min-w-0">
+                  <button disabled={d.status === "FUTURE"} onClick={() => setSel(d.date)} aria-pressed={sel === d.date}
+                    aria-label={`${n} ${title}: ${percentage} mandatory tasks complete, ${l.label}`}
+                    className={cn("grid aspect-square w-full place-items-center rounded-xl text-sm font-medium transition", l.cls, sel === d.date && "ring-2 ring-fg ring-offset-2 ring-offset-card", d.date === cal.today && "underline underline-offset-4")}>
+                    <span>{n}</span><span aria-hidden className="text-[10px] leading-none opacity-80">{percentage}</span>
+                  </button>
+                  <div role="tooltip" className={cn("pointer-events-none absolute top-full z-50 mt-1 hidden w-56 rounded-xl border border-border bg-card p-3 text-left text-xs shadow-lg group-hover:block group-focus-within:block", tooltipPosition)}>
+                    <p className="mb-2 font-medium">{n} {title} · {percentage} mandatory complete</p>
+                    {d.tasks.length ? (
+                      <ul className="space-y-1.5">
+                        {d.tasks.map((task, taskIndex) => (
+                          <li key={`${task.title}-${taskIndex}`} className="flex items-start gap-2">
+                            <span aria-hidden className={task.isCompleted ? "text-ok" : "text-bad"}>{task.isCompleted ? "✓" : "×"}</span>
+                            <span className="min-w-0 break-words">{task.title}{task.isMandatory ? " · Mandatory" : ""}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-muted">No tasks scheduled.</p>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
         )}
-        <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted" aria-label="Legend">
-          <li>✓ all mandatory done</li><li>½ partial</li><li>✕ none done</li><li>– no mandatory tasks</li><li>… today, in progress</li>
-        </ul>
       </Card>
 
       {err && <p role="alert" className="mt-4 rounded-xl bg-bad/10 p-3 text-sm text-bad">{err}</p>}

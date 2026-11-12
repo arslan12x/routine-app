@@ -18,6 +18,7 @@ export interface TaskView {
 export interface DayItem extends TaskView { value: number; done: boolean; progress: number; weekSum: number | null }
 export interface DayView {
   date: string; today: string; editable: boolean; greeting: string; longDate: string;
+  hasTasks: boolean;
   streak: number; progressPct: number; completed: number; total: number;
   mandatory: DayItem[]; extra: DayItem[]; others: TaskView[];
 }
@@ -70,6 +71,7 @@ export async function dayView(user: AppUser, date: string): Promise<DayView> {
     date, today, editable: date >= addDays(today, -BACKDATE_DAYS),
     greeting: hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening",
     longDate: longDate(date),
+    hasTasks: tasks.length > 0,
     streak: computeStreaks(tasks, logs, today).current,
     progressPct, completed, total: daily.length, mandatory, extra, others,
   };
