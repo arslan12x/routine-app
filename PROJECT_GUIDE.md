@@ -4,7 +4,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 **Maintenance rule for future changes:** when changing user-visible behavior, business rules, API routes, data models, authentication, deployment, or scheduled jobs, update the relevant sections of this guide in the same change. Re-read the implementation and make the guide match the code; code is authoritative if this document ever disagrees. Update the “Guide checked” date below. Do not copy secrets, real account credentials, or `.env` values into this file.
 
-**Guide checked:** 2026-11-11
+**Guide checked:** 2026-11-12
 
 ## What the app does
 
@@ -79,9 +79,10 @@ Redirects to `/tasks`; page authorization then sends a signed-out user to `/logi
 
 ### `/tasks` — daily routine
 
-- Server loads today's view using the user's saved timezone.
+- After authentication, the page streams its task-data region under React Suspense with a task skeleton fallback. The server fetches tasks and logs in parallel before rendering the interactive screen, using the user's saved timezone.
 - Shows the day greeting/date, task progress, current streak, and Mandatory/Extra sections.
 - User can create, edit, archive, or delete a task, and mark progress.
+- The task editor modal is dynamically loaded when opened, keeping its form code out of the initial Tasks client bundle.
 - Boolean tasks toggle complete/incomplete. Measurable tasks accept a numeric value. Weekly-total tasks accumulate progress over the configured week.
 - Optimistic UI updates progress immediately; a failed write restores the previous value and displays an error.
 - This screen listens for owner-scoped database events and refreshes from the server when an event arrives. It also refreshes when the browser returns online/foreground to cover missed events.
@@ -114,7 +115,7 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 - Custom range is limited to 366 days and must have valid ordered dates.
 - Grouping can be automatic or Day/Week/Month.
 - Shows task completion totals/rates, mandatory and extra rates, current/longest streaks, consistency, best weekday when enough observations exist, and trend/category charts.
-- Chart rendering is dynamically loaded on the client.
+- Chart rendering is dynamically loaded on the client; the Recharts-dependent component disables SSR.
 
 ### `/friends` — aggregate leaderboard
 
@@ -251,6 +252,8 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
 
 Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
+
+Task/statistics repositories use explicit Prisma `select` projections for UI and export data, including nested task versions and task logs, to avoid transferring unused columns through the database connection.
 
 ## Configuration and operations
 

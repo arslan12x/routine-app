@@ -78,7 +78,11 @@ export async function leaderboard(viewer: AppUser) {
 export async function exportAll(user: AppUser) {
   const [tasks, logs] = await Promise.all([
     loadTasks(user.id),
-    withUserDb(user.id, (tx) => tx.taskLog.findMany({ where: { userId: user.id }, orderBy: { localDate: "asc" } })),
+    withUserDb(user.id, (tx) => tx.taskLog.findMany({
+      where: { userId: user.id },
+      select: { taskId: true, localDate: true, value: true },
+      orderBy: { localDate: "asc" },
+    })),
   ]);
   return { exportedAt: new Date().toISOString(), tasks, logs: logs.map((l) => ({ taskId: l.taskId, date: d2s(l.localDate), value: l.value })) };
 }
