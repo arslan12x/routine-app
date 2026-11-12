@@ -4,7 +4,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 **Maintenance rule for future changes:** when changing user-visible behavior, business rules, API routes, data models, authentication, deployment, or scheduled jobs, update the relevant sections of this guide in the same change. Re-read the implementation and make the guide match the code; code is authoritative if this document ever disagrees. Update the “Guide checked” date below. Do not copy secrets, real account credentials, or `.env` values into this file.
 
-**Guide checked:** 2026-11-12
+**Guide checked:** 2026-11-13
 
 ## What the app does
 
@@ -123,11 +123,13 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 - Shows task completion totals/rates, mandatory and extra rates, current/longest streaks, consistency, best weekday when enough observations exist, and trend/category charts.
 - Chart rendering is dynamically loaded on the client; the Recharts-dependent component disables SSR.
 
-### `/friends` — aggregate leaderboard
+### `/friends` — private friends and leaderboard
 
-- Lists active, non-revoked accounts that opted into leaderboard visibility.
+- The Leaderboard tab shows the current user and accepted friends who opted into leaderboard visibility. Better Auth global admins can see all opted-in workspace members.
+- Add Friends lists active workspace accounts with safe profile fields only; emails and authentication data are never returned.
+- Requests shows incoming requests with Accept and Decline actions. Declining deletes the pending request, so the sender can request again later.
 - Rank order: current streak, 30-day consistency, successful days, longest streak, earlier join date, then stable ID.
-- The response intentionally excludes account IDs, credential emails, task titles, and individual daily logs. Only aggregate values, display name, image, and rank are returned.
+- Leaderboard responses intentionally exclude account IDs, credential emails, task titles, and individual daily logs. Only aggregate values, display name, image, and rank are returned.
 
 ### `/settings` — personal preferences and export
 
@@ -230,7 +232,10 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `GET /api/calendar/:date` | Signed-in user | Selected day view. |
 | `GET /api/streaks` | Signed-in user | Streak summary. |
 | `GET /api/insights` | Signed-in user | Range/group-based metrics and chart series. |
-| `GET /api/leaderboard` | Signed-in user | Safe aggregate leaderboard. |
+| `GET /api/leaderboard` | Signed-in user | Safe aggregate leaderboard for self and accepted friends; Better Auth global admins see all opted-in workspace members. |
+| `GET /api/friends/discover` | Signed-in user | Safe workspace profile list, friendship states, and incoming requests. |
+| `POST /api/friends/requests` | Signed-in user | Send a pending friend request by user ID. |
+| `PUT /api/friends/requests/:userId` | Signed-in user | Accept or decline the pending request from that user. Decline removes the request. |
 | `GET /api/export` | Signed-in user | Own task definitions and logs. |
 | `GET /api/admin/accounts` | Admin | List provisioned accounts. |
 | `POST /api/admin/accounts` | Admin | Create a provisioned account. |
@@ -251,13 +256,14 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `Session`, `Account`, `Verification`: Better Auth persistence, including credential password hash in `Account`.
 - `Organization`, `Member`, and `Invitation`: workspace-level tenancy model. A user becomes active only when they belong to an organization and have an assigned role such as `member`, `admin`, or `owner`.
 - `UserSettings`: timezone, timezone initialization flag, week start, public display name, leaderboard visibility.
+- `Friendship`: directed pending request or accepted connection; user-facing relationship queries and mutations use `withUserDb()` and participant-scoped RLS policies.
 - `Task`: stable task identity and cosmetic fields, owner, start/archive dates, order.
 - `TaskVersion`: effective-dated recurrence, mandatory status, completion type, target, unit, weekdays.
 - `TaskLog`: absolute progress value for a task/local date.
 - `PushSubscription`: one Web Push endpoint and key set per enabled device, linked to a user.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
 
-Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
+Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
 Task/statistics repositories use explicit Prisma `select` projections for UI and export data, including nested task versions and task logs, to avoid transferring unused columns through the database connection.
 

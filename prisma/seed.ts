@@ -32,8 +32,8 @@ async function main() {
 
     const user = await tx.user.upsert({
       where: { username },
-      update: { name: username, email, emailVerified: true, banned: false },
-      create: { id: crypto.randomUUID(), username, name: username, email, emailVerified: true },
+      update: { name: username, email, emailVerified: true, banned: false, role: "admin" },
+      create: { id: crypto.randomUUID(), username, name: username, email, emailVerified: true, role: "admin" },
     });
 
     await tx.userSettings.upsert({

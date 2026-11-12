@@ -63,8 +63,30 @@ export async function insights(user: AppUser, q: { range: "day" | "week" | "mont
 
 /** Public projection only: no ids, emails, task titles or per-day data ever leave this function. */
 export async function leaderboard(viewer: AppUser) {
+  const globalRole = await systemDb.user.findUnique({
+    where: { id: viewer.id },
+    select: { role: true },
+  });
+  const visibleUserIds = globalRole?.role === "admin"
+    ? undefined
+    : await withUserDb(viewer.id, async (tx) => {
+        const friendships = await tx.friendship.findMany({
+          where: {
+            status: "ACCEPTED",
+            OR: [{ requesterId: viewer.id }, { addresseeId: viewer.id }],
+          },
+          select: { requesterId: true, addresseeId: true },
+        });
+        return [...new Set([
+          viewer.id,
+          ...friendships.map((friendship) =>
+            friendship.requesterId === viewer.id ? friendship.addresseeId : friendship.requesterId,
+          ),
+        ])];
+      });
   const users = await systemDb.user.findMany({
     where: {
+      ...(visibleUserIds ? { id: { in: visibleUserIds } } : {}),
       banned: false,
       settings: { is: { showOnLeaderboard: true } },
       members: { some: { organization: { slug: "routine-workspace" } } },
