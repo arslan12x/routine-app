@@ -60,5 +60,12 @@ export const accountCreateBody = z.object({
   role: z.enum(["MEMBER", "ADMIN"]).default("MEMBER"),
 });
 
+export const friendRequestBody = z.object({
+  userId: z.string().trim().min(1).max(128),
+});
+export const friendRequestActionBody = z.object({
+  action: z.enum(["accept", "decline"]),
+});
+
 export type TaskCreate = z.infer<typeof taskCreate>;
 export type TaskPatch = z.infer<typeof taskPatch>;

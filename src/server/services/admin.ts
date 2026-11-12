@@ -58,6 +58,7 @@ export async function addAllowed(admin: AppUser, usernameRaw: string, emailRaw: 
         name: username,
         email,
         emailVerified: true,
+        role: role === "ADMIN" ? "admin" : "user",
         members: {
           create: {
             id: crypto.randomUUID(),

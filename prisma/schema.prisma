@@ -44,10 +44,26 @@ model User {
   accounts      Account[]
   members       Member[]
   invitationsSent Invitation[] @relation("InvitationInviter")
+  sentRequests  Friendship[] @relation("FriendshipRequester")
+  receivedRequests Friendship[] @relation("FriendshipAddressee")
   settings      UserSettings?
   tasks         Task[]
   logs          TaskLog[]
   pushSubscriptions PushSubscription[]
+}
+
+model Friendship {
+  id          String   @id
+  requesterId String
+  addresseeId String
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  requester   User     @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User     @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterId, status])
+  @@index([addresseeId, status])
 }
 
 model Session {
