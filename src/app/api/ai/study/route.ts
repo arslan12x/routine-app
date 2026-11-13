@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     ].join("\n\n");
 
     const result = streamText({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-3.5-flash-lite"),
       system,
       messages,
       abortSignal: request.signal,
