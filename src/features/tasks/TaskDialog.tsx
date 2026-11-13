@@ -19,7 +19,7 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }));
   const weekly = f.recurrence === "WEEKLY_TOTAL";
   const needsTarget = f.completionType === "MEASURABLE" || weekly;
-  const canChangeAiGate = !task || (!task.isAiGated && task.completionType === "BOOLEAN" && task.recurrence === "DAILY");
+  const canChangeAiGate = !task || !task.isAiGated;
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true); setErr(null);
@@ -50,11 +50,10 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
           <div><label className={lbl} htmlFor="t-cat">Category</label>
             <div className="relative min-w-0"><select id="t-cat" className={selectCls} value={f.category} onChange={(e) => set("category", e.target.value as Form["category"])}>{CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
           <div><label className={lbl} htmlFor="t-type">Completion</label>
-            <div className="relative min-w-0"><select id="t-type" disabled={f.isAiGated} className={selectCls} value={f.completionType} onChange={(e) => set("completionType", e.target.value as Form["completionType"])}><option value="BOOLEAN">Done / not done</option><option value="MEASURABLE">Measured amount</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
+            <div className="relative min-w-0"><select id="t-type" className={selectCls} value={f.completionType} onChange={(e) => set("completionType", e.target.value as Form["completionType"])}><option value="BOOLEAN">Done / not done</option><option value="MEASURABLE">Measured amount</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         </div>
         <div><label className={lbl} htmlFor="t-rec">Repeats</label>
-          <div className="relative min-w-0"><select id="t-rec" disabled={f.isAiGated} className={selectCls} value={f.recurrence} onChange={(e) => set("recurrence", e.target.value as Form["recurrence"])}><option value="DAILY">Every day</option><option value="WEEKDAYS">Selected weekdays</option><option value="WEEKLY_TOTAL">Weekly total (extra only)</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
-        {f.isAiGated && <p className="-mt-2 text-xs text-muted">AI-guided tasks are fixed to daily done/not-done completion, so these settings are locked.</p>}
+          <div className="relative min-w-0"><select id="t-rec" className={selectCls} value={f.recurrence} onChange={(e) => set("recurrence", e.target.value as Form["recurrence"])}><option value="DAILY">Every day</option><option value="WEEKDAYS">Selected weekdays</option><option value="WEEKLY_TOTAL">Weekly total (extra only)</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         {f.recurrence === "WEEKDAYS" && (
           <div role="group" aria-label="Weekdays" className="flex flex-wrap gap-2">
             {WEEKDAY_LABELS.map((l, i) => { const d = i + 1, on = f.weekdays.includes(d); return (
@@ -64,7 +63,7 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
         )}
         {needsTarget && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div><label className={lbl} htmlFor="t-target">{weekly ? "Weekly target" : "Daily target"}</label><input id="t-target" type="number" min="0.01" step="any" required className={inputCls} value={f.target} onChange={(e) => set("target", Number(e.target.value))} /></div>
+            <div><label className={lbl} htmlFor="t-target">{weekly ? "Weekly target" : "Daily target"}</label><input id="t-target" type="number" min="0.01" step="any" required className={inputCls} value={f.target} onChange={(e) => set("target", Number(e.target.value))} />{weekly && f.isAiGated && <p className="mt-1 text-xs text-muted">A passing study session counts as one session toward this weekly target.</p>}</div>
             <div><label className={lbl} htmlFor="t-unit">Unit</label><input id="t-unit" list="units" maxLength={20} className={inputCls} value={f.unit ?? ""} onChange={(e) => set("unit", e.target.value)} placeholder={weekly && f.completionType === "BOOLEAN" ? "days" : "steps"} />
               <datalist id="units">{UNITS.map((u) => <option key={u} value={u} />)}</datalist></div>
           </div>
@@ -92,8 +91,6 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
                   aiCourseName: enabled && current.aiSubject === "CUSTOM" ? current.aiCourseName : null,
                   aiCoursePrompt: enabled && current.aiSubject === "CUSTOM" ? current.aiCoursePrompt : null,
                   category: enabled ? "LEARNING" : current.category,
-                  completionType: enabled ? "BOOLEAN" : current.completionType,
-                  recurrence: enabled ? "DAILY" : current.recurrence,
                 }));
               }}
             />
