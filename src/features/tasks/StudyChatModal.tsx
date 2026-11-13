@@ -41,6 +41,18 @@ export default function StudyChatModal({
     transport: new DefaultChatTransport({
       api: "/api/ai/study",
       body: { taskId: task.id },
+      fetch: async (input, init) => {
+        const response = await fetch(input, init);
+        if (response.ok) return response;
+
+        const payload: unknown = await response.clone().json().catch(() => null);
+        const message = typeof payload === "object" && payload !== null
+          && "error" in payload && typeof payload.error === "object" && payload.error !== null
+          && "message" in payload.error && typeof payload.error.message === "string"
+          ? payload.error.message
+          : `Study request failed (${response.status}). Please try again.`;
+        throw new Error(message);
+      },
     }),
     onError: (chatError) => console.error("[AI study] Chat request failed", chatError),
   });

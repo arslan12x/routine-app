@@ -42,6 +42,22 @@ function errorResponse(error: unknown) {
   );
 }
 
+function publicStreamError(error: unknown): string {
+  const statusCode = typeof error === "object" && error !== null && "statusCode" in error
+    ? Number(error.statusCode)
+    : undefined;
+  if (statusCode === 401 || statusCode === 403) {
+    return "Gemini rejected the API key or model access. Check GOOGLE_GENERATIVE_AI_API_KEY and Gemini API access in the deployment settings.";
+  }
+  if (statusCode === 404) {
+    return "The configured Gemini model is unavailable. Check the model name and API access.";
+  }
+  if (statusCode === 429) {
+    return "Gemini's request quota or rate limit was reached. Please try again later or check the API quota.";
+  }
+  return "The study assistant failed while generating a response. Check the AI study function logs for details.";
+}
+
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request);
@@ -114,7 +130,12 @@ export async function POST(request: Request) {
       onError: ({ error }) => console.error("[AI study] Gemini stream failed", error),
     });
 
-    const response = result.toUIMessageStreamResponse();
+    const response = result.toUIMessageStreamResponse({
+      onError: (error) => {
+        console.error("[AI study] Stream error", error);
+        return publicStreamError(error);
+      },
+    });
     const headers = new Headers(response.headers);
     headers.set("Cache-Control", "private, no-store");
     return new Response(response.body, {

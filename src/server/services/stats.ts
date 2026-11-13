@@ -6,7 +6,7 @@ import { computeInsights, type Group } from "@/lib/domain/analytics";
 import { rankRows, type BoardRow } from "@/lib/domain/ranking";
 import { isDone, logKey, scheduledOn, weekDays } from "@/lib/domain/schedule";
 import { computeStreaks, recentConsistency, statusRange } from "@/lib/domain/streaks";
-import { d2s, loadLogs, loadTasks } from "@/server/repositories/tasks";
+import { d2s, loadLogs, loadTaskData, loadTasks } from "@/server/repositories/tasks";
 
 export async function streaks(user: AppUser) {
   const [tasks, logs] = await Promise.all([loadTasks(user.id), loadLogs(user.id)]);
@@ -100,9 +100,12 @@ export async function leaderboard(viewer: AppUser) {
     },
   });
   type Row = BoardRow & { isMe: boolean };
-  const rows: Row[] = await Promise.all(
-    users.map(async (u): Promise<Row> => {
-      const [tasks, logs] = await Promise.all([loadTasks(u.id), loadLogs(u.id)]);
+  const rows: Row[] = [];
+  for (let i = 0; i < users.length; i += 2) {
+    const batch = users.slice(i, i + 2);
+    rows.push(...await Promise.all(
+      batch.map(async (u): Promise<Row> => {
+      const { tasks, logs } = await loadTaskData(u.id);
       const today = todayIn(u.settings?.timezone ?? "Asia/Kolkata");
       const s = computeStreaks(tasks, logs, today);
       const c = recentConsistency(tasks, logs, today, 30, 7);
@@ -112,8 +115,9 @@ export async function leaderboard(viewer: AppUser) {
         currentStreak: s.current, longestStreak: s.longest, consistency: c.rate,
         successDays: s.successDays, mandatoryPerDay: c.mandatoryPerDay, joinedAt: u.createdAt.toISOString(),
       };
-    }),
-  );
+      }),
+    ));
+  }
   return rankRows(rows).map(({ tiebreakId: _t, joinedAt: _j, ...pub }) => pub);
 }
 
