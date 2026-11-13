@@ -35,8 +35,6 @@ function validateStudySettings(settings: {
   aiSubject: StudySubject | null;
   aiCourseName: string | null;
   aiCoursePrompt: string | null;
-  completionType: CompletionType;
-  recurrence: Recurrence;
 }) {
   if (settings.isAiGated && !settings.aiSubject) {
     throw new ApiError(400, "VALIDATION", "Choose a course for AI-guided completion");
@@ -49,9 +47,6 @@ function validateStudySettings(settings: {
   }
   if (settings.aiSubject !== "CUSTOM" && (settings.aiCourseName || settings.aiCoursePrompt)) {
     throw new ApiError(400, "VALIDATION", "Custom course details are only valid for a custom AI-guided course");
-  }
-  if (settings.isAiGated && (settings.completionType !== "BOOLEAN" || settings.recurrence !== "DAILY")) {
-    throw new ApiError(400, "VALIDATION", "AI-guided tasks must use daily done/not-done completion");
   }
 }
 
@@ -115,8 +110,6 @@ export async function createTask(user: AppUser, input: TaskCreate) {
     aiSubject: input.aiSubject ?? null,
     aiCourseName: input.aiCourseName ?? null,
     aiCoursePrompt: input.aiCoursePrompt ?? null,
-    completionType: input.completionType,
-    recurrence: input.recurrence,
   });
   const today = todayIn(user.timezone);
   const startDate = input.startDate ?? today;
@@ -184,8 +177,6 @@ export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
       aiSubject,
       aiCourseName,
       aiCoursePrompt,
-      completionType,
-      recurrence,
     });
     const merged = {
       isMandatory: patch.isMandatory ?? cur.isMandatory,
@@ -239,7 +230,22 @@ export async function setProgress(user: AppUser, taskId: string, date: string, v
 
 export async function completeAiStudyTask(user: AppUser, taskId: string) {
   const today = todayIn(user.timezone);
-  return writeProgress(user, taskId, today, 1, true);
+  const task = (await loadTasks(user.id)).find((item) => item.id === taskId);
+  if (!task?.isAiGated) throw new ApiError(404, "NOT_FOUND", "AI-guided task not found");
+  const version = scheduledOn(task, today);
+  if (!version) throw new ApiError(400, "NOT_SCHEDULED", "This task is not scheduled today");
+  const value = version.recurrence === "WEEKLY_TOTAL"
+    ? 1
+    : version.completionType === "MEASURABLE"
+      ? version.target
+      : 1;
+  const progress = await writeProgress(user, taskId, today, value, true);
+  if (version.recurrence !== "WEEKLY_TOTAL") return { ...progress, completed: true };
+
+  const logs = await loadLogs(user.id);
+  const total = weekDays(weekStart(today, user.weekStartsOn))
+    .reduce((sum, date) => sum + (logs.get(logKey(taskId, date)) ?? 0), 0);
+  return { ...progress, completed: total >= version.target };
 }
 
 export async function aiStudyTaskContext(user: AppUser, taskId: string) {
@@ -252,6 +258,10 @@ export async function aiStudyTaskContext(user: AppUser, taskId: string) {
   const date = todayIn(user.timezone);
   const version = scheduledOn(task, date);
   if (!version) throw new ApiError(400, "NOT_SCHEDULED", "This task is not scheduled today");
+  const value = logs.get(logKey(task.id, date));
+  const isCompleted = version.recurrence === "WEEKLY_TOTAL"
+    ? weekDays(weekStart(date, user.weekStartsOn)).reduce((sum, day) => sum + (logs.get(logKey(task.id, day)) ?? 0), 0) >= version.target
+    : isDone(version, value);
   return {
     id: task.id,
     title: task.title,
@@ -260,7 +270,7 @@ export async function aiStudyTaskContext(user: AppUser, taskId: string) {
     aiCourseName: task.aiCourseName,
     aiCoursePrompt: task.aiCoursePrompt,
     date,
-    isCompleted: isDone(version, logs.get(logKey(task.id, date))),
+    isCompleted,
   };
 }
 
