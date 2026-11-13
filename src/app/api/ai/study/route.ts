@@ -15,8 +15,8 @@ const requestSchema = z.object({
     role: z.enum(["user", "assistant"]),
     parts: z.array(z.object({
       type: z.string(),
-      text: z.string().max(4_000).optional(),
-    })).max(8),
+      text: z.string().max(40_000).optional(),
+    })).max(64),
   })).max(30),
 });
 
@@ -70,7 +70,10 @@ export async function POST(request: Request) {
     }
 
     const parsedBody = requestSchema.safeParse(await request.json().catch(() => null));
-    if (!parsedBody.success) throw new ApiError(400, "VALIDATION", "Invalid study chat request");
+    if (!parsedBody.success) {
+      console.warn("[AI study] Invalid request shape", parsedBody.error.issues.map(({ code, path }) => ({ code, path })));
+      throw new ApiError(400, "VALIDATION", "The study conversation contains an unsupported or oversized message. Shorten it and try again.");
+    }
     const { taskId, messages: incomingMessages } = parsedBody.data;
     const task = await aiStudyTaskContext(user, taskId);
     const messages = incomingMessages
@@ -79,8 +82,7 @@ export async function POST(request: Request) {
         content: message.parts
           .filter((part) => part.type === "text" && typeof part.text === "string")
           .map((part) => part.text)
-          .join("\n")
-          .slice(0, 4_000),
+          .join("\n"),
       }))
       .filter((message) => message.content.trim().length > 0);
     if (messages.length === 0 || messages.at(-1)?.role !== "user") {
