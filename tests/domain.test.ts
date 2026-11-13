@@ -13,7 +13,7 @@ const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
 });
 const task = (id: string, o: Partial<TaskDef> = {}, v: Partial<TaskVersion> = {}): TaskDef => ({
   id, title: id, description: null, category: "FITNESS", sortOrder: 0, startDate: "2026-11-01", archivedOn: null,
-  isAiGated: false, aiSubject: null,
+  isAiGated: false, aiSubject: null, aiCourseName: null, aiCoursePrompt: null,
   versions: [ver({ effectiveFrom: o.startDate ?? "2026-11-01", ...v })], ...o,
 });
 const logs = (id: string, days: [string, number][]): LogMap => new Map(days.map(([d, v]) => [logKey(id, d), v]));

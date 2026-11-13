@@ -12,7 +12,7 @@ export const BACKDATE_DAYS = 7;
 
 export interface TaskView {
   id: string; title: string; description: string | null; category: Category;
-  isAiGated: boolean; aiSubject: StudySubject | null;
+  isAiGated: boolean; aiSubject: StudySubject | null; aiCourseName: string | null; aiCoursePrompt: string | null;
   isMandatory: boolean; completionType: CompletionType; target: number; unit: string | null;
   recurrence: Recurrence; weekdays: number[];
 }
@@ -26,13 +26,15 @@ export interface DayView {
 
 const view = (t: TaskDef, v: NonNullable<ReturnType<typeof versionOn>>): TaskView => ({
   id: t.id, title: t.title, description: t.description, category: t.category, isMandatory: v.isMandatory,
-  isAiGated: t.isAiGated, aiSubject: t.aiSubject,
+  isAiGated: t.isAiGated, aiSubject: t.aiSubject, aiCourseName: t.aiCourseName, aiCoursePrompt: t.aiCoursePrompt,
   completionType: v.completionType, target: v.target, unit: v.unit, recurrence: v.recurrence, weekdays: v.weekdays,
 });
 
 function validateStudySettings(settings: {
   isAiGated: boolean;
   aiSubject: StudySubject | null;
+  aiCourseName: string | null;
+  aiCoursePrompt: string | null;
   completionType: CompletionType;
   recurrence: Recurrence;
 }) {
@@ -41,6 +43,12 @@ function validateStudySettings(settings: {
   }
   if (!settings.isAiGated && settings.aiSubject) {
     throw new ApiError(400, "VALIDATION", "A course can only be set for an AI-guided task");
+  }
+  if (settings.isAiGated && settings.aiSubject === "CUSTOM" && (!settings.aiCourseName?.trim() || !settings.aiCoursePrompt?.trim())) {
+    throw new ApiError(400, "VALIDATION", "Enter a course name and learning prompt for a custom study course");
+  }
+  if (settings.aiSubject !== "CUSTOM" && (settings.aiCourseName || settings.aiCoursePrompt)) {
+    throw new ApiError(400, "VALIDATION", "Custom course details are only valid for a custom AI-guided course");
   }
   if (settings.isAiGated && (settings.completionType !== "BOOLEAN" || settings.recurrence !== "DAILY")) {
     throw new ApiError(400, "VALIDATION", "AI-guided tasks must use daily done/not-done completion");
@@ -105,6 +113,8 @@ export async function createTask(user: AppUser, input: TaskCreate) {
   validateStudySettings({
     isAiGated: input.isAiGated,
     aiSubject: input.aiSubject ?? null,
+    aiCourseName: input.aiCourseName ?? null,
+    aiCoursePrompt: input.aiCoursePrompt ?? null,
     completionType: input.completionType,
     recurrence: input.recurrence,
   });
@@ -118,6 +128,8 @@ export async function createTask(user: AppUser, input: TaskCreate) {
       data: {
         userId: user.id, title: input.title, description: input.description ?? null, category: input.category,
         isAiGated: input.isAiGated, aiSubject: input.aiSubject ?? null,
+        aiCourseName: input.aiSubject === "CUSTOM" ? input.aiCourseName ?? null : null,
+        aiCoursePrompt: input.aiSubject === "CUSTOM" ? input.aiCoursePrompt ?? null : null,
         startDate: s2d(startDate), sortOrder: (agg._max.sortOrder ?? -1) + 1,
         versions: {
           create: {
@@ -154,38 +166,54 @@ export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
       : patch.isAiGated === false
         ? null
         : task.aiSubject;
+    const aiCourseName = patch.aiCourseName !== undefined
+      ? patch.aiCourseName
+      : patch.aiSubject !== undefined && patch.aiSubject !== "CUSTOM"
+        ? null
+        : task.aiCourseName;
+    const aiCoursePrompt = patch.aiCoursePrompt !== undefined
+      ? patch.aiCoursePrompt
+      : patch.aiSubject !== undefined && patch.aiSubject !== "CUSTOM"
+        ? null
+        : task.aiCoursePrompt;
 
     const recurrence = (patch.recurrence ?? cur.recurrence) as Recurrence;
+    const completionType = patch.completionType ?? cur.completionType;
     validateStudySettings({
       isAiGated,
       aiSubject,
-      completionType: cur.completionType,
+      aiCourseName,
+      aiCoursePrompt,
+      completionType,
       recurrence,
     });
     const merged = {
       isMandatory: patch.isMandatory ?? cur.isMandatory,
+      completionType,
       recurrence,
       weekdays: recurrence === "WEEKDAYS" ? patch.weekdays ?? cur.weekdays : [],
-      unit: patch.unit !== undefined ? patch.unit : cur.unit,
-      target: cur.completionType === "BOOLEAN" && recurrence !== "WEEKLY_TOTAL" ? 1 : patch.target ?? cur.target,
+      unit: completionType === "BOOLEAN" && recurrence !== "WEEKLY_TOTAL"
+        ? null
+        : patch.unit !== undefined ? patch.unit : cur.unit,
+      target: completionType === "BOOLEAN" && recurrence !== "WEEKLY_TOTAL" ? 1 : patch.target ?? cur.target,
     };
     validateRules(merged);
     const changed =
       merged.isMandatory !== cur.isMandatory || merged.recurrence !== cur.recurrence || merged.target !== cur.target ||
-      merged.unit !== cur.unit || merged.weekdays.join() !== cur.weekdays.join();
+      merged.unit !== cur.unit || merged.completionType !== cur.completionType || merged.weekdays.join() !== cur.weekdays.join();
 
     await tx.task.update({
       where: { id },
       data: {
         title: patch.title, description: patch.description, category: patch.category,
-        isAiGated: patch.isAiGated, aiSubject: patch.aiSubject,
+        isAiGated: patch.isAiGated, aiSubject: patch.aiSubject, aiCourseName, aiCoursePrompt,
         archivedOn: patch.archived ? s2d(today) : undefined,
       },
     });
     if (changed) {
       await tx.taskVersion.upsert({
         where: { taskId_effectiveFrom: { taskId: id, effectiveFrom: s2d(eff) } },
-        create: { taskId: id, effectiveFrom: s2d(eff), completionType: cur.completionType, ...merged },
+        create: { taskId: id, effectiveFrom: s2d(eff), ...merged },
         update: merged,
       });
     }
@@ -229,6 +257,8 @@ export async function aiStudyTaskContext(user: AppUser, taskId: string) {
     title: task.title,
     description: task.description,
     subject: task.aiSubject,
+    aiCourseName: task.aiCourseName,
+    aiCoursePrompt: task.aiCoursePrompt,
     date,
     isCompleted: isDone(version, logs.get(logKey(task.id, date))),
   };

@@ -13,6 +13,7 @@ const subjectLabels = {
   FDA: "Forward Deployed Engineering",
   JAVA: "Java",
   SYSTEM_DESIGN: "System Design",
+  CUSTOM: "Custom study course",
 } as const;
 
 function completionOutput(message: UIMessage) {
@@ -75,7 +76,7 @@ export default function StudyChatModal({
   return (
     <Modal title={`Study · ${task.title}`} onClose={() => { stop(); onClose(); }}>
       <div className="mb-3 rounded-xl bg-soft p-3 text-sm">
-        <div className="font-medium">{subjectLabels[task.aiSubject ?? "DSA"]}</div>
+        <div className="font-medium">{task.aiSubject === "CUSTOM" ? task.aiCourseName : subjectLabels[task.aiSubject ?? "DSA"]}</div>
         <div className="text-xs text-muted">Today's task is completed only after the AI evaluates a successful exercise.</div>
       </div>
       <div className="max-h-[45dvh] space-y-3 overflow-y-auto rounded-xl border border-border p-3" aria-live="polite">

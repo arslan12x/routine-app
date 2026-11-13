@@ -2,7 +2,7 @@ export type DateStr = string; // "YYYY-MM-DD" local calendar date
 export type Category = "FITNESS" | "LEARNING" | "HEALTH" | "PERSONAL_DEVELOPMENT" | "OTHER";
 export type CompletionType = "BOOLEAN" | "MEASURABLE";
 export type Recurrence = "DAILY" | "WEEKDAYS" | "WEEKLY_TOTAL";
-export type StudySubject = "DSA" | "FDA" | "JAVA" | "SYSTEM_DESIGN";
+export type StudySubject = "DSA" | "FDA" | "JAVA" | "SYSTEM_DESIGN" | "CUSTOM";
 
 export interface TaskVersion {
   effectiveFrom: DateStr;
@@ -21,6 +21,8 @@ export interface TaskDef {
   category: Category;
   isAiGated: boolean;
   aiSubject: StudySubject | null;
+  aiCourseName: string | null;
+  aiCoursePrompt: string | null;
   sortOrder: number;
   startDate: DateStr;
   archivedOn: DateStr | null;
