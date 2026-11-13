@@ -26,6 +26,13 @@ enum Recurrence {
   WEEKLY_TOTAL
 }
 
+enum StudySubject {
+  DSA
+  FDA
+  JAVA
+  SYSTEM_DESIGN
+}
+
 // ---- Better Auth core tables ----
 model User {
   id            String        @id
@@ -190,6 +197,8 @@ model Task {
   title       String
   description String?
   category    Category      @default(OTHER)
+  isAiGated   Boolean       @default(false)
+  aiSubject   StudySubject?
   sortOrder   Int           @default(0)
   startDate   DateTime      @db.Date
   archivedOn  DateTime?     @db.Date // exclusive end: not scheduled on/after this date

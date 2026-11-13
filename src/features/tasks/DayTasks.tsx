@@ -26,7 +26,13 @@ export function applyLocal(d: DayView, id: string, value: number): DayView {
   };
 }
 
-function Row({ item, editable, onProgress, onEdit }: { item: DayItem; editable: boolean; onProgress: (i: DayItem, v: number) => void; onEdit?: (t: TaskView) => void }) {
+function Row({ item, editable, onProgress, onStudy, onEdit }: {
+  item: DayItem;
+  editable: boolean;
+  onProgress: (i: DayItem, v: number) => void;
+  onStudy?: (i: DayItem) => void;
+  onEdit?: (t: TaskView) => void;
+}) {
   const measurable = item.completionType === "MEASURABLE";
   const weekly = item.recurrence === "WEEKLY_TOTAL";
   const [draft, setDraft] = useState(item.value ? String(item.value) : "");
@@ -40,10 +46,16 @@ function Row({ item, editable, onProgress, onEdit }: { item: DayItem; editable: 
   return (
     <Card className={cn("flex items-start gap-3 p-3", item.done && "border-ok/40")}>
       <button
-        disabled={!editable}
+        disabled={!editable || (item.isAiGated && !onStudy)}
         aria-pressed={item.done}
-        aria-label={`${item.done ? "Mark incomplete" : "Mark complete"}: ${item.title}`}
+        aria-label={item.isAiGated
+          ? `${item.done ? "Review" : "Start"} AI study: ${item.title}`
+          : `${item.done ? "Mark incomplete" : "Mark complete"}: ${item.title}`}
         onClick={() => {
+          if (item.isAiGated) {
+            onStudy?.(item);
+            return;
+          }
           triggerLightImpact();
           onProgress(item, measurable ? (item.value >= item.target ? 0 : item.target) : item.value > 0 ? 0 : 1);
         }}
@@ -81,12 +93,17 @@ function Row({ item, editable, onProgress, onEdit }: { item: DayItem; editable: 
   );
 }
 
-export default function DayTasks({ data, onProgress, onEdit }: { data: DayView; onProgress: (i: DayItem, v: number) => void; onEdit?: (t: TaskView) => void }) {
+export default function DayTasks({ data, onProgress, onStudy, onEdit }: {
+  data: DayView;
+  onProgress: (i: DayItem, v: number) => void;
+  onStudy?: (i: DayItem) => void;
+  onEdit?: (t: TaskView) => void;
+}) {
   const section = (title: string, items: DayItem[], hint: string) => (
     <section className="mt-6">
       <div className="mb-2 flex items-baseline justify-between"><h2 className="display text-lg font-semibold">{title}</h2><span className="text-xs text-muted">{hint}</span></div>
       <div className="space-y-2">
-        {items.length ? items.map((i) => <Row key={i.id} item={i} editable={data.editable} onProgress={onProgress} onEdit={onEdit} />) : <Empty title={`No ${title.toLowerCase()} today`} />}
+        {items.length ? items.map((i) => <Row key={i.id} item={i} editable={data.editable} onProgress={onProgress} onStudy={onStudy} onEdit={onEdit} />) : <Empty title={`No ${title.toLowerCase()} today`} />}
       </div>
     </section>
   );
