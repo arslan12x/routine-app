@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Modal } from "@/components/Modal";
 import { Button, inputCls } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -8,7 +9,8 @@ import type { TaskView } from "@/server/services/tasks";
 import { CATEGORIES, UNITS, WEEKDAY_LABELS } from "./constants";
 
 type Form = Omit<TaskView, "id" | "description"> & { description: string };
-const blank: Form = { title: "", description: "", category: "OTHER", isAiGated: false, aiSubject: null, isMandatory: true, completionType: "BOOLEAN", target: 1, unit: "", recurrence: "DAILY", weekdays: [1, 2, 3, 4, 5] };
+const blank: Form = { title: "", description: "", category: "OTHER", isAiGated: false, aiSubject: null, aiCourseName: null, aiCoursePrompt: null, isMandatory: true, completionType: "BOOLEAN", target: 1, unit: "", recurrence: "DAILY", weekdays: [1, 2, 3, 4, 5] };
+const selectCls = `${inputCls} appearance-none pr-10 disabled:cursor-not-allowed disabled:opacity-60`;
 
 export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<Form>(task ? { ...task, description: task.description ?? "", unit: task.unit ?? "" } : blank);
@@ -26,7 +28,9 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
   const payload = () => ({
     title: f.title, description: f.description || null, category: f.category,
     isAiGated: f.isAiGated, aiSubject: f.isAiGated ? f.aiSubject : null,
-    isMandatory: weekly ? false : f.isMandatory, target: needsTarget ? Number(f.target) : 1,
+    aiCourseName: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCourseName : null,
+    aiCoursePrompt: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCoursePrompt : null,
+    isMandatory: weekly ? false : f.isMandatory, completionType: f.completionType, target: needsTarget ? Number(f.target) : 1,
     unit: needsTarget ? f.unit || null : null, recurrence: f.recurrence, weekdays: f.recurrence === "WEEKDAYS" ? f.weekdays : [],
   });
   const submit = (e: React.FormEvent) => {
@@ -42,14 +46,15 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
       <form onSubmit={submit} className="space-y-4">
         <div><label className={lbl} htmlFor="t-title">Title</label><input id="t-title" required maxLength={80} className={inputCls} value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Walk 11,000 steps" /></div>
         <div><label className={lbl} htmlFor="t-desc">Description (optional)</label><input id="t-desc" maxLength={300} className={inputCls} value={f.description} onChange={(e) => set("description", e.target.value)} /></div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div><label className={lbl} htmlFor="t-cat">Category</label>
-            <select id="t-cat" className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value as Form["category"])}>{CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select></div>
+            <div className="relative min-w-0"><select id="t-cat" className={selectCls} value={f.category} onChange={(e) => set("category", e.target.value as Form["category"])}>{CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
           <div><label className={lbl} htmlFor="t-type">Completion</label>
-            <select id="t-type" disabled={!!task || f.isAiGated} className={inputCls} value={f.completionType} onChange={(e) => set("completionType", e.target.value as Form["completionType"])}><option value="BOOLEAN">Done / not done</option><option value="MEASURABLE">Measured amount</option></select></div>
+            <div className="relative min-w-0"><select id="t-type" disabled={f.isAiGated} className={selectCls} value={f.completionType} onChange={(e) => set("completionType", e.target.value as Form["completionType"])}><option value="BOOLEAN">Done / not done</option><option value="MEASURABLE">Measured amount</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         </div>
         <div><label className={lbl} htmlFor="t-rec">Repeats</label>
-          <select id="t-rec" disabled={f.isAiGated} className={inputCls} value={f.recurrence} onChange={(e) => set("recurrence", e.target.value as Form["recurrence"])}><option value="DAILY">Every day</option><option value="WEEKDAYS">Selected weekdays</option><option value="WEEKLY_TOTAL">Weekly total (extra only)</option></select></div>
+          <div className="relative min-w-0"><select id="t-rec" disabled={f.isAiGated} className={selectCls} value={f.recurrence} onChange={(e) => set("recurrence", e.target.value as Form["recurrence"])}><option value="DAILY">Every day</option><option value="WEEKDAYS">Selected weekdays</option><option value="WEEKLY_TOTAL">Weekly total (extra only)</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
+        {f.isAiGated && <p className="-mt-2 text-xs text-muted">AI-guided tasks are fixed to daily done/not-done completion, so these settings are locked.</p>}
         {f.recurrence === "WEEKDAYS" && (
           <div role="group" aria-label="Weekdays" className="flex flex-wrap gap-2">
             {WEEKDAY_LABELS.map((l, i) => { const d = i + 1, on = f.weekdays.includes(d); return (
@@ -58,7 +63,7 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
           </div>
         )}
         {needsTarget && (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div><label className={lbl} htmlFor="t-target">{weekly ? "Weekly target" : "Daily target"}</label><input id="t-target" type="number" min="0.01" step="any" required className={inputCls} value={f.target} onChange={(e) => set("target", Number(e.target.value))} /></div>
             <div><label className={lbl} htmlFor="t-unit">Unit</label><input id="t-unit" list="units" maxLength={20} className={inputCls} value={f.unit ?? ""} onChange={(e) => set("unit", e.target.value)} placeholder={weekly && f.completionType === "BOOLEAN" ? "days" : "steps"} />
               <datalist id="units">{UNITS.map((u) => <option key={u} value={u} />)}</datalist></div>
@@ -84,6 +89,8 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
                   ...current,
                   isAiGated: enabled,
                   aiSubject: enabled ? current.aiSubject ?? "DSA" : null,
+                  aiCourseName: enabled && current.aiSubject === "CUSTOM" ? current.aiCourseName : null,
+                  aiCoursePrompt: enabled && current.aiSubject === "CUSTOM" ? current.aiCoursePrompt : null,
                   category: enabled ? "LEARNING" : current.category,
                   completionType: enabled ? "BOOLEAN" : current.completionType,
                   recurrence: enabled ? "DAILY" : current.recurrence,
@@ -101,19 +108,43 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
           {f.isAiGated && (
             <div>
               <label className={lbl} htmlFor="t-ai-subject">Course</label>
-              <select
-                id="t-ai-subject"
-                required
-                className={inputCls}
-                value={f.aiSubject ?? ""}
-                onChange={(e) => set("aiSubject", e.target.value as NonNullable<Form["aiSubject"]>)}
-              >
+              <div className="relative min-w-0">
+                <select
+                  id="t-ai-subject"
+                  required
+                  className={selectCls}
+                  value={f.aiSubject ?? ""}
+                  onChange={(e) => {
+                    const subject = e.target.value as NonNullable<Form["aiSubject"]>;
+                    setF((current) => ({
+                      ...current,
+                      aiSubject: subject,
+                      aiCourseName: subject === "CUSTOM" ? current.aiCourseName : null,
+                      aiCoursePrompt: subject === "CUSTOM" ? current.aiCoursePrompt : null,
+                    }));
+                  }}
+                >
                 <option value="DSA">Data Structures &amp; Algorithms (DSA)</option>
                 <option value="FDA">Forward Deployed Engineering (FDA)</option>
                 <option value="JAVA">Java</option>
                 <option value="SYSTEM_DESIGN">System Design</option>
-              </select>
-              <p className="mt-1 text-xs text-muted">AI-guided tasks use daily done/not-done completion.</p>
+                  <option value="CUSTOM">Custom study course</option>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden />
+              </div>
+              {f.aiSubject === "CUSTOM" && (
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label className={lbl} htmlFor="t-ai-course-name">Course name</label>
+                    <input id="t-ai-course-name" required maxLength={80} className={inputCls} value={f.aiCourseName ?? ""} onChange={(e) => set("aiCourseName", e.target.value)} placeholder="e.g. Machine Learning Foundations" />
+                  </div>
+                  <div>
+                    <label className={lbl} htmlFor="t-ai-course-prompt">What do you want to learn?</label>
+                    <textarea id="t-ai-course-prompt" required maxLength={4_000} rows={4} className={`${inputCls} py-3`} value={f.aiCoursePrompt ?? ""} onChange={(e) => set("aiCoursePrompt", e.target.value)} placeholder="Describe your goals, current level, topics, and any preferred learning approach. The AI will use this to shape your course and daily lessons." />
+                    <p className="mt-1 text-xs text-muted">This is a course brief, not system instructions. The AI uses it to tailor a progressive study plan and each daily exercise.</p>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

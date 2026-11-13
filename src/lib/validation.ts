@@ -5,7 +5,7 @@ export const dateStr = z.string().refine(isValidDate, "Use YYYY-MM-DD");
 export const categoryEnum = z.enum(["FITNESS", "LEARNING", "HEALTH", "PERSONAL_DEVELOPMENT", "OTHER"]);
 export const completionEnum = z.enum(["BOOLEAN", "MEASURABLE"]);
 export const recurrenceEnum = z.enum(["DAILY", "WEEKDAYS", "WEEKLY_TOTAL"]);
-export const studySubjectEnum = z.enum(["DSA", "FDA", "JAVA", "SYSTEM_DESIGN"]);
+export const studySubjectEnum = z.enum(["DSA", "FDA", "JAVA", "SYSTEM_DESIGN", "CUSTOM"]);
 const weekdays = z.array(z.number().int().min(1).max(7)).max(7);
 
 export const taskCreate = z
@@ -22,21 +22,34 @@ export const taskCreate = z
     startDate: dateStr.optional(),
     isAiGated: z.boolean().default(false),
     aiSubject: studySubjectEnum.nullable().optional(),
+    aiCourseName: z.string().trim().min(1).max(80).nullable().optional(),
+    aiCoursePrompt: z.string().trim().min(1).max(4_000).nullable().optional(),
   })
   .refine((v) => !(v.recurrence === "WEEKLY_TOTAL" && v.isMandatory), { message: "Weekly-total tasks cannot be mandatory", path: ["isMandatory"] })
-  .refine((v) => v.recurrence !== "WEEKDAYS" || v.weekdays.length > 0, { message: "Pick at least one weekday", path: ["weekdays"] });
+  .refine((v) => v.recurrence !== "WEEKDAYS" || v.weekdays.length > 0, { message: "Pick at least one weekday", path: ["weekdays"] })
+  .refine(
+    (v) => !v.isAiGated || v.aiSubject !== "CUSTOM" || (!!v.aiCourseName?.trim() && !!v.aiCoursePrompt?.trim()),
+    { message: "Enter a course name and learning prompt for a custom study course", path: ["aiCoursePrompt"] },
+  )
+  .refine(
+    (v) => v.aiSubject === "CUSTOM" || (v.aiCourseName == null && v.aiCoursePrompt == null),
+    { message: "Custom course details are only valid for a custom AI-guided course", path: ["aiCourseName"] },
+  );
 
 export const taskPatch = z.object({
   title: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(300).nullable().optional(),
   category: categoryEnum.optional(),
   isMandatory: z.boolean().optional(),
+  completionType: completionEnum.optional(),
   target: z.number().positive().max(10_000_000).optional(),
   unit: z.string().trim().max(20).nullable().optional(),
   recurrence: recurrenceEnum.optional(),
   weekdays: weekdays.optional(),
   isAiGated: z.boolean().optional(),
   aiSubject: studySubjectEnum.nullable().optional(),
+  aiCourseName: z.string().trim().min(1).max(80).nullable().optional(),
+  aiCoursePrompt: z.string().trim().min(1).max(4_000).nullable().optional(),
   archived: z.literal(true).optional(), // archiving is one-way (un-archiving would retroactively fail the gap)
 });
 

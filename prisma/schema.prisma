@@ -31,31 +31,32 @@ enum StudySubject {
   FDA
   JAVA
   SYSTEM_DESIGN
+  CUSTOM
 }
 
 // ---- Better Auth core tables ----
 model User {
-  id            String        @id
-  name          String
-  email         String        @unique
-  username      String?       @unique
-  emailVerified Boolean       @default(false)
-  image         String?
-  role          String        @default("user")
-  banned        Boolean       @default(false)
-  banReason     String?
-  banExpires    DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  members       Member[]
-  invitationsSent Invitation[] @relation("InvitationInviter")
-  sentRequests  Friendship[] @relation("FriendshipRequester")
-  receivedRequests Friendship[] @relation("FriendshipAddressee")
-  settings      UserSettings?
-  tasks         Task[]
-  logs          TaskLog[]
+  id                String             @id
+  name              String
+  email             String             @unique
+  username          String?            @unique
+  emailVerified     Boolean            @default(false)
+  image             String?
+  role              String             @default("user")
+  banned            Boolean            @default(false)
+  banReason         String?
+  banExpires        DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  sessions          Session[]
+  accounts          Account[]
+  members           Member[]
+  invitationsSent   Invitation[]       @relation("InvitationInviter")
+  sentRequests      Friendship[]       @relation("FriendshipRequester")
+  receivedRequests  Friendship[]       @relation("FriendshipAddressee")
+  settings          UserSettings?
+  tasks             Task[]
+  logs              TaskLog[]
   pushSubscriptions PushSubscription[]
 }
 
@@ -74,17 +75,18 @@ model Friendship {
 }
 
 model Session {
-  id        String   @id
-  expiresAt DateTime
-  token     String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  ipAddress String?
-  userAgent String?
-  userId    String
+  id                   String   @id
+  expiresAt            DateTime
+  token                String   @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  ipAddress            String?
+  userAgent            String?
+  userId               String
   activeOrganizationId String?
-  impersonatedBy String?
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy       String?
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
 }
 
@@ -103,6 +105,7 @@ model Account {
   password              String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+
   @@index([userId])
 }
 
@@ -113,19 +116,20 @@ model Verification {
   expiresAt  DateTime
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
   @@index([identifier])
 }
 
 // ---- App tables ----
 model Organization {
-  id        String       @id
-  name      String
-  slug      String       @unique
-  logo      String?
-  metadata  Json?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  members   Member[]
+  id          String       @id
+  name        String
+  slug        String       @unique
+  logo        String?
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  members     Member[]
   invitations Invitation[]
 }
 
@@ -137,6 +141,7 @@ model Member {
   createdAt      DateTime     @default(now())
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([organizationId, userId])
   @@index([organizationId])
 }
@@ -152,6 +157,7 @@ model Invitation {
   inviterId      String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   inviter        User         @relation("InvitationInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
   @@index([organizationId])
   @@index([email])
 }
@@ -168,14 +174,15 @@ model UserSettings {
 }
 
 model PushSubscription {
-  id        String   @id @default(cuid())
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id         String             @id @default(cuid())
+  endpoint   String             @unique
+  p256dh     String
+  auth       String
+  userId     String
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime           @default(now())
   deliveries ReminderDelivery[]
+
   @@index([userId])
 }
 
@@ -186,26 +193,30 @@ model ReminderDelivery {
   localDate      DateTime         @db.Date
   reminderHour   Int
   createdAt      DateTime         @default(now())
+
   @@unique([subscriptionId, localDate, reminderHour])
 }
 
 // Identity + cosmetic fields. Result-affecting rules live in TaskVersion.
 model Task {
-  id          String        @id @default(cuid())
-  userId      String
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title       String
-  description String?
-  category    Category      @default(OTHER)
-  isAiGated   Boolean       @default(false)
-  aiSubject   StudySubject?
-  sortOrder   Int           @default(0)
-  startDate   DateTime      @db.Date
-  archivedOn  DateTime?     @db.Date // exclusive end: not scheduled on/after this date
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  versions    TaskVersion[]
-  logs        TaskLog[]
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  category       Category      @default(OTHER)
+  isAiGated      Boolean       @default(false)
+  aiSubject      StudySubject?
+  aiCourseName   String?
+  aiCoursePrompt String?
+  sortOrder      Int           @default(0)
+  startDate      DateTime      @db.Date
+  archivedOn     DateTime?     @db.Date // exclusive end: not scheduled on/after this date
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  versions       TaskVersion[]
+  logs           TaskLog[]
+
   @@index([userId, archivedOn])
 }
 
@@ -221,6 +232,7 @@ model TaskVersion {
   recurrence     Recurrence
   weekdays       Int[]
   createdAt      DateTime       @default(now())
+
   @@unique([taskId, effectiveFrom])
 }
 
@@ -233,6 +245,7 @@ model TaskLog {
   localDate DateTime @db.Date
   value     Float
   updatedAt DateTime @updatedAt
+
   @@unique([taskId, localDate])
   @@index([userId, localDate])
 }

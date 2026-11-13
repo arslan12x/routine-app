@@ -1,0 +1,1 @@
+ALTER TYPE "StudySubject" ADD VALUE 'CUSTOM';
