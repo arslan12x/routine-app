@@ -87,6 +87,9 @@ Redirects to `/tasks`; page authorization then sends a signed-out user to `/logi
 - When an account has no tasks, the dashboard offers one-click daily measurable templates for walking 10,000 steps or reading 10 pages. Choosing one creates the task and refreshes the dashboard.
 - The task editor modal is dynamically loaded when opened, keeping its form code out of the initial Tasks client bundle.
 - Boolean tasks toggle complete/incomplete. Measurable tasks accept a numeric value. Weekly-total tasks accumulate progress over the configured week.
+- AI-guided tasks are daily done/not-done tasks tied to DSA, FDA (Forward Deployed Engineering), Java, or System Design. Tapping the completion control opens the study chat instead of changing progress optimistically or queuing an offline mutation. Once enabled, the AI gate cannot be removed.
+- The study chat streams through the authenticated Gemini API route using the exact course-specific server-side prompts supplied for DSA, FDA, Java, and System Design. The model can call `mark_complete` only after evaluating a passing exercise; the server verifies the owner, AI-gate flag, and today's schedule before writing progress through a user-scoped transaction.
+- Standard task-progress mutations reject AI-gated tasks. Database RLS also blocks normal authenticated clients from inserting, updating, or deleting AI-task progress; only the server's study-completion transaction carries the private transaction-local completion claim. AI study requires a network connection; chat sessions are not persisted and cannot be completed offline.
 - Task completion updates optimistically without a spinner and triggers light haptics on supported native platforms. Progress writes run in the background in per-task order; failures restore the prior value and show an error toast.
 - Completing every mandatory task for today triggers a confetti reward, success toast, and success haptic on supported native platforms. The reward fires once per day and does not trigger for an initially completed screen or historical dates.
 - The latest daily task view is cached per account in IndexedDB. Progress changes made offline are queued per account and replayed in order when the browser emits its `online` event.
@@ -228,6 +231,7 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `PATCH /api/tasks/:id` | Signed-in owner | Update task, version its result rules, or archive it. |
 | `DELETE /api/tasks/:id` | Signed-in owner | Delete a task only when it has no progress history. |
 | `PUT /api/tasks/:id/progress` | Signed-in owner | Set absolute progress for a valid date. |
+| `POST /api/ai/study` | Signed-in owner | Stream the subject-specific study chat; the server-only completion tool records progress only for the authenticated user's scheduled AI-gated task. |
 | `GET /api/calendar?month=YYYY-MM` | Signed-in user | Calendar day statuses and streak summary. |
 | `GET /api/calendar/:date` | Signed-in user | Selected day view. |
 | `GET /api/streaks` | Signed-in user | Streak summary. |
@@ -258,12 +262,13 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `UserSettings`: timezone, timezone initialization flag, week start, public display name, leaderboard visibility.
 - `Friendship`: directed pending request or accepted connection; user-facing relationship queries and mutations use `withUserDb()` and participant-scoped RLS policies.
 - `Task`: stable task identity and cosmetic fields, owner, start/archive dates, order.
+- AI study settings on `Task`: `isAiGated` and nullable `aiSubject` (`DSA`, `FDA`, `JAVA`, or `SYSTEM_DESIGN`); a database constraint keeps these fields consistent, and a trigger prevents removing an enabled gate.
 - `TaskVersion`: effective-dated recurrence, mandatory status, completion type, target, unit, weekdays.
 - `TaskLog`: absolute progress value for a task/local date.
 - `PushSubscription`: one Web Push endpoint and key set per enabled device, linked to a user.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
 
-Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
+Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. Migration `0009_ai_gated_study` ensures regular authenticated clients cannot directly write logs for AI-gated tasks; a dedicated server-only scoped transaction sets the claim required for validated study completion. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
 Task/statistics repositories use explicit Prisma `select` projections for UI and export data, including nested task versions and task logs, to avoid transferring unused columns through the database connection.
 
@@ -278,6 +283,7 @@ Configure actual values in a local ignored `.env` or the hosting provider's secr
 - RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
 - Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`.
 - Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`.
+- AI-guided study: `GOOGLE_GENERATIVE_AI_API_KEY` (server-only Gemini API key).
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
 - GitHub backup workflow secrets: `APP_URL` and `BACKUP_DB_URL`.
 

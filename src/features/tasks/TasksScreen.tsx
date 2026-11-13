@@ -26,6 +26,11 @@ const TaskDialog = dynamic(() => import("./TaskDialog"), {
   ),
 });
 
+const StudyChatModal = dynamic(() => import("./StudyChatModal"), {
+  ssr: false,
+  loading: () => <div className="fixed inset-0 z-50 grid place-items-center bg-black/50"><Skeleton className="h-48 w-72" /></div>,
+});
+
 const TOKEN_REFRESH_MS = 45 * 60 * 1_000;
 
 export default function TasksScreen({ initial, userId }: { initial: DayView; userId: string }) {
@@ -39,6 +44,7 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
   const celebratedDates = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ task: TaskView | null } | null>(null);
+  const [studyTask, setStudyTask] = useState<DayItem | null>(null);
   const refreshInFlight = useRef(false);
   const writesInFlight = useRef(0);
   const localChanges = useRef(0);
@@ -347,7 +353,12 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
           <p className="mt-1 text-sm text-muted">Add or adjust a task to build your routine.</p>
         </div>
       ) : (
-        <DayTasks data={data} onProgress={onProgress} onEdit={(t) => setDialog({ task: t })} />
+        <DayTasks
+          data={data}
+          onProgress={onProgress}
+          onStudy={data.date === data.today ? setStudyTask : undefined}
+          onEdit={(t) => setDialog({ task: t })}
+        />
       )}
 
       {data.others.length > 0 && (
@@ -368,6 +379,7 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
         <Plus size={26} />
       </button>
       {dialog && <TaskDialog key={dialog.task?.id ?? "new"} task={dialog.task} onClose={() => setDialog(null)} onSaved={refetch} />}
+      {studyTask && <StudyChatModal task={studyTask} onClose={() => setStudyTask(null)} onCompleted={() => void refetch()} />}
     </>
   );
 }

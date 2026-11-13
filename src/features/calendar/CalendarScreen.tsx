@@ -1,4 +1,5 @@
 "use client";
+import dynamic from "next/dynamic";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Skeleton, Stat } from "@/components/ui";
@@ -11,6 +12,10 @@ import DayTasks, { applyLocal } from "@/features/tasks/DayTasks";
 import type { DayItem, DayView } from "@/server/services/tasks";
 
 const SYNC_INTERVAL_MS = 5_000;
+const StudyChatModal = dynamic(() => import("@/features/tasks/StudyChatModal"), {
+  ssr: false,
+  loading: () => <div className="fixed inset-0 z-50 grid place-items-center bg-black/50"><Skeleton className="h-48 w-72" /></div>,
+});
 
 export interface CalendarData {
   month: string; today: string; weekStartsOn: 1 | 7;
@@ -43,6 +48,7 @@ export default function CalendarScreen({ initial }: { initial: CalendarData }) {
   const [loading, setLoading] = useState(false);
   const [sel, setSel] = useState<string | null>(null);
   const [day, setDay] = useState<DayView | null>(null);
+  const [studyTask, setStudyTask] = useState<DayItem | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const refreshInFlight = useRef(false);
   const writesInFlight = useRef(0);
@@ -168,8 +174,26 @@ export default function CalendarScreen({ initial }: { initial: CalendarData }) {
         <section className="mt-6">
           <h2 className="display text-xl font-semibold">{day.longDate}</h2>
           <p className="text-sm text-muted">{day.completed} of {day.total} tasks done · {day.progressPct}% · {day.mandatory.length === 0 ? "no mandatory tasks" : day.mandatory.every((m) => m.done) ? "mandatory complete ✓" : "mandatory incomplete"}</p>
-          {day.total === 0 && day.mandatory.length + day.extra.length === 0 ? <p className="mt-3 text-sm text-muted">No tasks were scheduled.</p> : <DayTasks data={day} onProgress={onProgress} />}
+          {day.total === 0 && day.mandatory.length + day.extra.length === 0
+            ? <p className="mt-3 text-sm text-muted">No tasks were scheduled.</p>
+            : (
+              <DayTasks
+                data={day}
+                onProgress={onProgress}
+                onStudy={day.date === day.today ? setStudyTask : undefined}
+              />
+            )}
         </section>
+      )}
+      {studyTask && day && (
+        <StudyChatModal
+          task={studyTask}
+          onClose={() => setStudyTask(null)}
+          onCompleted={() => {
+            void loadDay(day.date);
+            void loadMonth(cal.month);
+          }}
+        />
       )}
     </>
   );
