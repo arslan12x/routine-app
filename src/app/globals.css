@@ -2,11 +2,11 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg: #f6f3ee; --card: #ffffff; --fg: #1c1917; --muted: #6f675f; --border: #e7e2d9; --soft: #efeae1;
+  --bg: #f6f3ee; --card: #fffdfa; --fg: #1c1917; --muted: #6f675f; --border: #e7e2d9; --soft: #efeae1;
   --brand: #d8481f; --brand-fg: #ffffff; --ok: #2b7a58; --warn: #b9780f; --bad: #b83a34;
 }
 .dark {
-  --bg: #141210; --card: #1f1c19; --fg: #f5f1ea; --muted: #a39b90; --border: #332e29; --soft: #2a2622;
+  --bg: #141210; --card: #1e1b18; --fg: #f5f1ea; --muted: #a39b90; --border: #332e29; --soft: #2a2622;
   --brand: #ff6a3d; --brand-fg: #1a0e08; --ok: #5bbf94; --warn: #f0b744; --bad: #ee7b73;
 }
 @theme inline {
@@ -15,10 +15,17 @@
   --color-ok: var(--ok); --color-warn: var(--warn); --color-bad: var(--bad);
 }
 html { -webkit-tap-highlight-color: transparent; }
-body { background: var(--bg); color: var(--fg); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body {
+  background:
+    radial-gradient(ellipse at 92% 0%, color-mix(in srgb, var(--brand) 7%, transparent), transparent 34rem),
+    var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
 .display { font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; letter-spacing: -0.01em; }
 button, a, input, select { outline-offset: 2px; }
 :focus-visible { outline: 2px solid var(--brand); }
+::selection { background: color-mix(in srgb, var(--brand) 24%, transparent); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @keyframes pop { 0% { transform: scale(0.85); } 60% { transform: scale(1.1); } 100% { transform: scale(1); } }
 .pop { animation: pop 0.25s ease-out; }

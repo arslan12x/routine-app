@@ -11,6 +11,9 @@ export interface AppUser {
   name: string;
   image: string | null;
   role: "ADMIN" | "MEMBER";
+  isPlatformAdmin: boolean;
+  organizationId: string;
+  organizationName: string;
   timezone: string;
   timezoneSet: boolean;
   weekStartsOn: 1 | 7;
@@ -36,8 +39,13 @@ export const requireUser = cache(async (): Promise<AppUser> => {
         name: true,
         image: true,
         banned: true,
+        role: true,
         members: {
-          select: { role: true, organization: { select: { slug: true } } },
+          select: {
+            role: true,
+            organizationId: true,
+            organization: { select: { name: true, slug: true } },
+          },
           orderBy: { createdAt: "asc" },
         },
       },
@@ -48,7 +56,7 @@ export const requireUser = cache(async (): Promise<AppUser> => {
   if (!user || user.banned || user.members.length === 0) throw new ApiError(403, "FORBIDDEN", "Access denied");
 
   const username = s.user.username ?? user.username ?? user.name;
-  const member = user.members[0];
+  const member = user.members.find((membership) => membership.organizationId === s.session.activeOrganizationId) ?? user.members[0];
   const st = settings ?? await withUserDb(s.user.id, (tx) => tx.userSettings.create({ data: { userId: s.user.id } }));
 
   return {
@@ -57,6 +65,9 @@ export const requireUser = cache(async (): Promise<AppUser> => {
     name: s.user.name,
     image: s.user.image ?? null,
     role: normalizeAppRole(member.role),
+    isPlatformAdmin: user.role === "admin",
+    organizationId: member.organizationId,
+    organizationName: member.organization.name,
     timezone: st.timezone,
     timezoneSet: st.timezoneSet,
     weekStartsOn: st.weekStartsOn === 7 ? 7 : 1,
@@ -68,6 +79,12 @@ export const requireUser = cache(async (): Promise<AppUser> => {
 export async function requireAdmin(): Promise<AppUser> {
   const u = await requireUser();
   if (u.role !== "ADMIN") throw new ApiError(403, "FORBIDDEN", "Admins only");
+  return u;
+}
+
+export async function requirePlatformAdmin(): Promise<AppUser> {
+  const u = await requireUser();
+  if (!u.isPlatformAdmin) throw new ApiError(403, "FORBIDDEN", "Platform administrators only");
   return u;
 }
 

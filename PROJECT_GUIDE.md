@@ -8,9 +8,9 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 ## What the app does
 
-Routine is a private, installable daily habit/routine tracker for a small group. Administrators provision accounts inside a single workspace organization and assign member/admin/owner roles. Members record daily or weekly task progress, review their history and trends, optionally share aggregate streak statistics on a friends leaderboard, and can enable device-specific push reminders.
+Routine is a private, installable daily habit/routine tracker with isolated organization workspaces. Workspace owners/admins provision members, who record their own daily or weekly task progress, review history and trends, optionally share aggregate streak statistics on a friends leaderboard, and can enable device-specific push reminders.
 
-The app is not a public self-registration service. It uses username/password credentials; Google sign-in is not part of the current sign-in flow. The UI is responsive and installable as a PWA. Task changes are stored in PostgreSQL and synchronized to other open `/tasks` screens using Supabase Realtime.
+The app is not a public self-registration service. It uses username/password credentials and optional workspace-configured SAML SSO. The UI is responsive and installable as a PWA. Task changes are stored in PostgreSQL and synchronized to other open `/tasks` screens using Supabase Realtime.
 
 ## Stack and runtime
 
@@ -45,25 +45,28 @@ The app is not a public self-registration service. It uses username/password cre
 ### Admin / Owner
 
 - Has member capabilities plus access to `/admin`.
-- Can create a username/password account with a real email, revoke access, and restore access.
-- Accounts are provisioned into the default workspace organization and assigned a member/admin/owner role from the organization membership model.
+- Platform admins can provision an isolated workspace with its first owner account.
+- Can create a username/password account with a real email, revoke access, and restore access within their workspace.
+- Can configure one SAML 2.0 provider for the workspace and review the latest 100 append-only administrative audit entries.
+- Account administration and audit queries are filtered by the current organization membership; tasks and progress remain private to each user.
 - An administrator cannot revoke their own account through the UI/API.
 
 ### Sign-in and authorization
 
 1. An admin creates/provisions an account with a username, real email address, and temporary password. Public sign-up is disabled in Better Auth.
-2. The account is inserted into the `User` table and automatically assigned a `Member` record in the default workspace organization (for example `routine-workspace`).
-3. Sign-in accepts either the account username or its registered email address. Better Auth's username plugin handles username sign-in; email addresses use Better Auth's credential email sign-in. Organization membership roles (`owner`, `admin`, `member`) are separate from Better Auth's global user roles; the admin plugin's global `adminRoles` only includes the configured global `admin` role.
-4. Passwords are hashed by Better Auth's password utility and stored in the credential account record; plaintext passwords are not stored.
-5. Protected server requests re-check the session and the user's active organization membership. A banned or revoked user is denied; revocation deletes their sessions.
-6. Unauthenticated page visits go to `/login`; an account without active workspace membership goes to `/access-denied`.
-7. Sign-out calls Better Auth and returns the user to `/login`.
+2. The account is inserted into the `User` table and assigned a `Member` record in the administrator's current workspace. A newly provisioned workspace starts with its own owner account; membership remains one workspace per user.
+3. Sign-in accepts a username or email with a password, or a configured organization email with SAML SSO. SSO does not provision new accounts: it links only an existing, verified account whose membership and email domain match the configured provider.
+4. Organization membership roles (`owner`, `admin`, `member`) are distinct from Better Auth global roles. Workspace-scoped app authorization uses the active membership. Only the global Better Auth `admin` role is a platform-admin role; ordinary workspace admins do not receive it and cannot see another workspace's data. SSO provider registration through the generic Better Auth endpoint is disabled in favor of the workspace-admin API.
+5. Passwords are hashed by Better Auth's password utility and stored in the credential account record; plaintext passwords are not stored.
+6. Protected server requests re-check the session and the user's active organization membership. A banned or revoked user is denied; revocation deletes their sessions.
+7. Unauthenticated page visits go to `/login`; an account without active workspace membership goes to `/access-denied`.
+8. Sign-out calls Better Auth and returns the user to `/login`.
 
 Important auth implementation: `src/lib/auth/auth.ts`, `src/lib/auth/session.ts`, `src/app/(auth)/login/page.tsx`, `src/server/services/admin.ts`, and `prisma/schema.prisma`.
 
 ### Enterprise migration path
 
-The app has moved away from the legacy synthetic-email allowlist model toward an organization-scoped workspace model. Accounts are now created with real email addresses and joined to the default `routine-workspace` organization via a `Member` row. The `organization` and `admin` Better Auth plugins enforce workspace membership and role checks, while `systemDb` is reserved for global admin/system operations and `withUserDb()` is used for user-scoped database access.
+The app has moved away from the legacy synthetic-email allowlist model toward an organization-scoped workspace model. Existing accounts are joined to the default `routine-workspace` organization via a `Member` row; admins can provision additional organizations and an initial owner through `/admin`. The `Member.userId` uniqueness constraint intentionally limits each account to one workspace. The `organization` and `admin` Better Auth plugins enforce workspace membership and role checks, while `systemDb` is reserved for trusted account/workspace administration and `withUserDb()` is used for user-scoped database access.
 
 If a legacy database still contains `*@users.routine.invalid` records, run the migration prep step before applying the tenant migration:
 
@@ -146,10 +149,12 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 
 ### `/admin` — account administration
 
-- Admin creates accounts using a username and temporary password.
-- Account rows show active/revoked status and role.
-- Revoke removes all DB sessions for the account; restore clears its revocation timestamp.
-- Admin actions update the local list after a successful response rather than requiring a full page reload.
+- Admin creates accounts using a username, real email, and temporary password. Account creation, revocation, restoration, and SSO provider changes are recorded with actor, workspace, target, action, and safe metadata.
+- Platform admins can create a separate organization with a first owner account; that owner then administers their own workspace and provisions its members.
+- Account rows show active/revoked status and role. Account queries and mutations are restricted to the admin's workspace.
+- Revoke removes all DB sessions for the account; restore clears its revocation flag. An administrator cannot revoke their own account.
+- SAML setup accepts IdP metadata XML and email domain; the app derives its SP entity ID. The UI provides the app's SP metadata URL. Removing/replacing a provider must be done through the workspace admin API; direct Better Auth provider mutation endpoints are blocked.
+- The audit trail shows the latest 100 administrative actions. `AuditLog` rows are protected by workspace-aware RLS and database triggers that reject updates, deletes, and truncation.
 
 ## Core task and streak rules
 
@@ -246,6 +251,11 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `POST /api/admin/accounts` | Admin | Create a provisioned account. |
 | `DELETE /api/admin/accounts/:username` | Admin | Revoke account and delete its sessions. |
 | `POST /api/admin/accounts/:username` | Admin | Restore a revoked account. |
+| `POST /api/admin/workspaces` | Platform admin | Create a separate organization and its initial owner account. |
+| `GET /api/admin/sso` | Admin | List this workspace's SAML provider metadata. |
+| `POST /api/admin/sso` | Admin | Register a SAML 2.0 provider for this workspace. |
+| `DELETE /api/admin/sso/:id` | Admin | Remove this workspace's SAML provider. |
+| `GET /api/admin/audit` | Admin | Read the latest 100 immutable audit entries for this workspace. |
 | `GET /api/me/push-subscriptions` | Public key only | Return the VAPID public key; no user subscription data. |
 | `POST /api/me/push-subscriptions` | Signed-in user | Register/update this user's device subscription. |
 | `DELETE /api/me/push-subscriptions` | Signed-in user | Remove this user's device subscription. |
@@ -260,8 +270,10 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `User`: Better Auth identity, optional unique username, and relations to owned data.
 - `Session`, `Account`, `Verification`: Better Auth persistence, including credential password hash in `Account`.
 - `Organization`, `Member`, and `Invitation`: workspace-level tenancy model. A user becomes active only when they belong to an organization and have an assigned role such as `member`, `admin`, or `owner`.
+- `AuditLog`: immutable workspace-scoped administration history. RLS uses a narrowly scoped security-definer membership check because the `Member` table itself has no authenticated-role read policy; the authenticated role cannot update, delete, or truncate audit rows.
+- `ssoProvider`: Better Auth SAML/OIDC provider persistence. Phase 1 exposes SAML registration/removal only through workspace-admin APIs; SSO resolution requires an existing verified account in the provider's workspace and email domain.
 - `UserSettings`: timezone, timezone initialization flag, week start, public display name, leaderboard visibility.
-- `Friendship`: directed pending request or accepted connection; user-facing relationship queries and mutations use `withUserDb()` and participant-scoped RLS policies.
+- `Friendship`: directed pending request or accepted connection; user-facing relationship queries and mutations use `withUserDb()` and participant- plus workspace-scoped RLS policies.
 - `Task`: stable task identity and cosmetic fields, owner, start/archive dates, order.
 - AI study settings on `Task`: `isAiGated`, nullable `aiSubject` (`DSA`, `FDA`, `JAVA`, `SYSTEM_DESIGN`, or `CUSTOM`), plus optional custom course name/learning brief. Custom briefs are treated as learner-provided course context, not system instructions. A database constraint keeps these fields consistent, and a trigger prevents removing an enabled gate.
 - `TaskVersion`: effective-dated recurrence, mandatory status, completion type, target, unit, weekdays.
@@ -269,7 +281,7 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `PushSubscription`: one Web Push endpoint and key set per enabled device, linked to a user.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
 
-Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. Migration `0009_ai_gated_study` ensures regular authenticated clients cannot directly write logs for AI-gated tasks; a dedicated server-only scoped transaction sets the claim required for validated study completion. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
+Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. Migration `0012_phase_one_audit_sso` adds workspace-scoped immutable audit records and SSO provider persistence, with RLS policies and server-only mutations. Migration `0013_workspace_friend_isolation` limits discoverable profiles, friendships, and friend requests to members of the same workspace. Migration `0009_ai_gated_study` ensures regular authenticated clients cannot directly write logs for AI-gated tasks; a dedicated server-only scoped transaction sets the claim required for validated study completion. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
 Task/statistics repositories use explicit Prisma `select` projections for UI and export data, including nested task versions and task logs, to avoid transferring unused columns through the database connection.
 

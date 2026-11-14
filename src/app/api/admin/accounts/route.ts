@@ -4,8 +4,8 @@ import { accountCreateBody } from "@/lib/validation";
 import { addAllowed, listAllowed } from "@/server/services/admin";
 
 export const GET = route(async () => {
-  await requireAdmin();
-  return listAllowed();
+  const admin = await requireAdmin();
+  return listAllowed(admin.organizationId);
 });
 
 export const POST = route(async (req) => {

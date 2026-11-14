@@ -8,6 +8,6 @@ export const DELETE = route<{ username: string }>(async (_req, { username }) => 
 });
 
 export const POST = route<{ username: string }>(async (_req, { username }) => {
-  await requireAdmin();
-  await restoreAllowed(decodeURIComponent(username));
+  const admin = await requireAdmin();
+  await restoreAllowed(admin, decodeURIComponent(username));
 });
