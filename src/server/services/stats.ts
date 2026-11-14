@@ -67,7 +67,8 @@ export async function leaderboard(viewer: AppUser) {
     where: { id: viewer.id },
     select: { role: true },
   });
-  const visibleUserIds = globalRole?.role === "admin"
+  const isPlatformAdmin = globalRole?.role === "admin";
+  const visibleUserIds = isPlatformAdmin
     ? undefined
     : await withUserDb(viewer.id, async (tx) => {
         const friendships = await tx.friendship.findMany({
@@ -89,7 +90,7 @@ export async function leaderboard(viewer: AppUser) {
       ...(visibleUserIds ? { id: { in: visibleUserIds } } : {}),
       banned: false,
       settings: { is: { showOnLeaderboard: true } },
-      members: { some: { organization: { slug: "routine-workspace" } } },
+      ...(!isPlatformAdmin ? { members: { some: { organizationId: viewer.organizationId } } } : {}),
     },
     select: {
       id: true,

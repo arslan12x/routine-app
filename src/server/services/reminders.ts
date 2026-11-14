@@ -26,7 +26,11 @@ export async function dispatchUserTaskReminder(userId: string, date: string, hou
       name: true,
       image: true,
       banned: true,
-      members: { select: { role: true }, take: 1 },
+      role: true,
+      members: {
+        select: { role: true, organizationId: true, organization: { select: { name: true } } },
+        take: 1,
+      },
       settings: {
         select: {
           timezone: true,
@@ -50,6 +54,9 @@ export async function dispatchUserTaskReminder(userId: string, date: string, hou
     name: user.name,
     image: user.image,
     role: memberRole === "owner" || memberRole === "admin" ? "ADMIN" : "MEMBER",
+    isPlatformAdmin: user.role === "admin",
+    organizationId: user.members[0].organizationId,
+    organizationName: user.members[0].organization.name,
     timezone: user.settings.timezone,
     timezoneSet: user.settings.timezoneSet,
     weekStartsOn: user.settings.weekStartsOn === 7 ? 7 : 1,

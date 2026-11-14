@@ -3,6 +3,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { admin, organization, username } from "better-auth/plugins";
+import { sso } from "@better-auth/sso";
 import { systemDb } from "@/lib/db";
 
 const trustedOrigins = [
@@ -28,6 +29,50 @@ export const auth = betterAuth({
     organization({
       allowUserToCreateOrganization: false,
       creatorRole: "owner",
+    }),
+    sso({
+      providersLimit: 0,
+      disableImplicitSignUp: true,
+      organizationProvisioning: { disabled: true },
+      resolveUser: async (input, context) => {
+        const provider = await context.database.findOne<{ organizationId: string | null; domain: string }>({
+          model: "ssoProvider",
+          where: [{ field: "providerId", value: input.providerId }],
+          select: ["organizationId", "domain"],
+        });
+        if (!provider?.organizationId) {
+          return { action: "reject", code: "provider_not_configured" };
+        }
+
+        const email = input.providerUser.email.trim().toLowerCase();
+        const emailDomain = email.split("@").at(-1);
+        const allowedDomains = provider.domain.split(",").map((domain) => domain.trim().toLowerCase());
+        if (!emailDomain || !allowedDomains.includes(emailDomain)) {
+          return { action: "reject", code: "email_domain_not_authorized" };
+        }
+
+        const user = await context.database.findOne<{ id: string; emailVerified: boolean; banned: boolean }>({
+          model: "user",
+          where: [{ field: "email", value: email }],
+          select: ["id", "emailVerified", "banned"],
+        });
+        const membership = user && await context.database.findOne<{ id: string }>({
+          model: "member",
+          where: [
+            { field: "userId", value: user.id },
+            { field: "organizationId", value: provider.organizationId },
+          ],
+          select: ["id"],
+        });
+        if (!user?.emailVerified || user.banned || !membership) {
+          return { action: "reject", code: "account_not_authorized" };
+        }
+
+        return { action: "link", userId: user.id, profile: "preserve" };
+      },
+      guardProviderMutation: () => {
+        throw new Error("Manage SSO providers from the workspace admin screen.");
+      },
     }),
     admin({
       defaultRole: "user",

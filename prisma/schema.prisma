@@ -54,6 +54,8 @@ model User {
   invitationsSent   Invitation[]       @relation("InvitationInviter")
   sentRequests      Friendship[]       @relation("FriendshipRequester")
   receivedRequests  Friendship[]       @relation("FriendshipAddressee")
+  auditLogs         AuditLog[]         @relation("AuditActor")
+  ssoProviders      SsoProvider[]
   settings          UserSettings?
   tasks             Task[]
   logs              TaskLog[]
@@ -72,6 +74,40 @@ model Friendship {
 
   @@index([requesterId, status])
   @@index([addresseeId, status])
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  timestamp      DateTime     @default(now())
+  actorId        String
+  organizationId String
+  targetUserId   String?
+  action         String
+  metadata       Json?
+  actor          User         @relation("AuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, timestamp])
+  @@index([timestamp])
+  @@index([actorId, timestamp])
+  @@index([targetUserId, timestamp])
+}
+
+model SsoProvider {
+  id             String        @id
+  issuer         String
+  oidcConfig     String?
+  samlConfig     String?
+  userId         String
+  providerId     String        @unique
+  organizationId String?
+  domain         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([domain])
 }
 
 model Session {
@@ -122,15 +158,17 @@ model Verification {
 
 // ---- App tables ----
 model Organization {
-  id          String       @id
-  name        String
-  slug        String       @unique
-  logo        String?
-  metadata    Json?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  members     Member[]
-  invitations Invitation[]
+  id           String        @id
+  name         String
+  slug         String        @unique
+  logo         String?
+  metadata     Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  members      Member[]
+  invitations  Invitation[]
+  auditLogs    AuditLog[]
+  ssoProviders SsoProvider[]
 }
 
 model Member {
