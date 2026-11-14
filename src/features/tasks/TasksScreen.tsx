@@ -291,18 +291,19 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
     const write = previousWrite
       .catch(() => undefined)
       .then(async () => {
+        const updatedAt = new Date().toISOString();
         if (!navigator.onLine) {
-          await enqueueProgress(userId, { taskId: item.id, date: dataRef.current.date, value });
+          await enqueueProgress(userId, { taskId: item.id, date: dataRef.current.date, value, updatedAt });
           toast.info("Saved offline. Progress will sync when you're back online.");
           return;
         }
 
         await syncOfflineProgress(userId);
         try {
-          await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: dataRef.current.date, value }) });
+          await api(`/api/tasks/${item.id}/progress`, { method: "PUT", body: JSON.stringify({ date: dataRef.current.date, value, updatedAt }) });
         } catch (error) {
           if (error instanceof TypeError || !navigator.onLine) {
-            await enqueueProgress(userId, { taskId: item.id, date: dataRef.current.date, value });
+            await enqueueProgress(userId, { taskId: item.id, date: dataRef.current.date, value, updatedAt });
             toast.info("Saved offline. Progress will sync when you're back online.");
             return;
           }

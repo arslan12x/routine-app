@@ -4,6 +4,7 @@ import { dayInfo, logKey } from "../src/lib/domain/schedule.ts";
 import { computeStreaks, recentConsistency } from "../src/lib/domain/streaks.ts";
 import { computeInsights } from "../src/lib/domain/analytics.ts";
 import { rankRows } from "../src/lib/domain/ranking.ts";
+import { shouldRejectStaleWrite } from "../src/lib/domain/sync.ts";
 import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
@@ -179,5 +180,36 @@ describe("leaderboard ranking", () => {
     expect(r.map((x) => x.displayName)).toEqual(["x", "y", "z"]);
     const t = rankRows([row("b"), row("a")]);
     expect(t.map((x) => x.displayName)).toEqual(["a", "b"]);
+  });
+});
+
+describe("last-write-wins (LWW) conflict evaluation", () => {
+  it("rejects an update if the database timestamp is newer than the client payload", () => {
+    const dbUpdatedAt = new Date("2026-11-14T12:00:00Z");
+    const staleClientPayload = "2026-11-14T11:59:00Z";
+    expect(shouldRejectStaleWrite(dbUpdatedAt, staleClientPayload)).toBe(true);
+  });
+
+  it("accepts an update if the client payload is newer than the database timestamp", () => {
+    const dbUpdatedAt = new Date("2026-11-14T12:00:00Z");
+    const freshClientPayload = "2026-11-14T12:05:00Z";
+    expect(shouldRejectStaleWrite(dbUpdatedAt, freshClientPayload)).toBe(false);
+  });
+
+  it("accepts an update if timestamps are identical", () => {
+    const dbUpdatedAt = new Date("2026-11-14T12:00:00Z");
+    const sameClientPayload = "2026-11-14T12:00:00Z";
+    expect(shouldRejectStaleWrite(dbUpdatedAt, sameClientPayload)).toBe(false);
+  });
+
+  it("accepts an update if there is no existing database record or no client timestamp", () => {
+    expect(shouldRejectStaleWrite(null, "2026-11-14T12:00:00Z")).toBe(false);
+    expect(shouldRejectStaleWrite(undefined, "2026-11-14T12:00:00Z")).toBe(false);
+    expect(shouldRejectStaleWrite(new Date("2026-11-14T12:00:00Z"), undefined)).toBe(false);
+    expect(shouldRejectStaleWrite(new Date("2026-11-14T12:00:00Z"), null)).toBe(false);
+  });
+
+  it("handles invalid date strings gracefully without throwing", () => {
+    expect(shouldRejectStaleWrite(new Date("2026-11-14T12:00:00Z"), "invalid-iso-date")).toBe(false);
   });
 });
