@@ -1,10 +1,10 @@
 # Routine — private habit & streak tracker (PWA)
 
-Next.js 16 · TypeScript (strict) · Prisma 7 · Supabase Postgres · Better Auth (username/password) · Tailwind 4 · Recharts
+Next.js 16 · TypeScript (strict) · Prisma 7 · Supabase Postgres · Better Auth (username/password + optional SAML SSO) · Tailwind 4 · Framer Motion · Recharts
 
 ## Project documentation
 
-See [PROJECT_GUIDE.md](./PROJECT_GUIDE.md) for user flows, behavior rules, API routes, data model, architecture, deployment, and the development map. Update that guide in the same change whenever app behavior or operations change.
+See [PROJECT_GUIDE.md](./PROJECT_GUIDE.md) for prerequisites, local startup, IDE coding-assistant handoff, user flows, behavior rules, API routes, data model, architecture, deployment, and troubleshooting. Update that guide in the same change whenever app behavior or operations change.
 
 ## Local setup
 ```bash
@@ -19,7 +19,7 @@ If you already ran the earlier empty `0001_init` and `0002_rls_and_checks` faile
 After the first run, change the schema normally with `npm run db:migrate` and commit the generated folders.
 
 ## Tests
-`npm test` runs Vitest on the domain logic. The current suite has 23 tests; it does not include full browser E2E or database integration tests.
+`npm test` runs Vitest on the domain logic. The current suite has 24 tests; it does not include full browser E2E or database integration tests.
 
 Task progress syncs between open `/tasks` screens through Supabase Realtime; Calendar retains periodic refresh. Setup details and the required server-side signing secret are documented in [DEPLOY.md](./DEPLOY.md).
 
@@ -31,3 +31,5 @@ Daily push reminders can be enabled per device in Settings. Production setup, VA
 3. Create a mandatory task, tick it, confirm the streak shows 1; open Calendar and click today.
 4. Open /api/leaderboard in the browser: response contains only display name, avatar, streak and aggregate numbers.
 5. DevTools > Application: manifest valid, service worker registered (production build only), "Install" available.
+
+Account administration, workspace provisioning, SAML SSO, and immutable audit history are documented in the project guide. New account events are logged only after the audit-enabled application code and migration are deployed; historical account events are not reconstructed.

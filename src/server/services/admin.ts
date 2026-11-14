@@ -9,6 +9,17 @@ function toAppRole(role: string): "ADMIN" | "MEMBER" {
   return role === "owner" || role === "admin" ? "ADMIN" : "MEMBER";
 }
 
+export function rethrowIfAdminSchemaMissing(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2021", "P2022"].includes(error.code)) {
+    throw new ApiError(
+      503,
+      "MIGRATION_REQUIRED",
+      "The admin database schema is not up to date. Apply the checked-in Prisma migrations to this deployment's database.",
+    );
+  }
+  throw error;
+}
+
 function audit(tx: Prisma.TransactionClient, admin: AppUser, action: string, targetUserId?: string, metadata?: Prisma.InputJsonValue) {
   return tx.auditLog.create({
     data: {
