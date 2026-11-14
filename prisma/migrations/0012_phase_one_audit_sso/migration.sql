@@ -24,7 +24,7 @@ ALTER TABLE public."AuditLog"
   FOREIGN KEY ("organizationId") REFERENCES public."Organization"("id")
   ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE TABLE public."ssoProvider" (
+CREATE TABLE public."SsoProvider" (
   "id" TEXT NOT NULL,
   "issuer" TEXT NOT NULL,
   "oidcConfig" TEXT,
@@ -36,26 +36,26 @@ CREATE TABLE public."ssoProvider" (
   CONSTRAINT "ssoProvider_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "ssoProvider_providerId_key" ON public."ssoProvider"("providerId");
-CREATE INDEX "ssoProvider_userId_idx" ON public."ssoProvider"("userId");
-CREATE INDEX "ssoProvider_organizationId_idx" ON public."ssoProvider"("organizationId");
-CREATE INDEX "ssoProvider_domain_idx" ON public."ssoProvider"("domain");
+CREATE UNIQUE INDEX "ssoProvider_providerId_key" ON public."SsoProvider"("providerId");
+CREATE INDEX "ssoProvider_userId_idx" ON public."SsoProvider"("userId");
+CREATE INDEX "ssoProvider_organizationId_idx" ON public."SsoProvider"("organizationId");
+CREATE INDEX "ssoProvider_domain_idx" ON public."SsoProvider"("domain");
 
-ALTER TABLE public."ssoProvider"
+ALTER TABLE public."SsoProvider"
   ADD CONSTRAINT "ssoProvider_userId_fkey"
   FOREIGN KEY ("userId") REFERENCES public."User"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
-ALTER TABLE public."ssoProvider"
+ALTER TABLE public."SsoProvider"
   ADD CONSTRAINT "ssoProvider_organizationId_fkey"
   FOREIGN KEY ("organizationId") REFERENCES public."Organization"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE public."AuditLog" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public."ssoProvider" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."SsoProvider" ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON TABLE public."AuditLog", public."ssoProvider" FROM PUBLIC, anon, authenticated;
-GRANT SELECT ON TABLE public."AuditLog", public."ssoProvider" TO authenticated;
+REVOKE ALL ON TABLE public."AuditLog", public."SsoProvider" FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public."AuditLog", public."SsoProvider" TO authenticated;
 
 CREATE FUNCTION public.current_user_is_workspace_admin(workspace_id TEXT)
 RETURNS BOOLEAN
@@ -87,13 +87,13 @@ CREATE POLICY "audit_log_admin_read"
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE public."AuditLog" FROM authenticated;
 
 CREATE POLICY "sso_provider_admin_access"
-  ON public."ssoProvider"
+  ON public."SsoProvider"
   FOR SELECT
   TO authenticated
   USING (
     "organizationId" IS NOT NULL
     AND
-    public.current_user_is_workspace_admin("ssoProvider"."organizationId")
+    public.current_user_is_workspace_admin("SsoProvider"."organizationId")
   );
 
 CREATE FUNCTION public.prevent_audit_log_mutation()

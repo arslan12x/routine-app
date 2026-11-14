@@ -4,7 +4,44 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 **Maintenance rule for future changes:** when changing user-visible behavior, business rules, API routes, data models, authentication, deployment, or scheduled jobs, update the relevant sections of this guide in the same change. Re-read the implementation and make the guide match the code; code is authoritative if this document ever disagrees. Update the “Guide checked” date below. Do not copy secrets, real account credentials, or `.env` values into this file.
 
-**Guide checked:** 2026-11-13
+**Guide checked:** 2026-11-14
+
+## Start here (including for IDE coding assistants)
+
+This guide is the project handoff. A coding assistant receiving it should read the whole guide, inspect the actual repository before changing code, treat code and migrations as authoritative when details differ, preserve existing user data and privacy boundaries, and run the narrowest relevant checks plus `npm run typecheck` and `npm test` for cross-cutting changes. Never print or copy `.env` values. Do not apply a database migration, reset a database, deploy, or change production data unless explicitly asked. Update this guide when behavior, setup, data models, or operations change.
+
+The app is a Next.js habit tracker with individual private task/progress data, organization membership, friendship leaderboard, AI-guided learning, offline progress sync, cross-device task updates, and optional push reminders. It is not a blank starter: inspect existing services/components and reuse their patterns rather than duplicating features.
+
+### Prerequisites
+
+- macOS, Linux, or Windows with a terminal and Git.
+- Node.js 22 LTS (Node 20.9+ is the Next.js minimum) and npm.
+- A Supabase PostgreSQL project for app data. For local feature work, use a development/test Supabase project rather than a production database.
+- A Better Auth secret and stable local base URL (`http://localhost:3000`).
+- Optional by feature: Google Gemini API key for AI study; Supabase Realtime credentials for cross-device events; VAPID keys and Inngest account for web-push reminders.
+- Install packages from the committed lockfile with `npm ci` for a clean install or `npm install` when changing dependencies.
+
+### Quick start
+
+1. Clone the repository and enter its root directory.
+2. Run `npm ci`.
+3. Create an ignored local `.env` file (never commit it) using the variable names in [Configuration and operations](#configuration-and-operations). Set `DATABASE_URL` to the Supabase transaction-pooler connection and `DIRECT_URL` to the session-pooler/direct migration connection. Set `BETTER_AUTH_URL=http://localhost:3000` and generate a unique `BETTER_AUTH_SECRET` (for example, `openssl rand -base64 32`).
+4. Confirm `DIRECT_URL` points to a disposable development database before applying migrations. Run `npx prisma migrate deploy`.
+5. Set `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL`, and `INITIAL_ADMIN_PASSWORD` in local `.env`, then run `npm run db:seed`. Seeding creates/updates the initial platform admin in `routine-workspace`; it resets that seeded account's password to the configured value.
+6. Run `npm run dev`, then open `http://localhost:3000` and sign in with the seeded credentials.
+7. For feature work, use `npm run typecheck`, `npm test`, `npx prisma validate`, and `npx next build`. `npm run build` also applies pending database migrations, so avoid using it against a database unless that migration is intended.
+
+Do not run `prisma migrate reset` or `db push` against a database containing data you need. Schema changes must use reviewed, forward-only SQL migrations committed in `prisma/migrations/`.
+
+### Coding assistant operating rules
+
+- First locate the relevant API route, service, repository, UI, schema, migration, and existing tests; follow an existing end-to-end feature to understand conventions.
+- Keep each user's routine tasks and progress private even when they share an organization. Workspace membership scopes administration and friend discovery, not task visibility.
+- Use `withUserDb(user.id, tx => ...)` for authenticated user-owned database reads/writes. `systemDb` bypasses RLS and is reserved for authentication, platform/workspace administration, global aggregate reads, and background jobs.
+- Put server authorization in the route/service; UI hiding is not authorization. Validate request bodies and preserve same-origin checks for mutations.
+- Never add phases/features not requested, rewrite migrations already applied to live databases, or hide failed operations behind success-shaped fallbacks.
+- Keep Gemini prompts server-side; treat user-authored course briefs as untrusted input.
+- For UI changes, preserve keyboard interaction, responsive layouts, reduced-motion behavior, and existing Tailwind design tokens.
 
 ## What the app does
 
@@ -291,24 +328,25 @@ Task/statistics repositories use explicit Prisma `select` projections for UI and
 
 Configure actual values in a local ignored `.env` or the hosting provider's secret manager. Never commit actual values.
 
-- Database/auth: `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`.
-- Realtime: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
+- **Required for normal local app operation:** `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`.
+- **Required for cross-device Realtime task updates:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
 - RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
-- Initial admin seeding: `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`.
-- Reminders: `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`.
-- AI-guided study: `GOOGLE_GENERATIVE_AI_API_KEY` (server-only Gemini API key).
+- **AI-guided study:** `GOOGLE_GENERATIVE_AI_API_KEY` (server-only Gemini API key). Other features can run without it; AI study requests cannot.
+- **Web Push reminders:** `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`. Generate VAPID keys with `npx web-push generate-vapid-keys`. Inngest keys are needed only when registering/running scheduled reminders.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
-- GitHub backup workflow secrets: `APP_URL` and `BACKUP_DB_URL`.
+- **GitHub keepalive/backup workflow only:** `APP_URL` and `BACKUP_DB_URL`.
 
 `prisma.config.ts` uses `DIRECT_URL` for migration operations. The runtime Prisma adapter uses `DATABASE_URL`.
+
+The repository does not include a committed `.env.example` because connection URLs and integration settings vary by environment. Create `.env` locally and add the listed names with your own development values. Keep all non-`NEXT_PUBLIC_` credentials server-only; never put service-role keys, database passwords, Better Auth secrets, Gemini keys, JWT signing secrets, or private VAPID/Inngest keys in browser code.
 
 ### Local development
 
 1. Install Node dependencies: `npm install`.
 2. Configure local database/auth variables without committing them.
 3. Apply checked-in migrations to the selected database: `npx prisma migrate deploy`.
-4. Seed the initial admin when needed: `npm run db:seed`.
-5. Start Next.js: `npm run dev`.
+4. Seed the initial admin when needed: `npm run db:seed` (uses `DIRECT_URL`; re-running resets the seeded admin password).
+5. Start Next.js: `npm run dev`, then open `http://localhost:3000`.
 
 Use `npm run db:migrate` when changing the Prisma schema locally; review and commit the generated migration. Do not use database reset on a database with data to preserve.
 
@@ -316,10 +354,24 @@ Use `npm run db:migrate` when changing the Prisma schema locally; review and com
 
 - Deployment setup is documented in `DEPLOY.md`.
 - The package `build` script runs `prisma generate`, `prisma migrate deploy`, and `next build`; deployment therefore needs reachable database credentials and applies pending migrations.
+- Confirm the deployment's build log includes `prisma migrate deploy` and says all migrations are applied. If Vercel's Build Command was overridden to `next build`, migrations do not run automatically; apply pending migrations through the approved deployment workflow before using code that depends on the new tables/columns.
 - Set Vercel variables for the appropriate deployment environments and redeploy after changing them.
 - Admin seeding is a separate command using production-safe database configuration; the hosting build does not automatically seed credentials.
 - Push reminders require VAPID configuration and a registered Inngest app configured with `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
 - Database migration `0006_user_scoped_rls` must be applied before the scoped data path is deployed; standard `npm run build` applies migrations. The runtime database role must be able to switch locally to PostgreSQL role `authenticated`.
+- Never execute a migration SQL file manually in Supabase SQL Editor and then run `prisma migrate deploy` without reconciling migration history; Prisma will still consider an unrecorded migration pending and can attempt duplicate DDL. If SQL was already applied manually, inspect `_prisma_migrations` and schema state and use a reviewed Prisma migration-resolution procedure rather than blindly rerunning SQL.
+
+### Admin SSO and audit troubleshooting
+
+- The admin screen loads accounts, SSO providers, and audit history independently. A failed SSO request should not prevent the other sections from rendering.
+- The Prisma model `SsoProvider` maps to the PostgreSQL table `"SsoProvider"` (capital S). Migration `0012_phase_one_audit_sso` must use that exact quoted identifier. Earlier/manual SQL created `"ssoProvider"` (lowercase s), which makes Prisma queries fail with a missing-relation error and caused the observed `/api/admin/sso` 500. Migration `0014_sso_provider_table_case` renames the legacy table safely. Confirm both migrations have applied to the same Supabase project used by `DATABASE_URL`.
+- `/api/admin/sso` and `/api/admin/audit` return 503 `MIGRATION_REQUIRED` for known missing table/column Prisma errors. Check the Vercel Function log for other server failures; the browser's generic 500 response is not enough to determine them. Do not paste database URLs or credentials into chat.
+- The SQL snapshot shared during support is not the deployment source of truth. Do not execute a copied migration a second time; reconcile schema state and Prisma migration history first. The migration `0014` handles the known lower-case SSO table by renaming it, and deliberately errors if neither or both table names exist.
+- The browser's generic 500 response is not enough to identify a server failure. Check the matching Vercel Function log for `/api/admin/sso` and retain the Prisma error code/message (do not share secrets or connection strings).
+- Account create, revoke, restore, workspace creation, and SSO provider create/remove actions write an `AuditLog` row in the same database transaction as the change. If the change succeeded with the audit-enabled application version and schema, its audit row should exist; check `GET /api/admin/audit` and Vercel logs for the write request.
+- Audit entries are not retroactively reconstructed. Accounts created before the audit-writing application version was deployed will have no `ACCOUNT_CREATED` entry. Only actual successful operations made while the audit-writing code and `0012` schema are both active are recorded.
+- If an account creation succeeds but the corresponding audit row is absent, verify that the deployed `/api/admin/accounts` handler is from the current revision, its logs show the successful transaction, and the admin account/audit page is looking at the same workspace/database. Do not invent historical actor identities to backfill missing audit records.
+- `ssoProvider` stores provider metadata. The login resolver only links an already-existing, email-verified member of the configured workspace whose email domain matches the provider. Configure IdP metadata with the SP metadata URL shown in `/admin`; do not share raw IdP secrets or signed assertions in support requests.
 
 ### GitHub scheduled workflow
 

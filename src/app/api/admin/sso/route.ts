@@ -3,6 +3,7 @@ import { deriveSAMLIdentityProviderEntityID, type SAMLConfig } from "@better-aut
 import { route, parseBody, ApiError } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth/session";
 import { systemDb } from "@/lib/db";
+import { rethrowIfAdminSchemaMissing } from "@/server/services/admin";
 
 const providerBody = z.object({
   domain: z.string().trim().toLowerCase().regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, "Enter a valid email domain"),
@@ -11,11 +12,15 @@ const providerBody = z.object({
 
 export const GET = route(async () => {
   const admin = await requireAdmin();
-  return systemDb.ssoProvider.findMany({
-    where: { organizationId: admin.organizationId },
-    select: { id: true, providerId: true, domain: true, issuer: true },
-    orderBy: { domain: "asc" },
-  });
+  try {
+    return await systemDb.ssoProvider.findMany({
+      where: { organizationId: admin.organizationId },
+      select: { id: true, providerId: true, domain: true, issuer: true },
+      orderBy: { domain: "asc" },
+    });
+  } catch (error) {
+    rethrowIfAdminSchemaMissing(error);
+  }
 });
 
 export const POST = route(async (request) => {
@@ -64,7 +69,7 @@ export const POST = route(async (request) => {
     if (error instanceof Error && "code" in error && error.code === "P2002") {
       throw new ApiError(409, "ALREADY_EXISTS", "An SSO provider already exists for this domain");
     }
-    throw error;
+    rethrowIfAdminSchemaMissing(error);
   }
 
   return {

@@ -32,24 +32,40 @@ export default function AdminScreen({ canCreateWorkspace, activeWorkspaceName }:
   const [metadata, setMetadata] = useState("");
   const [origin, setOrigin] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  const [ssoError, setSsoError] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    try {
-      const [accounts, ssoProviders, audit] = await Promise.all([
-        api<AccountRow[]>("/api/admin/accounts"),
-        api<SsoProvider[]>("/api/admin/sso"),
-        api<AuditRow[]>("/api/admin/audit"),
-      ]);
-      setRows(accounts);
-      setProviders(ssoProviders);
-      setAuditRows(audit);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Unable to load workspace administration.");
-    } finally {
-      setLoading(false);
+    const [accountsResult, ssoResult, auditResult] = await Promise.allSettled([
+      api<AccountRow[]>("/api/admin/accounts"),
+      api<SsoProvider[]>("/api/admin/sso"),
+      api<AuditRow[]>("/api/admin/audit"),
+    ]);
+
+    if (accountsResult.status === "fulfilled") {
+      setRows(accountsResult.value);
+      setErr(null);
+    } else {
+      setErr(accountsResult.reason instanceof Error ? accountsResult.reason.message : "Unable to load workspace accounts.");
     }
+
+    if (ssoResult.status === "fulfilled") {
+      setProviders(ssoResult.value);
+      setSsoError(null);
+    } else {
+      setSsoError(ssoResult.reason instanceof Error ? ssoResult.reason.message : "Unable to load SSO settings.");
+    }
+
+    if (auditResult.status === "fulfilled") {
+      setAuditRows(auditResult.value);
+      setAuditError(null);
+    } else {
+      setAuditError(auditResult.reason instanceof Error ? auditResult.reason.message : "Unable to load the audit trail.");
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -166,6 +182,7 @@ export default function AdminScreen({ canCreateWorkspace, activeWorkspaceName }:
           <p className="mt-1 text-sm text-muted">Register your identity provider using its SAML 2.0 metadata. SSO is restricted to existing, verified workspace accounts.</p>
         </div>
         <Card className="space-y-4 p-4 sm:p-5">
+          {ssoError && <p role="alert" className="rounded-xl bg-bad/10 p-3 text-sm text-bad">{ssoError}</p>}
           {providers.map((provider) => (
             <div key={provider.id} className="flex flex-col gap-3 rounded-2xl border border-border bg-bg/70 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
@@ -209,8 +226,10 @@ export default function AdminScreen({ canCreateWorkspace, activeWorkspaceName }:
           <span className="text-xs text-muted">Latest 100</span>
         </div>
         <Card className="p-0">
-          {auditRows.length === 0
-            ? <p className="p-4 text-sm text-muted">{loading ? "Loading audit entries…" : "No administrative changes recorded yet."}</p>
+          {auditError
+            ? <p role="alert" className="m-4 rounded-xl bg-bad/10 p-3 text-sm text-bad">{auditError}</p>
+            : auditRows.length === 0
+              ? <p className="p-4 text-sm text-muted">{loading ? "Loading audit entries…" : "No administrative changes recorded yet. Audit entries are created from the version that enables audit logging; earlier account activity is not backfilled."}</p>
             : <ul className="divide-y divide-border">
               {auditRows.map((entry) => (
                 <li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
