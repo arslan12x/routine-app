@@ -3,6 +3,7 @@ import { ApiError } from "@/lib/api";
 import type { AppUser } from "@/lib/auth/session";
 import type { TaskCreate, TaskPatch } from "@/lib/validation";
 import { addDays, hourIn, longDate, todayIn, weekStart } from "@/lib/domain/dates";
+import { shouldRejectStaleWrite } from "@/lib/domain/sync";
 import { isDone, logKey, progressOf, scheduledOn, versionOn, weekDays } from "@/lib/domain/schedule";
 import { computeStreaks } from "@/lib/domain/streaks";
 import type { Category, CompletionType, Recurrence, StudySubject, TaskDef } from "@/lib/domain/types";
@@ -224,8 +225,8 @@ export async function deleteTask(user: AppUser, id: string) {
 }
 
 /** Idempotent: sets an ABSOLUTE value for (task, date). Repeating the request changes nothing. */
-export async function setProgress(user: AppUser, taskId: string, date: string, value: number) {
-  return writeProgress(user, taskId, date, value, false);
+export async function setProgress(user: AppUser, taskId: string, date: string, value: number, clientUpdatedAt?: string) {
+  return writeProgress(user, taskId, date, value, false, clientUpdatedAt);
 }
 
 export async function completeAiStudyTask(user: AppUser, taskId: string) {
@@ -274,7 +275,7 @@ export async function aiStudyTaskContext(user: AppUser, taskId: string) {
   };
 }
 
-async function writeProgress(user: AppUser, taskId: string, date: string, value: number, allowAiGated: boolean) {
+async function writeProgress(user: AppUser, taskId: string, date: string, value: number, allowAiGated: boolean, clientUpdatedAt?: string) {
   const today = todayIn(user.timezone);
   if (date > today) throw new ApiError(400, "FUTURE_DATE", "Cannot log future dates");
   if (date < addDays(today, -BACKDATE_DAYS)) throw new ApiError(400, "TOO_OLD", `You can only edit the last ${BACKDATE_DAYS} days`);
@@ -290,6 +291,15 @@ async function writeProgress(user: AppUser, taskId: string, date: string, value:
   const final = v.completionType === "BOOLEAN" ? (value > 0 ? 1 : 0) : value;
   const withDb = allowAiGated ? withAiStudyDb : withUserDb;
   await withDb(user.id, async (tx) => {
+    const existingLog = await tx.taskLog.findUnique({
+      where: { taskId_localDate: { taskId, localDate: s2d(date) } },
+      select: { id: true, updatedAt: true, value: true },
+    });
+
+    if (shouldRejectStaleWrite(existingLog?.updatedAt, clientUpdatedAt)) {
+      throw new ApiError(409, "CONFLICT", "Update rejected: a newer version already exists on the server");
+    }
+
     if (final === 0) {
       await tx.taskLog.deleteMany({ where: { taskId, userId: user.id, localDate: s2d(date) } });
     } else {

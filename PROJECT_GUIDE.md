@@ -54,14 +54,16 @@ The app is not a public self-registration service. It uses username/password cre
 - Next.js 16 App Router, React 19, TypeScript (strict mode).
 - Tailwind CSS 4 and shared UI components under `src/components/`.
 - Sonner provides app-wide toast feedback; Capacitor Haptics provides light impact feedback in native builds.
-- IndexedDB via `idb-keyval` caches the daily task view and stores user-scoped offline progress mutations for reconnect sync.
+- IndexedDB via `idb-keyval` caches the daily task view and stores user-scoped offline progress mutations with ISO timestamps for Last-Write-Wins (LWW) reconnect sync.
 - Better Auth with the username plugin and a Prisma adapter.
 - Prisma 7 with the PostgreSQL driver adapter; Supabase Postgres is the deployment database.
 - Supabase JS Realtime client for owner-scoped live updates in Tasks.
-- Inngest schedules and runs retryable background workers for push reminders.
+- Inngest schedules and runs retryable background workers for push reminders, with Sentry error telemetry on failed retries.
 - Vercel hosts the Next.js app and Vercel Analytics is mounted in the root layout.
+- Sentry (`@sentry/nextjs`) captures React Suspense crashes, 500 API errors, and failed background retries.
 - Web Push (`web-push`) and a service worker deliver optional reminders.
 - Vitest tests pure domain rules in `tests/domain.test.ts`.
+- Playwright runs foundational E2E authentication and dashboard tests in `tests/e2e/`.
 
 ### Request/data flow
 
@@ -233,6 +235,8 @@ Calculation implementation: `src/lib/domain/dates.ts`, `schedule.ts`, `streaks.t
 - `src/components/Providers.tsx` registers `public/sw.js` in production.
 - The service worker caches only public static assets and the offline page. It deliberately does not cache `/api/*` responses or authenticated HTML, to avoid showing one user's private data to another.
 - Offline navigation may show `/offline`; writes and authenticated data require a network.
+- Offline progress mutations are queued in IndexedDB via `idb-keyval` with an ISO `updatedAt` client timestamp. When returning online, mutations are replayed in order.
+- Last-Write-Wins (LWW) conflict resolution prevents stale offline mutations from overriding newer online writes (e.g. mobile offline vs. desktop online): the server compares the incoming timestamp with `TaskLog.updatedAt` and rejects stale writes with a 409 `CONFLICT`. The client drops the stale mutation and continues syncing remaining items.
 - The worker handles `push` events by displaying notifications and opens `/tasks` on notification click.
 - iPhone push generally requires a supported iOS version, installation to the Home Screen, and the user's notification permission; permission and subscription are per device.
 
@@ -273,7 +277,7 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `POST /api/tasks` | Signed-in user | Create a task. |
 | `PATCH /api/tasks/:id` | Signed-in owner | Update task, version its result rules, or archive it. |
 | `DELETE /api/tasks/:id` | Signed-in owner | Delete a task only when it has no progress history. |
-| `PUT /api/tasks/:id/progress` | Signed-in owner | Set absolute progress for a valid date. |
+| `PUT /api/tasks/:id/progress` | Signed-in owner | Set absolute progress for a valid date; supports LWW conflict evaluation with ISO `updatedAt`. |
 | `POST /api/ai/study` | Signed-in owner | Stream the subject-specific study chat; the server-only completion tool records progress only for the authenticated user's scheduled AI-gated task. |
 | `GET /api/calendar?month=YYYY-MM` | Signed-in user | Calendar day statuses and streak summary. |
 | `GET /api/calendar/:date` | Signed-in user | Selected day view. |
@@ -384,6 +388,7 @@ Use `npm run db:migrate` when changing the Prisma schema locally; review and com
 | `npm run dev` | Start local Next.js development server. |
 | `npm run typecheck` | TypeScript check (`tsc --noEmit`). |
 | `npm test` | Run domain tests with Vitest. |
+| `npm run test:e2e` | Run Playwright end-to-end tests. |
 | `npx prisma validate` | Validate Prisma schema/configuration. |
 | `npx prisma generate` | Regenerate the generated Prisma client. |
 | `npm run db:migrate` | Create/apply a development migration. |
@@ -391,7 +396,7 @@ Use `npm run db:migrate` when changing the Prisma schema locally; review and com
 | `npx next build` | Build Next.js without running the package script's migration step. |
 | `npm run build` | Generate Prisma client, deploy migrations, then build Next.js. |
 
-Domain unit tests cover scheduling, streaks, analytics, ranking, and reminder-time rules. There are no comprehensive browser E2E or database integration tests in the current test suite; test real authentication/DB/push deployment flows separately in a safe environment.
+Domain unit tests cover scheduling, streaks, analytics, ranking, reminder-time, and LWW sync rules. Playwright E2E tests in `tests/e2e/auth.spec.ts` cover authentication and task dashboard journeys.
 
 ## Where to make changes
 

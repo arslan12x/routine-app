@@ -1,4 +1,5 @@
 import type { ZodType } from "zod";
+import * as Sentry from "@sentry/nextjs";
 
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public fields?: unknown) {
@@ -28,8 +29,12 @@ export function route<P extends Record<string, string> = {}>(
       return Response.json({ data }, { status, headers });
     } catch (e) {
       if (e instanceof ApiError) {
+        if (e.status >= 500) {
+          Sentry.captureException(e);
+        }
         return Response.json({ error: { code: e.code, message: e.message, fields: e.fields } }, { status: e.status, headers });
       }
+      Sentry.captureException(e);
       console.error(e);
       return Response.json({ error: { code: "INTERNAL", message: "Something went wrong" } }, { status: 500, headers });
     }

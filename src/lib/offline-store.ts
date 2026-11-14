@@ -1,5 +1,5 @@
 import { get, set } from "idb-keyval";
-import { api } from "@/lib/fetcher";
+import { api, ApiRequestError } from "@/lib/fetcher";
 import type { DayView } from "@/server/services/tasks";
 
 export interface QueuedProgress {
@@ -7,6 +7,7 @@ export interface QueuedProgress {
   taskId: string;
   date: string;
   value: number;
+  updatedAt: string;
 }
 
 const todayCacheKey = (userId: string) => `routine:today:${userId}`;
@@ -39,10 +40,14 @@ async function updateQueue(userId: string, update: (queue: QueuedProgress[]) => 
   }
 }
 
-export async function enqueueProgress(userId: string, mutation: Omit<QueuedProgress, "id">): Promise<void> {
+export async function enqueueProgress(
+  userId: string,
+  mutation: { taskId: string; date: string; value: number; updatedAt?: string },
+): Promise<void> {
+  const updatedAt = mutation.updatedAt ?? new Date().toISOString();
   await updateQueue(userId, (queue) => [
     ...queue,
-    { ...mutation, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` },
+    { ...mutation, updatedAt, id: `${Date.now()}-${Math.random().toString(36).slice(2)}` },
   ]);
 }
 
@@ -56,10 +61,24 @@ export async function syncOfflineProgress(userId: string): Promise<void> {
       const next = queue[0];
       if (!next) return;
 
-      await api(`/api/tasks/${next.taskId}/progress`, {
-        method: "PUT",
-        body: JSON.stringify({ date: next.date, value: next.value }),
-      });
+      try {
+        await api(`/api/tasks/${next.taskId}/progress`, {
+          method: "PUT",
+          body: JSON.stringify({
+            date: next.date,
+            value: next.value,
+            updatedAt: next.updatedAt ?? new Date().toISOString(),
+          }),
+        });
+      } catch (error) {
+        if (error instanceof ApiRequestError && error.status === 409) {
+          // Conflict: DB has a newer write (LWW). Drop stale offline mutation so queue is not blocked.
+          console.warn(`[Offline] Dropping stale update for task ${next.taskId}: newer write exists on server.`);
+          await updateQueue(userId, (current) => current.filter(({ id }) => id !== next.id));
+          continue;
+        }
+        throw error;
+      }
       await updateQueue(userId, (current) => current.filter(({ id }) => id !== next.id));
     }
   })();

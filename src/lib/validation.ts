@@ -53,7 +53,11 @@ export const taskPatch = z.object({
   archived: z.literal(true).optional(), // archiving is one-way (un-archiving would retroactively fail the gap)
 });
 
-export const progressBody = z.object({ date: dateStr, value: z.number().min(0).max(10_000_000) });
+export const progressBody = z.object({
+  date: dateStr,
+  value: z.number().min(0).max(10_000_000),
+  updatedAt: z.string().refine((val) => !isNaN(Date.parse(val)), "Invalid ISO timestamp").optional(),
+});
 export const dateQuery = z.object({ date: dateStr.optional() });
 export const monthQuery = z.object({ month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional() });
 
