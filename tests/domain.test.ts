@@ -5,6 +5,7 @@ import { computeStreaks, recentConsistency } from "../src/lib/domain/streaks.ts"
 import { computeInsights } from "../src/lib/domain/analytics.ts";
 import { rankRows } from "../src/lib/domain/ranking.ts";
 import { shouldRejectStaleWrite } from "../src/lib/domain/sync.ts";
+import { matchTaskToHealthMetric } from "../src/lib/native-health.ts";
 import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
@@ -211,5 +212,25 @@ describe("last-write-wins (LWW) conflict evaluation", () => {
 
   it("handles invalid date strings gracefully without throwing", () => {
     expect(shouldRejectStaleWrite(new Date("2026-11-14T12:00:00Z"), "invalid-iso-date")).toBe(false);
+  });
+});
+
+describe("native health metric task matching", () => {
+  it("matches step tasks by unit or title", () => {
+    expect(matchTaskToHealthMetric({ title: "Daily Walk", unit: "steps", completionType: "MEASURABLE" })).toBe("STEPS");
+    expect(matchTaskToHealthMetric({ title: "10,000 Steps", unit: null, completionType: "MEASURABLE" })).toBe("STEPS");
+    expect(matchTaskToHealthMetric({ title: "Walking the dog", unit: "step", completionType: "MEASURABLE" })).toBe("STEPS");
+  });
+
+  it("matches workout minutes for fitness tasks by minute unit", () => {
+    expect(matchTaskToHealthMetric({ title: "Morning Gym", category: "FITNESS", unit: "mins", completionType: "MEASURABLE" })).toBe("WORKOUT_MINUTES");
+    expect(matchTaskToHealthMetric({ title: "Cardio exercise", category: "HEALTH", unit: "min", completionType: "MEASURABLE" })).toBe("WORKOUT_MINUTES");
+    expect(matchTaskToHealthMetric({ title: "Workout duration", category: "OTHER", unit: "minutes", completionType: "MEASURABLE" })).toBe("WORKOUT_MINUTES");
+  });
+
+  it("ignores non-measurable tasks and unrelated tasks", () => {
+    expect(matchTaskToHealthMetric({ title: "10,000 Steps", unit: "steps", completionType: "BOOLEAN" })).toBeNull();
+    expect(matchTaskToHealthMetric({ title: "Read 20 pages", category: "LEARNING", unit: "pages", completionType: "MEASURABLE" })).toBeNull();
+    expect(matchTaskToHealthMetric({ title: "Drink 2L Water", category: "HEALTH", unit: "liters", completionType: "MEASURABLE" })).toBeNull();
   });
 });

@@ -4,7 +4,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 **Maintenance rule for future changes:** when changing user-visible behavior, business rules, API routes, data models, authentication, deployment, or scheduled jobs, update the relevant sections of this guide in the same change. Re-read the implementation and make the guide match the code; code is authoritative if this document ever disagrees. Update the “Guide checked” date below. Do not copy secrets, real account credentials, or `.env` values into this file.
 
-**Guide checked:** 2026-11-14
+**Guide checked:** 2026-11-19
 
 ## Start here (including for IDE coding assistants)
 
@@ -54,6 +54,9 @@ The app is not a public self-registration service. It uses username/password cre
 - Next.js 16 App Router, React 19, TypeScript (strict mode).
 - Tailwind CSS 4 and shared UI components under `src/components/`.
 - Sonner provides app-wide toast feedback; Capacitor Haptics provides light impact feedback in native builds.
+- Capacitor Local Notifications (`@capacitor/local-notifications`) and Web Audio chime alert users when Pomodoro study sprints end.
+- Native Health integration (Apple HealthKit on iOS & Health Connect on Android) auto-syncs steps and workout minutes for Measurable fitness tasks.
+- Workspace Team Challenges aggregate participating members' daily task logs into real-time organization-wide progress bars.
 - IndexedDB via `idb-keyval` caches the daily task view and stores user-scoped offline progress mutations with ISO timestamps for Last-Write-Wins (LWW) reconnect sync.
 - Better Auth with the username plugin and a Prisma adapter.
 - Prisma 7 with the PostgreSQL driver adapter; Supabase Postgres is the deployment database.
@@ -130,8 +133,9 @@ Redirects to `/tasks`; page authorization then sends a signed-out user to `/logi
 - The task editor modal is dynamically loaded when opened, keeping its form code out of the initial Tasks client bundle.
 - Task completion type can be changed from the editor; the new rule is effective today, preserving past task history.
 - Boolean tasks toggle complete/incomplete. Measurable tasks accept a numeric value. Weekly-total tasks accumulate progress over the configured week.
+- Native Health Auto-Sync (Apple HealthKit & Health Connect) can auto-sync steps and workout minutes for Measurable tasks on mount and in the background. A "Sync Health" button in the dashboard header triggers an immediate sync.
 - AI-guided tasks can use any supported completion type or recurrence and are tied to DSA, FDA (Forward Deployed Engineering), Java, System Design, or a custom course. A passing session completes a scheduled Boolean/measurable task; weekly-total tasks count one successful study session toward their weekly target. A custom course stores a name and learner-provided brief that shapes a progressive roadmap and daily lessons. Tapping the completion control opens the study chat instead of changing progress optimistically or queuing an offline mutation. Once enabled, the AI gate cannot be removed.
-- The study chat is a full-screen interface with Markdown/GFM rendering and Mermaid diagrams. It streams through the authenticated Gemini API route using `gemini-3.5-flash-lite` and the exact course-specific server-side prompts supplied for DSA, FDA, Java, and System Design. Custom course briefs are treated as learner-provided course context, not system instructions. The model provides a progressive practice set and can call `mark_complete` only after evaluating satisfactory answers to every practical exercise; the server verifies the owner, AI-gate flag, and today's schedule before writing progress through a user-scoped transaction using the selected completion rule.
+- The study chat is a full-screen interface with Markdown/GFM rendering, Mermaid diagrams, and an integrated 25-minute native Pomodoro focus timer (`PomodoroTimer.tsx`). When the sprint finishes, it fires a Capacitor Local Notification and plays a chime to prompt taking a 5-minute break.
 - Standard task-progress mutations reject AI-gated tasks. Database RLS also blocks normal authenticated clients from inserting, updating, or deleting AI-task progress; only the server's study-completion transaction carries the private transaction-local completion claim. AI study requires a network connection; chat sessions are not persisted and cannot be completed offline.
 - Task completion updates optimistically without a spinner and triggers light haptics on supported native platforms. Progress writes run in the background in per-task order; failures restore the prior value and show an error toast.
 - Completing every mandatory task for today triggers a confetti reward, success toast, and success haptic on supported native platforms. The reward fires once per day and does not trigger for an initially completed screen or historical dates.
@@ -169,6 +173,13 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 - Shows task completion totals/rates, mandatory and extra rates, current/longest streaks, consistency, best weekday when enough observations exist, and trend/category charts.
 - Chart rendering is dynamically loaded on the client; the Recharts-dependent component disables SSR.
 
+### `/challenges` — workspace team challenges
+
+- Real-time collective goals for the active organization workspace (e.g., walking 1,000,000 steps together or completing 300 workout minutes).
+- Individual task logs of enrolled workspace members within the challenge's date window automatically aggregate into a real-time progress bar.
+- Shows target, total progress, percentage completion, days remaining, participant count, and top 5 contributors (safe public display names only).
+- Members can launch new team challenges, join active challenges, or leave challenges.
+
 ### `/friends` — private friends and leaderboard
 
 - The Leaderboard tab shows the current user and accepted friends who opted into leaderboard visibility. Better Auth global admins can see all opted-in workspace members.
@@ -184,6 +195,7 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 - Theme is handled by `next-themes`.
 - “Export my data” downloads a JSON file containing the user's task definitions and progress logs.
 - Push reminders are enabled/disabled per browser/device. Each phone/browser needs its own opt-in.
+- Apple Health & Health Connect auto-sync can be enabled/disabled to automatically sync steps and workout minutes with Measurable tasks in the background.
 - Installation hints are shown for iPhone (Safari > Share > Add to Home Screen) and Android (Chrome > Install app).
 
 ### `/admin` — account administration
@@ -283,6 +295,10 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `GET /api/calendar/:date` | Signed-in user | Selected day view. |
 | `GET /api/streaks` | Signed-in user | Streak summary. |
 | `GET /api/insights` | Signed-in user | Range/group-based metrics and chart series. |
+| `GET /api/challenges` | Signed-in user | List workspace team challenges with real-time aggregate progress. |
+| `POST /api/challenges` | Signed-in user | Create a new workspace team challenge. |
+| `POST /api/challenges/:id/join` | Signed-in user | Join a workspace team challenge. |
+| `DELETE /api/challenges/:id/join` | Signed-in user | Leave a workspace team challenge. |
 | `GET /api/leaderboard` | Signed-in user | Safe aggregate leaderboard for self and accepted friends; Better Auth global admins see all opted-in workspace members. |
 | `GET /api/friends/discover` | Signed-in user | Safe workspace profile list, friendship states, and incoming requests. |
 | `POST /api/friends/requests` | Signed-in user | Send a pending friend request by user ID. |
@@ -321,6 +337,8 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `TaskLog`: absolute progress value for a task/local date.
 - `PushSubscription`: one Web Push endpoint and key set per enabled device, linked to a user.
 - `ReminderDelivery`: unique device/date/hour claim for dispatch deduplication.
+- `Challenge`: organization-scoped collective goal with target, unit, category, and date range.
+- `ChallengeParticipant`: enrollment mapping linking a member to a challenge. Migration `0015_workspace_team_challenges` protects challenge data with workspace-scoped RLS.
 
 Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. Migration `0012_phase_one_audit_sso` adds workspace-scoped immutable audit records and SSO provider persistence, with RLS policies and server-only mutations. Migration `0013_workspace_friend_isolation` limits discoverable profiles, friendships, and friend requests to members of the same workspace. Migration `0009_ai_gated_study` ensures regular authenticated clients cannot directly write logs for AI-gated tasks; a dedicated server-only scoped transaction sets the claim required for validated study completion. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
