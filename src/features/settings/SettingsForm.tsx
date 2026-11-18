@@ -6,6 +6,7 @@ import { Button, Card, inputCls } from "@/components/ui";
 import { api } from "@/lib/fetcher";
 import SignOutButton from "./SignOutButton";
 import PushReminderToggle from "./PushReminderToggle";
+import NativeHealthToggle from "./NativeHealthToggle";
 
 interface S { timezone: string; weekStartsOn: 1 | 7; displayName: string | null; showOnLeaderboard: boolean }
 
@@ -47,6 +48,7 @@ export default function SettingsForm({ initial, username }: { initial: S; userna
         <div className="font-medium">Install the app</div>
         <p className="text-muted"><b>iPhone:</b> open in Safari, tap Share, then Add to Home Screen. <b>Android:</b> Chrome menu, then Install app.</p>
       </Card>
+      <NativeHealthToggle />
       <PushReminderToggle />
       <div className="mt-6 flex gap-2"><Button variant="outline" onClick={exportData}>Export my data</Button><SignOutButton /></div>
     </>

@@ -9,6 +9,7 @@ import { Send, Sparkles, X } from "lucide-react";
 import { Button, inputCls } from "@/components/ui";
 import type { DayItem } from "@/server/services/tasks";
 import MermaidDiagram from "./MermaidDiagram";
+import PomodoroTimer from "./PomodoroTimer";
 
 const subjectLabels = {
   DSA: "Data Structures & Algorithms",
@@ -143,18 +144,21 @@ export default function StudyChatModal({
   return (
     <div className="fixed inset-0 z-[60] flex h-[100dvh] w-screen flex-col overflow-hidden bg-bg text-fg">
       <header className="flex shrink-0 items-center justify-between border-b border-border bg-card/95 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid size-10 shrink-0 place-items-center rounded-full bg-brand/10 text-brand"><Sparkles size={19} aria-hidden /></div>
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-brand/10 text-brand sm:size-10"><Sparkles size={19} aria-hidden /></div>
             <div className="min-w-0">
               <h1 className="truncate font-semibold">{courseName}</h1>
               <p className="truncate text-xs text-muted">Study session · {task.title}</p>
             </div>
           </div>
-          <Button type="button" variant="outline" className="min-h-10 shrink-0 rounded-full px-3" onClick={closeSession}>
-            <span className="hidden sm:inline">End session</span><X size={17} className="sm:hidden" aria-hidden />
-            <span className="sr-only sm:hidden">End session</span>
-          </Button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <PomodoroTimer />
+            <Button type="button" variant="outline" className="min-h-9 shrink-0 rounded-full px-2.5 sm:min-h-10 sm:px-3" onClick={closeSession}>
+              <span className="hidden sm:inline">End session</span><X size={17} className="sm:hidden" aria-hidden />
+              <span className="sr-only sm:hidden">End session</span>
+            </Button>
+          </div>
         </div>
       </header>
 

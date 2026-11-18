@@ -1,12 +1,14 @@
 "use client";
 import dynamic from "next/dynamic";
 import { ChevronDown, ChevronUp, Flame, Lightbulb, Plus, Sparkles } from "lucide-react";
+import { Activity } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Ring, Skeleton } from "@/components/ui";
 import { api } from "@/lib/fetcher";
 import { getSupabaseClient } from "@/lib/supabase";
 import { cacheToday, enqueueProgress, getCachedToday, syncOfflineProgress } from "@/lib/offline-store";
 import { triggerSuccessNotification } from "@/lib/haptics";
+import { autoSyncHealthTasks, isHealthSyncEnabled } from "@/lib/native-health";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import { toast } from "sonner";
 import DayTasks, { applyLocal } from "./DayTasks";
@@ -342,11 +344,36 @@ export default function TasksScreen({
     });
   }, [refetch, updateData, userId]);
 
+  // Native Health auto-sync in the background for measurable tasks
+  useEffect(() => {
+    if (!isHealthSyncEnabled() || data.date !== data.today) return;
+    const allTodayTasks = [...dataRef.current.mandatory, ...dataRef.current.extra];
+    void autoSyncHealthTasks(allTodayTasks, onProgress);
+  }, [data.date, data.today, onProgress]);
+
+  const handleManualHealthSync = useCallback(() => {
+    const allTodayTasks = [...dataRef.current.mandatory, ...dataRef.current.extra];
+    void autoSyncHealthTasks(allTodayTasks, onProgress, { manual: true });
+  }, [onProgress]);
+
   return (
     <>
-      <div className="mt-2">
-        <h1 className="display text-3xl font-semibold">{data.greeting}!</h1>
-        <p className="text-muted">{data.longDate}</p>
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div>
+          <h1 className="display text-3xl font-semibold">{data.greeting}!</h1>
+          <p className="text-muted">{data.longDate}</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleManualHealthSync}
+          title="Auto-sync steps and workout minutes from Apple Health / Health Connect"
+          aria-label="Auto-sync native health metrics"
+          className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted hover:bg-soft hover:text-foreground active:scale-95 transition"
+        >
+          <Activity size={14} className="text-brand" aria-hidden />
+          <span className="hidden sm:inline">Sync Health</span>
+          <span className="sm:hidden">Health</span>
+        </button>
       </div>
       <Card className="mt-4 flex items-center gap-4">
         <Ring pct={data.progressPct} label="Today's progress" />
