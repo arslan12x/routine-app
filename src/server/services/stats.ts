@@ -69,23 +69,19 @@ export async function leaderboard(viewer: AppUser) {
     select: { role: true },
   });
   const isPlatformAdmin = globalRole?.role === "admin";
+  const acceptedFriendships = await systemDb.friendship.findMany({
+    where: {
+      status: "ACCEPTED",
+      OR: [{ requesterId: viewer.id }, { addresseeId: viewer.id }],
+    },
+    select: { requesterId: true, addresseeId: true },
+  });
+  const acceptedFriendIds = new Set(
+    acceptedFriendships.map((f) => (f.requesterId === viewer.id ? f.addresseeId : f.requesterId)),
+  );
   const visibleUserIds = isPlatformAdmin
     ? undefined
-    : await withUserDb(viewer.id, async (tx) => {
-        const friendships = await tx.friendship.findMany({
-          where: {
-            status: "ACCEPTED",
-            OR: [{ requesterId: viewer.id }, { addresseeId: viewer.id }],
-          },
-          select: { requesterId: true, addresseeId: true },
-        });
-        return [...new Set([
-          viewer.id,
-          ...friendships.map((friendship) =>
-            friendship.requesterId === viewer.id ? friendship.addresseeId : friendship.requesterId,
-          ),
-        ])];
-      });
+    : [viewer.id, ...acceptedFriendIds];
   const users = await systemDb.user.findMany({
     where: {
       ...(visibleUserIds ? { id: { in: visibleUserIds } } : {}),
@@ -120,6 +116,8 @@ export async function leaderboard(viewer: AppUser) {
         successDays: s.successDays,
       });
       return {
+        userId: u.id,
+        isFriend: u.id === viewer.id || acceptedFriendIds.has(u.id),
         tiebreakId: u.id, isMe: u.id === viewer.id,
         displayName: u.settings?.displayName ?? u.name, image: u.image,
         currentStreak: s.current, longestStreak: s.longest, consistency: c.rate,

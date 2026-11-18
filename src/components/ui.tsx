@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 type Variant = "primary" | "outline" | "ghost" | "danger";
@@ -18,8 +18,8 @@ export function Button({ variant = "primary", className, ...p }: ButtonHTMLAttri
   );
 }
 
-export const Card = ({ className, children }: { className?: string; children: ReactNode }) => (
-  <div className={cn("rounded-2xl border border-border bg-card p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]", className)}>{children}</div>
+export const Card = ({ className, children, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div className={cn("rounded-2xl border border-border bg-card p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]", className)} {...props}>{children}</div>
 );
 
 export const Stat = ({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) => (

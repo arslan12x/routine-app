@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Brain, Check, CheckCircle2, Flame, GraduationCap, ShieldCheck, Sparkles, Trophy, UserPlus, X, Zap } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Brain, Check, CheckCircle2, ChevronRight, Flame, GraduationCap, ShieldCheck, Sparkles, Trophy, UserPlus, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, Card, Empty } from "@/components/ui";
 import { cn, pct } from "@/lib/cn";
@@ -19,6 +20,8 @@ export interface BadgeItem {
 
 interface LeaderboardEntry {
   rank: number;
+  userId?: string;
+  isFriend?: boolean;
   displayName: string;
   image: string | null;
   currentStreak: number;
@@ -58,6 +61,7 @@ const tabs: { id: Tab; label: string }[] = [
 ];
 
 export default function FriendsScreen({ initialRows }: { initialRows: LeaderboardEntry[] }) {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("leaderboard");
   const [rows, setRows] = useState(initialRows);
   const [users, setUsers] = useState<DiscoverUser[]>([]);
@@ -186,40 +190,94 @@ export default function FriendsScreen({ initialRows }: { initialRows: Leaderboar
             <p className="mb-3 text-xs text-muted">Ranked by current streak, 30-day consistency, then successful days. Only aggregate stats are shared.</p>
             <ol className="space-y-2">
               {rows.length === 0 && <Empty title="No one on the board yet" hint="Add friends to compare your streaks." />}
-              {rows.map((row) => (
-                <li key={row.rank}>
-                  <Card className={cn("flex items-center gap-3 p-3", row.isMe && "border-brand")}>
-                    <div className="display w-7 text-center text-xl font-semibold tabular-nums">{row.rank}</div>
-                    <Avatar src={row.image} name={row.displayName} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">
-                        {row.displayName}{row.isMe && <span className="ml-2 text-xs text-brand">you</span>}
-                      </div>
-                      <div className="text-xs text-muted">30-day consistency {pct(row.consistency)} · {row.successDays} successful days · {row.mandatoryPerDay} mandatory/day</div>
-                      {row.badges && row.badges.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                          {row.badges.map((badge) => (
-                            <span
-                              key={badge.badgeType}
-                              title={badge.description}
-                              className="inline-flex items-center gap-1 rounded-full border border-border bg-soft px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors"
-                            >
-                              <BadgeIcon icon={badge.icon} />
-                              <span>{badge.label}</span>
-                            </span>
-                          ))}
-                        </div>
+              {rows.map((row) => {
+                const isClickable = (row.isMe || row.isFriend) && Boolean(row.userId);
+                return (
+                  <li key={row.rank}>
+                    <Card
+                      className={cn(
+                        "group flex items-center gap-3 p-3 transition",
+                        isClickable && "cursor-pointer hover:border-brand/60 hover:bg-card/90 active:scale-[0.99]",
+                        row.isMe && "border-brand",
                       )}
-                    </div>
-                    <div className="text-right">
-                      <div className="flex items-center justify-end gap-1 text-lg font-semibold tabular-nums">
-                        <Flame size={18} className="text-brand" aria-hidden />{row.currentStreak}
+                      onClick={() => {
+                        if (isClickable && row.userId) {
+                          router.push(`/insights/${encodeURIComponent(row.userId)}`);
+                        }
+                      }}
+                      role={isClickable ? "button" : undefined}
+                      tabIndex={isClickable ? 0 : undefined}
+                      onKeyDown={(e: React.KeyboardEvent) => {
+                        if (isClickable && row.userId && (e.key === "Enter" || e.key === " ")) {
+                          e.preventDefault();
+                          router.push(`/insights/${encodeURIComponent(row.userId)}`);
+                        }
+                      }}
+                    >
+                      <div className="display w-7 text-center text-xl font-semibold tabular-nums">{row.rank}</div>
+                      <Avatar src={row.image} name={row.displayName} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">
+                          {row.displayName}
+                          {row.isMe && <span className="ml-2 text-xs text-brand">you</span>}
+                          {row.isFriend && !row.isMe && (
+                            <span className="ml-2 rounded-full bg-soft px-1.5 py-0.5 text-[10px] text-muted font-normal">friend</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted">30-day consistency {pct(row.consistency)} · {row.successDays} successful days · {row.mandatoryPerDay} mandatory/day</div>
+                        {row.badges && row.badges.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                            {row.badges.map((badge) => (
+                              <span
+                                key={badge.badgeType}
+                                title={badge.description}
+                                className="inline-flex items-center gap-1 rounded-full border border-border bg-soft px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors"
+                              >
+                                <BadgeIcon icon={badge.icon} />
+                                <span>{badge.label}</span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-xs text-muted">best {row.longestStreak}</div>
-                    </div>
-                  </Card>
-                </li>
-              ))}
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <div className="flex items-center justify-end gap-1 text-lg font-semibold tabular-nums">
+                            <Flame size={18} className="text-brand" aria-hidden />{row.currentStreak}
+                          </div>
+                          <div className="text-xs text-muted">best {row.longestStreak}</div>
+                        </div>
+                        {!row.isFriend && !row.isMe && row.userId && (
+                          <Button
+                            variant="outline"
+                            className="ml-1 min-h-8 px-2.5 py-1 text-xs gap-1"
+                            disabled={pendingIds.has(row.userId)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void sendRequest({
+                                id: row.userId!,
+                                username: null,
+                                displayName: row.displayName,
+                                image: row.image,
+                                friendshipStatus: "NONE",
+                              });
+                            }}
+                          >
+                            <UserPlus size={14} aria-hidden /> Add
+                          </Button>
+                        )}
+                        {isClickable && (
+                          <ChevronRight
+                            size={18}
+                            className="text-muted shrink-0 transition-transform group-hover:translate-x-0.5"
+                            aria-hidden
+                          />
+                        )}
+                      </div>
+                    </Card>
+                  </li>
+                );
+              })}
             </ol>
           </>
         )}

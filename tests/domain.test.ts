@@ -8,6 +8,7 @@ import { shouldRejectStaleWrite } from "../src/lib/domain/sync.ts";
 import { matchTaskToHealthMetric } from "../src/lib/native-health.ts";
 import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
 import { evaluateEligibleBadges, BADGE_DEFINITIONS } from "../src/lib/domain/achievements.ts";
+import { isValidNovelRedirectUrl } from "../src/lib/domain/novels.ts";
 import { buildSmartReminderPrompt } from "../src/server/ai/reminders.ts";
 import { buildFallbackCoachReview } from "../src/server/ai/coach.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
@@ -345,6 +346,9 @@ describe("weekly AI routine coach review", () => {
     const result = buildFallbackCoachReview(0.3, 0);
     expect(result.review).toContain("30%");
     expect(result.actionableTip).toContain("single top mandatory habit");
+  });
+});
+
 describe("native health metric task matching", () => {
   it("matches step tasks by unit or title", () => {
     expect(matchTaskToHealthMetric({ title: "Daily Walk", unit: "steps", completionType: "MEASURABLE" })).toBe("STEPS");
@@ -362,5 +366,72 @@ describe("native health metric task matching", () => {
     expect(matchTaskToHealthMetric({ title: "10,000 Steps", unit: "steps", completionType: "BOOLEAN" })).toBeNull();
     expect(matchTaskToHealthMetric({ title: "Read 20 pages", category: "LEARNING", unit: "pages", completionType: "MEASURABLE" })).toBeNull();
     expect(matchTaskToHealthMetric({ title: "Drink 2L Water", category: "HEALTH", unit: "liters", completionType: "MEASURABLE" })).toBeNull();
+  });
+});
+
+describe("safe public-domain novel URL validation", () => {
+  it("allows trusted public-domain hosts", () => {
+    expect(isValidNovelRedirectUrl("https://www.gutenberg.org/ebooks/1342")).toBe(true);
+    expect(isValidNovelRedirectUrl("https://gutenberg.org/ebooks/84.html.images")).toBe(true);
+    expect(isValidNovelRedirectUrl("https://openlibrary.org/works/OL12345W")).toBe(true);
+    expect(isValidNovelRedirectUrl("https://archive.org/details/frankenstein")).toBe(true);
+    expect(isValidNovelRedirectUrl("https://www.archive.org/details/dracula")).toBe(true);
+    expect(isValidNovelRedirectUrl("https://standardebooks.org/ebooks/jane-austen/pride-and-prejudice")).toBe(true);
+  });
+
+  it("rejects unauthorized, suspicious, or malicious domains", () => {
+    expect(isValidNovelRedirectUrl("https://evil.com/read")).toBe(false);
+    expect(isValidNovelRedirectUrl("https://phishing-gutenberg.org/novel")).toBe(false);
+    expect(isValidNovelRedirectUrl("https://not-gutenberg.org")).toBe(false);
+    expect(isValidNovelRedirectUrl("https://gutenberg.org.attacker.com")).toBe(false);
+  });
+
+  it("rejects unsafe protocols and malformed strings", () => {
+    expect(isValidNovelRedirectUrl("javascript:alert(1)")).toBe(false);
+    expect(isValidNovelRedirectUrl("data:text/html,<h1>Phish</h1>")).toBe(false);
+    expect(isValidNovelRedirectUrl("ftp://gutenberg.org/book.txt")).toBe(false);
+    expect(isValidNovelRedirectUrl("not a url")).toBe(false);
+  });
+});
+
+describe("leaderboard row routing attributes", () => {
+  it("preserves userId and isFriend flag when ranking rows", () => {
+    const rows = [
+      {
+        userId: "user-1",
+        isFriend: true,
+        displayName: "Alice",
+        image: null,
+        currentStreak: 10,
+        longestStreak: 10,
+        consistency: 0.9,
+        successDays: 15,
+        mandatoryPerDay: 2,
+        joinedAt: "2026-01-01T00:00:00Z",
+        tiebreakId: "user-1",
+      },
+      {
+        userId: "user-2",
+        isFriend: false,
+        displayName: "Bob",
+        image: null,
+        currentStreak: 5,
+        longestStreak: 8,
+        consistency: 0.7,
+        successDays: 8,
+        mandatoryPerDay: 2,
+        joinedAt: "2026-01-02T00:00:00Z",
+        tiebreakId: "user-2",
+      },
+    ];
+
+    const ranked = rankRows(rows);
+    expect(ranked[0].userId).toBe("user-1");
+    expect(ranked[0].isFriend).toBe(true);
+    expect(ranked[0].rank).toBe(1);
+
+    expect(ranked[1].userId).toBe("user-2");
+    expect(ranked[1].isFriend).toBe(false);
+    expect(ranked[1].rank).toBe(2);
   });
 });

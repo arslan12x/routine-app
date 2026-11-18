@@ -64,6 +64,7 @@ model User {
   coachReviews      CoachReview[]
   createdChallenges Challenge[]            @relation("ChallengeCreator")
   challengeParticipations ChallengeParticipant[]
+  readingSessions   UserReadingSession[]
 }
 
 model Friendship {
@@ -358,3 +359,43 @@ model ChallengeParticipant {
   @@index([challengeId])
   @@index([userId])
 }
+
+enum ReadingSessionStatus {
+  READING
+  COMPLETED
+}
+
+model NovelCatalog {
+  id          String               @id @default(cuid())
+  externalId  String?              @unique
+  title       String
+  author      String?
+  genre       String?
+  coverUrl    String?
+  readUrl     String
+  description String?
+  language    String               @default("en")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  sessions    UserReadingSession[]
+
+  @@index([genre])
+  @@index([title])
+}
+
+model UserReadingSession {
+  id          String               @id @default(cuid())
+  userId      String
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  novelId     String
+  novel       NovelCatalog         @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  status      ReadingSessionStatus @default(READING)
+  startedAt   DateTime             @default(now())
+  lastReadAt  DateTime             @default(now())
+  completedAt DateTime?
+
+  @@unique([userId, novelId])
+  @@index([userId, status])
+  @@index([novelId])
+}
+

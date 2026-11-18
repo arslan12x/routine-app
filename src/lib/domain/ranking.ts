@@ -1,4 +1,6 @@
 export interface BoardRow {
+  userId?: string;
+  isFriend?: boolean;
   displayName: string;
   image: string | null;
   currentStreak: number;
