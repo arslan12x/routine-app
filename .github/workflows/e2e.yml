@@ -42,13 +42,52 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Mock Supabase Auth Schema & Roles
+      - name: Mock Supabase Schemas, Roles & Realtime
         run: |
-          psql $DATABASE_URL -c "CREATE SCHEMA IF NOT EXISTS auth;"
-          psql $DATABASE_URL -c "CREATE OR REPLACE FUNCTION auth.uid() RETURNS text AS \$\$ BEGIN RETURN 'test-user-id'; END; \$\$ LANGUAGE plpgsql;"
-          psql $DATABASE_URL -c "CREATE ROLE authenticated NOLOGIN;"
-          psql $DATABASE_URL -c "CREATE ROLE anon NOLOGIN;"
-          psql $DATABASE_URL -c "CREATE ROLE service_role NOLOGIN;"
+          psql "$DATABASE_URL" <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE OR REPLACE FUNCTION auth.uid() RETURNS text AS $$
+          BEGIN
+            RETURN COALESCE(current_setting('request.jwt.claims', true)::jsonb->>'sub', 'test-user-id');
+          END;
+          $$ LANGUAGE plpgsql;
+
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE service_role NOLOGIN;
+
+          CREATE SCHEMA IF NOT EXISTS realtime;
+          CREATE TABLE IF NOT EXISTS realtime.messages (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            topic text NOT NULL,
+            extension text NOT NULL DEFAULT 'broadcast',
+            payload jsonb,
+            event text,
+            private boolean DEFAULT false,
+            updated_at timestamp DEFAULT now(),
+            inserted_at timestamp DEFAULT now()
+          );
+          ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
+
+          CREATE OR REPLACE FUNCTION realtime.topic() RETURNS text AS $$
+          BEGIN
+            RETURN COALESCE(current_setting('realtime.topic', true), '');
+          END;
+          $$ LANGUAGE plpgsql;
+
+          CREATE OR REPLACE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT false) RETURNS void AS $$
+          BEGIN
+            RETURN;
+          END;
+          $$ LANGUAGE plpgsql;
+
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+              CREATE PUBLICATION supabase_realtime;
+            END IF;
+          END $$;
+          SQL
 
       - name: Run database migrations and seed
         run: npx prisma migrate deploy
