@@ -36,4 +36,19 @@ test.describe("Authentication and Tasks Dashboard", () => {
     await expect(page.getByRole("button", { name: /add task/i })).toBeVisible();
     await expect(page.getByText(/day streak/i)).toBeVisible();
   });
+
+  test("navigates to /challenges and views workspace team challenges", async ({ page }) => {
+    const username = process.env.TEST_USER_USERNAME || process.env.INITIAL_ADMIN_USERNAME || "admin";
+    const password = process.env.TEST_USER_PASSWORD || process.env.INITIAL_ADMIN_PASSWORD || "admin1234";
+
+    await page.goto("/login");
+    await page.fill("#identifier", username);
+    await page.fill("#password", password);
+    await page.click('button[type="submit"]');
+
+    await expect(page).toHaveURL(/\/tasks/, { timeout: 15_000 });
+    await page.click('a[href="/challenges"]');
+    await expect(page).toHaveURL(/\/challenges/);
+    await expect(page.getByRole("heading", { name: /team challenges/i })).toBeVisible();
+  });
 });

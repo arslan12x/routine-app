@@ -68,6 +68,23 @@ export const settingsPatch = z.object({
   showOnLeaderboard: z.boolean().optional(),
 });
 
+export const challengeCreate = z
+  .object({
+    title: z.string().trim().min(1, "Title is required").max(100),
+    description: z.string().trim().max(500).nullable().optional(),
+    category: categoryEnum.nullable().optional(),
+    unit: z.string().trim().max(30).nullable().optional(),
+    target: z.number().positive("Target must be greater than 0").max(1_000_000_000),
+    startDate: dateStr,
+    endDate: dateStr,
+  })
+  .refine((d) => d.endDate >= d.startDate, {
+    message: "End date must be on or after start date",
+    path: ["endDate"],
+  });
+
+export type ChallengeCreate = z.infer<typeof challengeCreate>;
+
 export const insightsQuery = z.object({
   range: z.enum(["day", "week", "month", "custom"]).default("week"),
   from: dateStr.optional(),

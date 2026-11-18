@@ -20,6 +20,7 @@
     "@better-auth/sso": "^1.7.23",
     "@capacitor/core": "^8.6.0",
     "@capacitor/haptics": "^8.0.2",
+    "@capacitor/local-notifications": "^8.3.1",
     "@prisma/adapter-pg": "^7.0.0",
     "@prisma/client": "^7.0.0",
     "@sentry/nextjs": "^11.12.0",

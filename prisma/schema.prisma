@@ -60,6 +60,8 @@ model User {
   tasks             Task[]
   logs              TaskLog[]
   pushSubscriptions PushSubscription[]
+  createdChallenges Challenge[]            @relation("ChallengeCreator")
+  challengeParticipations ChallengeParticipant[]
 }
 
 model Friendship {
@@ -169,6 +171,7 @@ model Organization {
   invitations  Invitation[]
   auditLogs    AuditLog[]
   ssoProviders SsoProvider[]
+  challenges   Challenge[]
 }
 
 model Member {
@@ -286,4 +289,45 @@ model TaskLog {
 
   @@unique([taskId, localDate])
   @@index([userId, localDate])
+}
+
+enum ChallengeStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+model Challenge {
+  id             String                 @id @default(cuid())
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title          String
+  description    String?
+  category       Category?
+  unit           String?
+  target         Float
+  startDate      DateTime               @db.Date
+  endDate        DateTime               @db.Date
+  status         ChallengeStatus        @default(ACTIVE)
+  creatorId      String
+  creator        User                   @relation("ChallengeCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  participants   ChallengeParticipant[]
+
+  @@index([organizationId, status])
+  @@index([startDate, endDate])
+}
+
+model ChallengeParticipant {
+  id          String    @id @default(cuid())
+  challengeId String
+  challenge   Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime  @default(now())
+
+  @@unique([challengeId, userId])
+  @@index([challengeId])
+  @@index([userId])
 }

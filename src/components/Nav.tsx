@@ -1,11 +1,12 @@
 "use client";
-import { CalendarDays, ListChecks, TrendingUp, Users } from "lucide-react";
+import { CalendarDays, ListChecks, TrendingUp, Trophy, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 
 const items = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
+  { href: "/challenges", label: "Challenges", Icon: Trophy },
   { href: "/calendar", label: "Calendar", Icon: CalendarDays },
   { href: "/insights", label: "Insights", Icon: TrendingUp },
   { href: "/friends", label: "Friends", Icon: Users },
@@ -30,7 +31,7 @@ export default function Nav() {
       </aside>
       {/* Mobile bottom bar */}
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(28,25,23,0.05)] backdrop-blur-xl md:hidden">
-        <ul className="grid grid-cols-4">
+        <ul className="grid grid-cols-5">
           {items.map(({ href, label, Icon }) => {
             const on = path.startsWith(href);
             return (
