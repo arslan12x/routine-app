@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/nextjs";
 import { inngest, reminderSendEvent } from "@/inngest/client";
 import { getReminderSlot } from "@/lib/domain/reminders";
 import { systemDb } from "@/lib/db";
+import { generateWeeklyCoachReview } from "@/server/ai/coach";
 import { dispatchUserTaskReminder } from "@/server/services/reminders";
 
 export const scheduleTaskReminders = inngest.createFunction(
@@ -61,4 +62,33 @@ export const sendTaskReminder = inngest.createFunction(
   ),
 );
 
-export const reminderFunctions = [scheduleTaskReminders, sendTaskReminder];
+export const weeklyRoutineCoach = inngest.createFunction(
+  {
+    id: "weekly-routine-coach",
+    triggers: { cron: "0 21 * * 0" }, // Runs Sunday nights at 21:00 UTC
+    onFailure: async ({ error }) => {
+      Sentry.captureException(error, {
+        tags: { inngestFunction: "weekly-routine-coach" },
+      });
+    },
+  },
+  async ({ step }) => {
+    const userIds = await step.run("find-active-users", async () => {
+      const users = await systemDb.user.findMany({
+        where: { banned: false },
+        select: { id: true },
+      });
+      return users.map((u) => u.id);
+    });
+
+    if (userIds.length === 0) return { processed: 0 };
+
+    for (const userId of userIds) {
+      await step.run(`coach-review-${userId}`, () => generateWeeklyCoachReview(userId));
+    }
+
+    return { processed: userIds.length };
+  },
+);
+
+export const reminderFunctions = [scheduleTaskReminders, sendTaskReminder, weeklyRoutineCoach];

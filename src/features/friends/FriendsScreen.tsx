@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Flame, UserPlus, X } from "lucide-react";
+import { Brain, Check, CheckCircle2, Flame, GraduationCap, ShieldCheck, Sparkles, Trophy, UserPlus, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, Button, Card, Empty } from "@/components/ui";
 import { cn, pct } from "@/lib/cn";
@@ -9,6 +9,13 @@ import { api } from "@/lib/fetcher";
 
 type Tab = "leaderboard" | "discover" | "requests";
 type FriendshipStatus = "NONE" | "REQUESTED" | "INCOMING" | "FRIENDS";
+
+export interface BadgeItem {
+  badgeType: string;
+  label: string;
+  description: string;
+  icon: string;
+}
 
 interface LeaderboardEntry {
   rank: number;
@@ -20,6 +27,7 @@ interface LeaderboardEntry {
   successDays: number;
   mandatoryPerDay: number;
   isMe: boolean;
+  badges?: BadgeItem[];
 }
 
 interface DiscoverUser {
@@ -188,6 +196,20 @@ export default function FriendsScreen({ initialRows }: { initialRows: Leaderboar
                         {row.displayName}{row.isMe && <span className="ml-2 text-xs text-brand">you</span>}
                       </div>
                       <div className="text-xs text-muted">30-day consistency {pct(row.consistency)} · {row.successDays} successful days · {row.mandatoryPerDay} mandatory/day</div>
+                      {row.badges && row.badges.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          {row.badges.map((badge) => (
+                            <span
+                              key={badge.badgeType}
+                              title={badge.description}
+                              className="inline-flex items-center gap-1 rounded-full border border-border bg-soft px-1.5 py-0.5 text-[10px] font-medium text-foreground transition-colors"
+                            >
+                              <BadgeIcon icon={badge.icon} />
+                              <span>{badge.label}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <div className="flex items-center justify-end gap-1 text-lg font-semibold tabular-nums">
@@ -269,3 +291,25 @@ export default function FriendsScreen({ initialRows }: { initialRows: Leaderboar
     </>
   );
 }
+
+function BadgeIcon({ icon, size = 12, className }: { icon: string; size?: number; className?: string }) {
+  switch (icon) {
+    case "Flame":
+      return <Flame size={size} className={className ?? "text-brand"} aria-hidden />;
+    case "Trophy":
+      return <Trophy size={size} className={className ?? "text-amber-500"} aria-hidden />;
+    case "Brain":
+      return <Brain size={size} className={className ?? "text-purple-500"} aria-hidden />;
+    case "GraduationCap":
+      return <GraduationCap size={size} className={className ?? "text-indigo-500"} aria-hidden />;
+    case "CheckCircle2":
+      return <CheckCircle2 size={size} className={className ?? "text-emerald-500"} aria-hidden />;
+    case "ShieldCheck":
+      return <ShieldCheck size={size} className={className ?? "text-blue-500"} aria-hidden />;
+    case "Zap":
+      return <Zap size={size} className={className ?? "text-amber-400"} aria-hidden />;
+    default:
+      return <Sparkles size={size} className={className ?? "text-brand"} aria-hidden />;
+  }
+}
+

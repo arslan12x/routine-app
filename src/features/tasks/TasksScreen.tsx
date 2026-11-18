@@ -1,6 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { Flame, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, Flame, Lightbulb, Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Ring, Skeleton } from "@/components/ui";
 import { api } from "@/lib/fetcher";
@@ -33,9 +33,27 @@ const StudyChatModal = dynamic(() => import("./StudyChatModal"), {
 
 const TOKEN_REFRESH_MS = 45 * 60 * 1_000;
 
-export default function TasksScreen({ initial, userId }: { initial: DayView; userId: string }) {
+export interface CoachReviewView {
+  id: string;
+  weekStartDate: string;
+  review: string;
+  actionableTip: string;
+  createdAt: string;
+}
+
+export default function TasksScreen({
+  initial,
+  userId,
+  initialCoachReview = null,
+}: {
+  initial: DayView;
+  userId: string;
+  initialCoachReview?: CoachReviewView | null;
+}) {
   const [data, setData] = useState(initial);
   const dataRef = useRef(initial);
+  const [coachReview] = useState<CoachReviewView | null>(initialCoachReview);
+  const [isCoachCollapsed, setIsCoachCollapsed] = useState(false);
   const isMandatoryComplete =
     initial.date === initial.today &&
     initial.mandatory.length > 0 &&
@@ -343,6 +361,45 @@ export default function TasksScreen({ initial, userId }: { initial: DayView; use
           <div className="text-xs text-muted">day streak</div>
         </div>
       </Card>
+
+      {coachReview && (
+        <Card className="mt-4 border-brand/20 bg-gradient-to-br from-card via-card to-brand/5 p-4 transition-all">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="flex size-7 items-center justify-center rounded-lg bg-brand/10 text-brand">
+                <Sparkles size={16} aria-hidden />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Weekly AI Routine Coach</h3>
+                <p className="text-[11px] text-muted">Week of {coachReview.weekStartDate}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsCoachCollapsed(!isCoachCollapsed)}
+              className="rounded-lg p-1 text-muted hover:bg-soft hover:text-foreground transition"
+              aria-label={isCoachCollapsed ? "Expand weekly review" : "Collapse weekly review"}
+            >
+              {isCoachCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+            </button>
+          </div>
+
+          {!isCoachCollapsed && (
+            <div className="mt-3 space-y-3">
+              <p className="text-sm text-foreground/90 leading-relaxed">
+                {coachReview.review}
+              </p>
+              <div className="flex items-start gap-2.5 rounded-xl border border-brand/20 bg-brand/5 p-3 text-xs text-foreground">
+                <Lightbulb size={16} className="mt-0.5 shrink-0 text-brand" aria-hidden />
+                <div>
+                  <span className="font-semibold text-brand">Actionable Tip: </span>
+                  <span>{coachReview.actionableTip}</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
 
       {error && <p role="alert" className="mt-4 rounded-xl bg-bad/10 p-3 text-sm text-bad">{error}</p>}
 

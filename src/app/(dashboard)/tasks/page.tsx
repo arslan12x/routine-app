@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { pageUser } from "@/lib/auth/session";
 import { todayIn } from "@/lib/domain/dates";
 import TasksScreen from "@/features/tasks/TasksScreen";
+import { getLatestCoachReview } from "@/server/ai/coach";
 import { dayView } from "@/server/services/tasks";
 import { Skeleton } from "@/components/ui";
 
@@ -16,8 +17,11 @@ export default async function TasksPage() {
 }
 
 async function TasksContent({ user, date }: { user: Awaited<ReturnType<typeof pageUser>>; date: string }) {
-  const data = await dayView(user, date);
-  return <TasksScreen key={data.date} userId={user.id} initial={data} />;
+  const [data, coachReview] = await Promise.all([
+    dayView(user, date),
+    getLatestCoachReview(user.id),
+  ]);
+  return <TasksScreen key={data.date} userId={user.id} initial={data} initialCoachReview={coachReview} />;
 }
 
 function TasksLoading() {

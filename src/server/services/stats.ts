@@ -6,6 +6,7 @@ import { computeInsights, type Group } from "@/lib/domain/analytics";
 import { rankRows, type BoardRow } from "@/lib/domain/ranking";
 import { isDone, logKey, scheduledOn, weekDays } from "@/lib/domain/schedule";
 import { computeStreaks, recentConsistency, statusRange } from "@/lib/domain/streaks";
+import { syncUserAchievements } from "@/server/services/achievements";
 import { d2s, loadLogs, loadTaskData, loadTasks } from "@/server/repositories/tasks";
 
 export async function streaks(user: AppUser) {
@@ -110,11 +111,20 @@ export async function leaderboard(viewer: AppUser) {
       const today = todayIn(u.settings?.timezone ?? "Asia/Kolkata");
       const s = computeStreaks(tasks, logs, today);
       const c = recentConsistency(tasks, logs, today, 30, 7);
+      const userBadges = await syncUserAchievements(u.id, {
+        tasks,
+        logs,
+        currentStreak: s.current,
+        longestStreak: s.longest,
+        consistencyRate: c.rate,
+        successDays: s.successDays,
+      });
       return {
         tiebreakId: u.id, isMe: u.id === viewer.id,
         displayName: u.settings?.displayName ?? u.name, image: u.image,
         currentStreak: s.current, longestStreak: s.longest, consistency: c.rate,
         successDays: s.successDays, mandatoryPerDay: c.mandatoryPerDay, joinedAt: u.createdAt.toISOString(),
+        badges: userBadges,
       };
       }),
     ));

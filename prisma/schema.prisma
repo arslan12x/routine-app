@@ -60,6 +60,8 @@ model User {
   tasks             Task[]
   logs              TaskLog[]
   pushSubscriptions PushSubscription[]
+  achievements      Achievement[]
+  coachReviews      CoachReview[]
 }
 
 model Friendship {
@@ -287,3 +289,29 @@ model TaskLog {
   @@unique([taskId, localDate])
   @@index([userId, localDate])
 }
+
+model Achievement {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badgeType  String
+  unlockedAt DateTime @default(now())
+  metadata   Json?
+
+  @@unique([userId, badgeType])
+  @@index([userId, unlockedAt])
+}
+
+model CoachReview {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekStartDate DateTime @db.Date
+  review        String
+  actionableTip String
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, weekStartDate])
+  @@index([userId, createdAt])
+}
+

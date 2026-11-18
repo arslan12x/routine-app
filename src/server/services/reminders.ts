@@ -1,6 +1,7 @@
 import * as webpush from "web-push";
 import { systemDb } from "@/lib/db";
 import { isReminderHour, reminderMessage } from "@/lib/domain/reminders";
+import { generateSmartReminderMessage } from "@/server/ai/reminders";
 import { dayView } from "@/server/services/tasks";
 import type { AppUser } from "@/lib/auth/session";
 
@@ -64,8 +65,19 @@ export async function dispatchUserTaskReminder(userId: string, date: string, hou
     showOnLeaderboard: user.settings.showOnLeaderboard,
   };
   const today = await dayView(appUser, date);
-  const remainingTasks = [...today.mandatory, ...today.extra].filter((task) => !task.done).length;
-  if (remainingTasks === 0) return { sent: 0 };
+  const uncompletedTasks = [...today.mandatory, ...today.extra].filter((task) => !task.done);
+  if (uncompletedTasks.length === 0) return { sent: 0 };
+  const remainingTasks = uncompletedTasks.length;
+  const mandatoryCount = today.mandatory.filter((task) => !task.done).length;
+
+  const reminderBody = await generateSmartReminderMessage({
+    displayName: user.settings.displayName ?? user.name,
+    remainingTaskTitles: uncompletedTasks.map((t) => t.title),
+    remainingCount: remainingTasks,
+    mandatoryCount,
+    streak: today.streak,
+    hour,
+  });
 
   configurePush();
   let sent = 0;
@@ -86,7 +98,7 @@ export async function dispatchUserTaskReminder(userId: string, date: string, hou
         { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
         JSON.stringify({
           title: "Routine reminder",
-          body: reminderMessage(remainingTasks, hour),
+          body: reminderBody,
           url: "/tasks",
           tag: `routine-${date}-${hour}`,
         }),

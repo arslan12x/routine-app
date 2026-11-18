@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { todayIn } from "../src/lib/domain/dates.ts";
+import { addDays, todayIn } from "../src/lib/domain/dates.ts";
 import { dayInfo, logKey } from "../src/lib/domain/schedule.ts";
 import { computeStreaks, recentConsistency } from "../src/lib/domain/streaks.ts";
 import { computeInsights } from "../src/lib/domain/analytics.ts";
 import { rankRows } from "../src/lib/domain/ranking.ts";
 import { shouldRejectStaleWrite } from "../src/lib/domain/sync.ts";
 import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
+import { evaluateEligibleBadges, BADGE_DEFINITIONS } from "../src/lib/domain/achievements.ts";
+import { buildSmartReminderPrompt } from "../src/server/ai/reminders.ts";
+import { buildFallbackCoachReview } from "../src/server/ai/coach.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
@@ -211,5 +214,135 @@ describe("last-write-wins (LWW) conflict evaluation", () => {
 
   it("handles invalid date strings gracefully without throwing", () => {
     expect(shouldRejectStaleWrite(new Date("2026-11-14T12:00:00Z"), "invalid-iso-date")).toBe(false);
+  });
+});
+
+describe("milestone badges and achievements", () => {
+  it("evaluates streak milestones for 7-day and 30-day streaks", () => {
+    const t = task("t1");
+    const emptyLogs: LogMap = new Map();
+
+    const badges7 = evaluateEligibleBadges({
+      tasks: [t],
+      logs: emptyLogs,
+      currentStreak: 7,
+      longestStreak: 7,
+      consistencyRate: 0.8,
+      successDays: 7,
+    });
+    expect(badges7).toContain("STREAK_7");
+    expect(badges7).not.toContain("STREAK_30");
+
+    const badges30 = evaluateEligibleBadges({
+      tasks: [t],
+      logs: emptyLogs,
+      currentStreak: 30,
+      longestStreak: 30,
+      consistencyRate: 0.9,
+      successDays: 30,
+    });
+    expect(badges30).toContain("STREAK_7");
+    expect(badges30).toContain("STREAK_30");
+  });
+
+  it("evaluates AI study sessions milestones for 10 and 100 sessions", () => {
+    const aiTask = task("ai-study", { isAiGated: true, aiSubject: "DSA" });
+    const aiLogs: LogMap = new Map();
+
+    for (let i = 0; i < 10; i++) {
+      const d = addDays("2026-11-01", i);
+      aiLogs.set(logKey("ai-study", d), 1);
+    }
+
+    const badges10 = evaluateEligibleBadges({
+      tasks: [aiTask],
+      logs: aiLogs,
+      currentStreak: 10,
+      longestStreak: 10,
+      consistencyRate: 1.0,
+      successDays: 10,
+    });
+    expect(badges10).toContain("AI_SESSIONS_10");
+    expect(badges10).toContain("FIRST_STEP");
+    expect(badges10).not.toContain("AI_SESSIONS_100");
+
+    // Add up to 100 sessions
+    for (let i = 10; i < 100; i++) {
+      const d = addDays("2026-11-01", i);
+      aiLogs.set(logKey("ai-study", d), 1);
+    }
+
+    const badges100 = evaluateEligibleBadges({
+      tasks: [aiTask],
+      logs: aiLogs,
+      currentStreak: 100,
+      longestStreak: 100,
+      consistencyRate: 1.0,
+      successDays: 100,
+    });
+    expect(badges100).toContain("AI_SESSIONS_100");
+    expect(badges100).toContain("TASK_CENTURY");
+  });
+
+  it("evaluates flawless week milestone when 100% consistent across 7+ days", () => {
+    const t = task("walk");
+    const badges = evaluateEligibleBadges({
+      tasks: [t],
+      logs: new Map(),
+      currentStreak: 7,
+      longestStreak: 7,
+      consistencyRate: 1.0,
+      successDays: 7,
+    });
+    expect(badges).toContain("PERFECT_WEEK");
+  });
+
+  it("all badge definitions have valid labels and icons", () => {
+    for (const key of Object.keys(BADGE_DEFINITIONS)) {
+      const def = BADGE_DEFINITIONS[key];
+      expect(def.badgeType).toBe(key);
+      expect(def.label.length).toBeGreaterThan(0);
+      expect(def.description.length).toBeGreaterThan(0);
+      expect(["Flame", "Trophy", "Brain", "GraduationCap", "CheckCircle2", "ShieldCheck", "Zap"]).toContain(def.icon);
+    }
+  });
+});
+
+describe("smart push reminders prompt construction", () => {
+  it("formats contextual reminder prompt containing remaining tasks and streak", () => {
+    const prompt = buildSmartReminderPrompt({
+      displayName: "Alex",
+      remainingTaskTitles: ["Read 10 pages", "10,000 steps"],
+      remainingCount: 2,
+      mandatoryCount: 1,
+      streak: 5,
+      hour: 21,
+    });
+    expect(prompt).toContain("Current streak: 5 days");
+    expect(prompt).toContain("Remaining tasks: 2 (1 mandatory)");
+    expect(prompt).toContain("Read 10 pages, 10,000 steps");
+    expect(prompt).toContain("3 hours left before midnight");
+  });
+});
+
+describe("weekly AI routine coach review", () => {
+  it("generates motivating feedback and tip for high completion rate (>= 80%)", () => {
+    const result = buildFallbackCoachReview(0.85, 12, "Morning Run");
+    expect(result.review).toContain("85%");
+    expect(result.review).toContain("12-day streak");
+    expect(result.review).toContain("Morning Run");
+    expect(result.actionableTip.length).toBeGreaterThan(10);
+  });
+
+  it("generates habit-stacking guidance for moderate completion rate (50-79%)", () => {
+    const result = buildFallbackCoachReview(0.65, 4);
+    expect(result.review).toContain("65%");
+    expect(result.actionableTip).toContain("habit-stacking");
+  });
+
+  it("generates barrier-reduction guidance for low completion rate (< 50%)", () => {
+    const result = buildFallbackCoachReview(0.3, 0);
+    expect(result.review).toContain("30%");
+    expect(result.actionableTip).toContain("single top mandatory habit");
   });
 });

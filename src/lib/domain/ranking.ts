@@ -8,6 +8,7 @@ export interface BoardRow {
   mandatoryPerDay: number;
   joinedAt: string; // ISO timestamp
   tiebreakId: string; // never sent to clients
+  badges?: { badgeType: string; label: string; description: string; icon: string }[];
 }
 
 /** Deterministic: streak, consistency (null last), success days, longest streak, earliest joiner, id. */
