@@ -12,10 +12,10 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:15
         env:
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: routine_test
         ports:
           - 5432:5432
@@ -25,54 +25,41 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/routine_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/routine_test
+
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: "npm"
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Setup database role
+      - name: Mock Supabase Auth Schema
         run: |
-          docker exec ${{ job.services.postgres.id }} psql -U test_user -d routine_test -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF; END \$\$;"
+          psql $DATABASE_URL -c "CREATE SCHEMA IF NOT EXISTS auth;"
+          psql $DATABASE_URL -c "CREATE OR REPLACE FUNCTION auth.uid() RETURNS text AS \$\$ BEGIN RETURN 'test-user-id'; END; \$\$ LANGUAGE plpgsql;"
 
       - name: Run database migrations and seed
-        env:
-          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/routine_test?sslmode=disable
-          DIRECT_URL: postgresql://test_user:test_password@localhost:5432/routine_test?sslmode=disable
-          INITIAL_ADMIN_USERNAME: admin
-          INITIAL_ADMIN_EMAIL: admin@routine.local
-          INITIAL_ADMIN_PASSWORD: adminpassword123
-        run: |
-          npx prisma migrate deploy
-          npm run db:seed
+        run: npx prisma migrate deploy
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
 
       - name: Run Playwright tests
-        env:
-          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/routine_test?sslmode=disable
-          DIRECT_URL: postgresql://test_user:test_password@localhost:5432/routine_test?sslmode=disable
-          BETTER_AUTH_SECRET: test-secret-at-least-thirty-two-chars-long
-          BETTER_AUTH_URL: http://localhost:3000
-          INITIAL_ADMIN_USERNAME: admin
-          INITIAL_ADMIN_EMAIL: admin@routine.local
-          INITIAL_ADMIN_PASSWORD: adminpassword123
-          TEST_USER_USERNAME: admin
-          TEST_USER_PASSWORD: adminpassword123
         run: npx playwright test
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: always()
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 7
+          retention-days: 30
