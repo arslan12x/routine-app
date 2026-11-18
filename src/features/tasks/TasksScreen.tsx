@@ -1,7 +1,6 @@
 "use client";
 import dynamic from "next/dynamic";
-import { ChevronDown, ChevronUp, Flame, Lightbulb, Plus, Sparkles } from "lucide-react";
-import { Activity } from "lucide-react";
+import { Activity, ChevronDown, ChevronUp, Flame, Lightbulb, Plus, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card, Ring, Skeleton } from "@/components/ui";
 import { api } from "@/lib/fetcher";
