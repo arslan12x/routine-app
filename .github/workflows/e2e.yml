@@ -42,10 +42,13 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Mock Supabase Auth Schema
+      - name: Mock Supabase Auth Schema & Roles
         run: |
           psql $DATABASE_URL -c "CREATE SCHEMA IF NOT EXISTS auth;"
           psql $DATABASE_URL -c "CREATE OR REPLACE FUNCTION auth.uid() RETURNS text AS \$\$ BEGIN RETURN 'test-user-id'; END; \$\$ LANGUAGE plpgsql;"
+          psql $DATABASE_URL -c "CREATE ROLE authenticated NOLOGIN;"
+          psql $DATABASE_URL -c "CREATE ROLE anon NOLOGIN;"
+          psql $DATABASE_URL -c "CREATE ROLE service_role NOLOGIN;"
 
       - name: Run database migrations and seed
         run: npx prisma migrate deploy
