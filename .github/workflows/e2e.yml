@@ -28,6 +28,11 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/routine_test
       DIRECT_URL: postgresql://postgres:postgres@localhost:5432/routine_test
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: test-e2e-secret-key-at-least-32-chars-long
+      INITIAL_ADMIN_USERNAME: admin
+      INITIAL_ADMIN_EMAIL: admin@example.com
+      INITIAL_ADMIN_PASSWORD: Password123!
 
     steps:
       - name: Checkout Repository
@@ -90,7 +95,9 @@ jobs:
           SQL
 
       - name: Run database migrations and seed
-        run: npx prisma migrate deploy
+        run: |
+          npx prisma migrate deploy
+          npm run db:seed
 
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps
