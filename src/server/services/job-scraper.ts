@@ -1,5 +1,9 @@
 import { systemDb } from "@/lib/db";
-import { isValidHrEmail, type CompanyCategory } from "@/lib/domain/jobs";
+import {
+  isValidHrEmail,
+  type CompanyCategory,
+  type CandidateExperienceLevel,
+} from "@/lib/domain/jobs";
 
 export interface CompanySeedData {
   name: string;
@@ -9,6 +13,38 @@ export interface CompanySeedData {
   location: string;
   description: string;
   sampleRoles: string[];
+  rolesByExperience?: Partial<Record<CandidateExperienceLevel, string[]>>;
+}
+
+export function getRoleForExperience(
+  company: CompanySeedData | null | undefined,
+  experienceLevel: CandidateExperienceLevel = "FRESHER"
+): string {
+  if (!company) {
+    if (experienceLevel === "FRESHER") return "Graduate Software Engineer (Fresher / 0-1 Yrs)";
+    if (experienceLevel === "JUNIOR") return "Software Development Engineer I (1-3 Yrs)";
+    if (experienceLevel === "MID") return "Software Development Engineer II (3-5 Yrs)";
+    return "Senior Software Engineer (5+ Yrs)";
+  }
+
+  if (company.rolesByExperience?.[experienceLevel]?.length) {
+    const roles = company.rolesByExperience[experienceLevel]!;
+    return roles[0];
+  }
+
+  const baseDomain = company.sampleRoles?.[0] || "Software Engineer";
+  const domainClean = baseDomain.replace(/^(Senior|Lead|Principal|Staff|Junior|Associate)\s+/i, "");
+
+  if (experienceLevel === "FRESHER") {
+    return `Associate ${domainClean} (Fresher / 0-1 Yrs)`;
+  }
+  if (experienceLevel === "JUNIOR") {
+    return `Software Development Engineer I - ${domainClean} (1-3 Yrs)`;
+  }
+  if (experienceLevel === "MID") {
+    return `Software Development Engineer II - ${domainClean} (3-5 Yrs)`;
+  }
+  return `Senior / Lead ${domainClean} (5+ Yrs)`;
 }
 
 export const CURATED_COMPANIES: CompanySeedData[] = [

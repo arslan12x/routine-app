@@ -20,6 +20,76 @@ export const CATEGORY_LABELS: Record<CompanyCategory, string> = {
   FOREIGN: "Foreign & Remote International company",
 };
 
+export const CANDIDATE_EXPERIENCE_LEVELS = [
+  "FRESHER",
+  "JUNIOR",
+  "MID",
+  "SENIOR",
+] as const;
+
+export type CandidateExperienceLevel = (typeof CANDIDATE_EXPERIENCE_LEVELS)[number];
+
+export const EXPERIENCE_LEVEL_LABELS: Record<CandidateExperienceLevel, string> = {
+  FRESHER: "Fresher (0 - 1 Years / Entry Level)",
+  JUNIOR: "1 - 3 Years (Junior / Associate)",
+  MID: "3 - 5 Years (Mid-Level SDE)",
+  SENIOR: "5+ Years (Senior / Lead)",
+};
+
+export const EXPERIENCE_LEVEL_SHORT_LABELS: Record<CandidateExperienceLevel, string> = {
+  FRESHER: "Fresher (0-1 Yrs)",
+  JUNIOR: "1-3 Years",
+  MID: "3-5 Years",
+  SENIOR: "5+ Years",
+};
+
+export function inferExperienceLevelFromTitle(jobTitle: string): CandidateExperienceLevel {
+  const lower = jobTitle.toLowerCase();
+  if (
+    lower.includes("fresher") ||
+    lower.includes("graduate") ||
+    lower.includes("0-1") ||
+    lower.includes("intern") ||
+    lower.includes("trainee") ||
+    lower.includes("entry level") ||
+    lower.includes("early career")
+  ) {
+    return "FRESHER";
+  }
+
+  if (
+    lower.includes("5+") ||
+    lower.includes("senior") ||
+    lower.includes("staff") ||
+    lower.includes("principal") ||
+    lower.includes("lead") ||
+    lower.includes("architect") ||
+    /\b(sde|engineer|developer)\s*(iii|3)\b/i.test(jobTitle)
+  ) {
+    return "SENIOR";
+  }
+
+  if (
+    lower.includes("3-5") ||
+    lower.includes("mid-level") ||
+    lower.includes("intermediate") ||
+    /\b(sde|engineer|developer)\s*(ii|2)\b/i.test(jobTitle)
+  ) {
+    return "MID";
+  }
+
+  if (
+    lower.includes("1-3") ||
+    lower.includes("junior") ||
+    lower.includes("associate") ||
+    /\b(sde|engineer|developer)\s*(i|1)\b/i.test(jobTitle)
+  ) {
+    return "JUNIOR";
+  }
+
+  return "FRESHER";
+}
+
 export const APPLICATION_STAGES = [
   "TO_APPLY",
   "WAITING_FU1",

@@ -1,12 +1,15 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
-import { getCandidateProfile, saveCandidateEmail } from "@/server/services/jobs";
+import { getCandidateProfile, saveCandidateProfile } from "@/server/services/jobs";
+import { CANDIDATE_EXPERIENCE_LEVELS, type CandidateExperienceLevel } from "@/lib/domain/jobs";
 import { ApiError } from "@/lib/api";
 
 export const runtime = "nodejs";
 
 const profileSchema = z.object({
-  email: z.string().email("Please provide a valid email address"),
+  email: z.string().email("Please provide a valid email address").optional(),
+  experienceLevel: z.enum([...CANDIDATE_EXPERIENCE_LEVELS] as [string, ...string[]]).optional(),
+  experienceYears: z.number().min(0).max(50).optional(),
 });
 
 function errorResponse(error: unknown) {
@@ -47,8 +50,13 @@ export async function POST(request: Request) {
     const json = await request.json().catch(() => ({}));
     const validated = profileSchema.parse(json);
 
-    const savedEmail = await saveCandidateEmail(user.id, validated.email);
-    return Response.json({ email: savedEmail, success: true }, {
+    const savedProfile = await saveCandidateProfile(user.id, {
+      email: validated.email,
+      experienceLevel: validated.experienceLevel as CandidateExperienceLevel | undefined,
+      experienceYears: validated.experienceYears,
+    });
+
+    return Response.json({ profile: savedProfile, email: savedProfile.email, success: true }, {
       status: 200,
       headers: { "Cache-Control": "private, no-store" },
     });

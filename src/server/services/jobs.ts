@@ -8,10 +8,18 @@ import {
   shouldPromoteFollowUp,
   type ApplicationStage,
   type CompanyCategory,
+  type CandidateExperienceLevel,
+  CANDIDATE_EXPERIENCE_LEVELS,
+  inferExperienceLevelFromTitle,
 } from "@/lib/domain/jobs";
 import { generateJobEmailDraft, type EmailDraft } from "@/server/ai/jobs";
 import { dispatchJobEmail } from "@/server/services/email-dispatcher";
-import { CURATED_COMPANIES, ensureCompanyDirectorySeeded, rotateAllHiringCompanies } from "@/server/services/job-scraper";
+import {
+  CURATED_COMPANIES,
+  ensureCompanyDirectorySeeded,
+  rotateAllHiringCompanies,
+  getRoleForExperience,
+} from "@/server/services/job-scraper";
 import { COMPANY_CATEGORIES } from "@/lib/domain/jobs";
 
 const COMMON_SKILLS_LIST = [
@@ -72,7 +80,14 @@ export async function getUserResume(userId: string) {
   return withUserDb(userId, (tx) => tx.userResume.findUnique({ where: { userId } }));
 }
 
-export async function getCandidateProfile(userId: string): Promise<{ email: string; isCustom: boolean }> {
+export interface CandidateProfile {
+  email: string;
+  isCustom: boolean;
+  experienceLevel: CandidateExperienceLevel;
+  experienceYears: number;
+}
+
+export async function getCandidateProfile(userId: string): Promise<CandidateProfile> {
   const integration = await withUserDb(userId, (tx) =>
     tx.userIntegration.findUnique({
       where: {
@@ -84,8 +99,31 @@ export async function getCandidateProfile(userId: string): Promise<{ email: stri
     })
   );
 
+  const rawMeta = integration?.metadata as Record<string, unknown> | null;
+  const experienceLevel: CandidateExperienceLevel =
+    typeof rawMeta?.experienceLevel === "string" &&
+    CANDIDATE_EXPERIENCE_LEVELS.includes(rawMeta.experienceLevel as CandidateExperienceLevel)
+      ? (rawMeta.experienceLevel as CandidateExperienceLevel)
+      : "FRESHER";
+
+  const experienceYears: number =
+    typeof rawMeta?.experienceYears === "number"
+      ? rawMeta.experienceYears
+      : experienceLevel === "FRESHER"
+      ? 0
+      : experienceLevel === "JUNIOR"
+      ? 2
+      : experienceLevel === "MID"
+      ? 4
+      : 6;
+
   if (integration?.externalUsername?.trim()) {
-    return { email: integration.externalUsername.trim(), isCustom: true };
+    return {
+      email: integration.externalUsername.trim(),
+      isCustom: true,
+      experienceLevel,
+      experienceYears,
+    };
   }
 
   const user = await systemDb.user.findUnique({
@@ -93,14 +131,44 @@ export async function getCandidateProfile(userId: string): Promise<{ email: stri
     select: { email: true },
   });
 
-  return { email: user?.email || "", isCustom: false };
+  return {
+    email: user?.email || "",
+    isCustom: false,
+    experienceLevel,
+    experienceYears,
+  };
 }
 
-export async function saveCandidateEmail(userId: string, email: string): Promise<string> {
-  const trimmed = email.trim().toLowerCase();
-  if (!trimmed || !trimmed.includes("@") || !trimmed.includes(".")) {
-    throw new ApiError(400, "INVALID_EMAIL", "Please provide a valid email address for job applications");
+export async function saveCandidateProfile(
+  userId: string,
+  input: {
+    email?: string;
+    experienceLevel?: CandidateExperienceLevel;
+    experienceYears?: number;
   }
+): Promise<CandidateProfile> {
+  const current = await getCandidateProfile(userId);
+  let email = current.email;
+
+  if (input.email !== undefined) {
+    const trimmed = input.email.trim().toLowerCase();
+    if (!trimmed || !trimmed.includes("@") || !trimmed.includes(".")) {
+      throw new ApiError(400, "INVALID_EMAIL", "Please provide a valid email address for job applications");
+    }
+    email = trimmed;
+  }
+
+  const experienceLevel = input.experienceLevel || current.experienceLevel;
+  const experienceYears =
+    input.experienceYears !== undefined
+      ? input.experienceYears
+      : experienceLevel === "FRESHER"
+      ? 0
+      : experienceLevel === "JUNIOR"
+      ? 2
+      : experienceLevel === "MID"
+      ? 4
+      : 6;
 
   await withUserDb(userId, (tx) =>
     tx.userIntegration.upsert({
@@ -113,29 +181,51 @@ export async function saveCandidateEmail(userId: string, email: string): Promise
       create: {
         userId,
         provider: "CANDIDATE_JOB_PROFILE",
-        externalUsername: trimmed,
+        externalUsername: email,
         lastStatus: "VERIFIED",
-        metadata: { updatedAt: new Date().toISOString() },
+        metadata: {
+          experienceLevel,
+          experienceYears,
+          updatedAt: new Date().toISOString(),
+        },
       },
       update: {
-        externalUsername: trimmed,
+        externalUsername: email,
         lastStatus: "VERIFIED",
-        metadata: { updatedAt: new Date().toISOString() },
+        metadata: {
+          experienceLevel,
+          experienceYears,
+          updatedAt: new Date().toISOString(),
+        },
       },
     })
   );
 
-  return trimmed;
+  return {
+    email,
+    isCustom: true,
+    experienceLevel,
+    experienceYears,
+  };
+}
+
+export async function saveCandidateEmail(userId: string, email: string): Promise<string> {
+  const profile = await saveCandidateProfile(userId, { email });
+  return profile.email;
 }
 
 export async function queueApplications(
   userId: string,
   categories: CompanyCategory[],
-  limit = 30
+  limit = 30,
+  experienceLevel?: CandidateExperienceLevel
 ) {
   await ensureCompanyDirectorySeeded().catch((err) =>
     console.warn("[Job Engine] ensureCompanyDirectorySeeded notice", err)
   );
+
+  const candidate = await getCandidateProfile(userId);
+  const expLevel = experienceLevel || candidate.experienceLevel || "FRESHER";
 
   return withUserDb(userId, async (tx) => {
     // Find already queued company IDs
@@ -166,7 +256,7 @@ export async function queueApplications(
       if (newApplicationsData.length >= limit) break;
 
       const seed = CURATED_COMPANIES.find((c) => c.name === company.name);
-      const role = seed?.sampleRoles?.[0] || "Full-Stack Software Engineer";
+      const role = getRoleForExperience(seed, expLevel);
 
       if (!appliedSet.has(`${company.id}|${role}`)) {
         newApplicationsData.push({
@@ -213,7 +303,8 @@ export async function backfillApplications(userId: string, categories?: CompanyC
 /** Refreshes the 2-day batch across ALL 7 categories and shifts previous applied jobs to Follow-Up 1 */
 export async function refreshAndRotateHiringBatch(
   userId: string,
-  categories: CompanyCategory[] = [...COMPANY_CATEGORIES]
+  categories: CompanyCategory[] = [...COMPANY_CATEGORIES],
+  experienceLevel?: CandidateExperienceLevel
 ) {
   // 1. Rotate hiring listings across all 7 categories (outside transaction)
   await rotateAllHiringCompanies().catch((err) =>
@@ -242,13 +333,17 @@ export async function refreshAndRotateHiringBatch(
     });
   });
 
-  // 3. Queue at least 30 fresh currently hiring opportunities into TO_APPLY
-  return queueApplications(userId, categories, 30);
+  // 3. Queue at least 30 fresh currently hiring opportunities into TO_APPLY tailored to candidate experience
+  return queueApplications(userId, categories, 30, experienceLevel);
 }
 
 export async function listUserApplications(
   userId: string,
-  filters?: { stage?: string; categories?: CompanyCategory[] }
+  filters?: {
+    stage?: string;
+    categories?: CompanyCategory[];
+    experienceLevel?: CandidateExperienceLevel;
+  }
 ) {
   return withUserDb(userId, async (tx) => {
     // 1. Check and promote buffer states
@@ -322,6 +417,7 @@ export async function getJobEmailDraftForApp(
   }
 
   const resume = await getUserResume(user.id);
+  const candidate = await getCandidateProfile(user.id);
   const candidateName = user.displayName || user.name || "Software Engineer";
 
   let stageKey: "APPLY" | "FOLLOW_UP_1" | "FOLLOW_UP_2" | "FOLLOW_UP_3" = "APPLY";
@@ -343,6 +439,7 @@ export async function getJobEmailDraftForApp(
     hrEmail: application.hrEmail,
     parsedResume: resume?.parsedText,
     skills,
+    experienceLevel: candidate.experienceLevel,
   });
 }
 

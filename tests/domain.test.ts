@@ -21,10 +21,14 @@ import {
   extractAndValidateEmails,
   COMPANY_CATEGORIES,
   FOLLOWUP_DAY_OFFSETS,
+  CANDIDATE_EXPERIENCE_LEVELS,
+  inferExperienceLevelFromTitle,
+  EXPERIENCE_LEVEL_LABELS,
+  EXPERIENCE_LEVEL_SHORT_LABELS,
 } from "../src/lib/domain/jobs.ts";
 import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
-import { CURATED_COMPANIES } from "../src/server/services/job-scraper.ts";
+import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
@@ -754,5 +758,66 @@ Date,Description,Amount
 
       expect(day15.subject).toContain("Final follow-up");
       expect(day15.body).toContain("one final check-in");
+    });
+
+    it("infers candidate experience level from job title correctly", () => {
+      expect(inferExperienceLevelFromTitle("Graduate Software Engineer (Fresher / 0-1 Yrs)")).toBe("FRESHER");
+      expect(inferExperienceLevelFromTitle("Junior Frontend Developer (1-3 Yrs)")).toBe("JUNIOR");
+      expect(inferExperienceLevelFromTitle("Software Development Engineer I")).toBe("JUNIOR");
+      expect(inferExperienceLevelFromTitle("Software Development Engineer II (3-5 Yrs)")).toBe("MID");
+      expect(inferExperienceLevelFromTitle("Senior / Lead Backend Engineer (5+ Yrs)")).toBe("SENIOR");
+      expect(inferExperienceLevelFromTitle("Principal Distributed Systems Architect")).toBe("SENIOR");
+      expect(inferExperienceLevelFromTitle("Software Intern (Entry Level)")).toBe("FRESHER");
+    });
+
+    it("supports all 4 experience levels with friendly labels and short descriptions", () => {
+      expect(CANDIDATE_EXPERIENCE_LEVELS).toEqual(["FRESHER", "JUNIOR", "MID", "SENIOR"]);
+      for (const level of CANDIDATE_EXPERIENCE_LEVELS) {
+        expect(EXPERIENCE_LEVEL_LABELS[level]).toBeDefined();
+        expect(EXPERIENCE_LEVEL_SHORT_LABELS[level]).toBeDefined();
+      }
+    });
+
+    it("tailors role curation for fresher vs experienced candidates", () => {
+      const stripe = CURATED_COMPANIES.find((c) => c.name === "Stripe");
+      expect(stripe).toBeDefined();
+
+      const fresherRole = getRoleForExperience(stripe, "FRESHER");
+      expect(fresherRole.toLowerCase()).toMatch(/fresher|graduate|associate|0-1/);
+
+      const juniorRole = getRoleForExperience(stripe, "JUNIOR");
+      expect(juniorRole.toLowerCase()).toMatch(/junior|sde i|1-3/);
+
+      const midRole = getRoleForExperience(stripe, "MID");
+      expect(midRole.toLowerCase()).toMatch(/sde ii|mid|3-5/);
+
+      const seniorRole = getRoleForExperience(stripe, "SENIOR");
+      expect(seniorRole.toLowerCase()).toMatch(/senior|lead|5\+/);
+    });
+
+    it("customizes AI email draft pitch tone for freshers vs experienced candidates", () => {
+      const input = {
+        candidateName: "Priya Sharma",
+        jobTitle: "Associate Software Engineer",
+        companyName: "Google",
+        hrEmail: "jobs@google.com",
+        skills: ["Java", "Data Structures", "Next.js"],
+      };
+
+      const fresherEmail = buildFallbackEmail({
+        ...input,
+        stage: "APPLY",
+        experienceLevel: "FRESHER",
+      });
+      expect(fresherEmail.body).toContain("fresh energy and fast adaptability");
+      expect(fresherEmail.body).toContain("aspiring software engineer");
+
+      const experiencedEmail = buildFallbackEmail({
+        ...input,
+        stage: "APPLY",
+        experienceLevel: "SENIOR",
+      });
+      expect(experiencedEmail.body).toContain("deep hands-on expertise");
+      expect(experiencedEmail.body).toContain("consistently built resilient");
     });
   });
