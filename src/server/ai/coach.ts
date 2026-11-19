@@ -1,6 +1,10 @@
 import { google } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
+
+if (typeof process !== "undefined" && process.env) {
+  process.env.AI_SDK_LOG_WARNINGS = "false";
+}
 import { systemDb } from "@/lib/db";
 import { addDays, daysBetween, todayIn } from "@/lib/domain/dates";
 import { isDone, logKey, scheduledOn } from "@/lib/domain/schedule";

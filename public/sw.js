@@ -1,7 +1,7 @@
 // Minimal service worker.
 // Caches ONLY public static assets + the offline page. It never caches /api/* or authenticated HTML,
 // so one user's data can never be served to another user on a shared device.
-const CACHE = "routine-static-v1";
+const CACHE = "routine-static-v3";
 const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (event) => {
@@ -22,7 +22,22 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // network only
 
-  if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/")) {
+  if (url.pathname.startsWith("/_next/static/")) {
+    event.respondWith(
+      fetch(req)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match(req)),
+    );
+    return;
+  }
+
+  if (url.pathname.startsWith("/icons/")) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }

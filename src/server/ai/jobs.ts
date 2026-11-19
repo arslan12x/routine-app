@@ -3,6 +3,10 @@ import { generateObject } from "ai";
 import { z } from "zod";
 import type { CandidateExperienceLevel } from "@/lib/domain/jobs";
 
+if (typeof process !== "undefined" && process.env) {
+  process.env.AI_SDK_LOG_WARNINGS = "false";
+}
+
 export interface EmailDraftInput {
   stage: "APPLY" | "FOLLOW_UP_1" | "FOLLOW_UP_2" | "FOLLOW_UP_3";
   candidateName: string;

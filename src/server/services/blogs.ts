@@ -1,6 +1,10 @@
 import { google } from "@ai-sdk/google";
 import { generateObject, generateText } from "ai";
 import { z } from "zod";
+
+if (typeof process !== "undefined" && process.env) {
+  process.env.AI_SDK_LOG_WARNINGS = "false";
+}
 import { withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 
