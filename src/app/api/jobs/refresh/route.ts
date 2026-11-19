@@ -5,6 +5,7 @@ import { refreshAndRotateHiringBatch } from "@/server/services/jobs";
 import { ApiError } from "@/lib/api";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const refreshSchema = z.object({
   categories: z.array(z.enum([...COMPANY_CATEGORIES] as [string, ...string[]])).optional(),

@@ -19,7 +19,7 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { Button, Card, inputCls } from "@/components/ui";
+import { Button, Card, inputCls, selectCls } from "@/components/ui";
 
 interface CategoryProgress {
   category: string;
@@ -581,7 +581,7 @@ export default function FinanceScreen() {
                   <select
                     value={expenseCategory}
                     onChange={(e) => setExpenseCategory(e.target.value)}
-                    className={inputCls}
+                    className={selectCls}
                   >
                     {COMMON_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
@@ -596,7 +596,7 @@ export default function FinanceScreen() {
                   <select
                     value={expensePaymentMethod}
                     onChange={(e) => setExpensePaymentMethod(e.target.value)}
-                    className={inputCls}
+                    className={selectCls}
                   >
                     <option value="CARD">Card</option>
                     <option value="CASH">Cash</option>
@@ -655,7 +655,7 @@ export default function FinanceScreen() {
                 <select
                   value={budgetCategory}
                   onChange={(e) => setBudgetCategory(e.target.value)}
-                  className={inputCls}
+                  className={selectCls}
                 >
                   {COMMON_CATEGORIES.map((c) => (
                     <option key={c} value={c}>

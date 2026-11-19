@@ -17,7 +17,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { Button, Card, inputCls } from "@/components/ui";
+import { Button, Card, inputCls, selectCls } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 const markdownComponents = {
@@ -630,7 +630,7 @@ export default function BlogsScreen() {
                   <select
                     value={totalDays}
                     onChange={(e) => setTotalDays(Number(e.target.value))}
-                    className={inputCls}
+                    className={selectCls}
                   >
                     <option value={3}>3 Days (Crash Course)</option>
                     <option value={5}>5 Days (Weekly Sprint)</option>
@@ -648,7 +648,7 @@ export default function BlogsScreen() {
                   <select
                     value={tone}
                     onChange={(e) => setTone(e.target.value)}
-                    className={inputCls}
+                    className={selectCls}
                   >
                     <option value="Professional">Professional</option>
                     <option value="Conversational">Conversational</option>

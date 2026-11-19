@@ -65,3 +65,5 @@ export const Empty = ({ title, hint }: { title: string; hint?: string }) => (
 );
 
 export const inputCls = "min-h-11 w-full rounded-xl border border-border bg-card px-3 text-sm";
+export const selectCls =
+  "min-h-11 w-full rounded-xl border border-border bg-card px-3.5 pr-10 text-sm appearance-none cursor-pointer text-fg focus:outline-none focus:ring-2 focus:ring-brand/40 transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-[url(\"data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20fill='none'%20viewBox='0 0%2020%2020'%3E%3Cpath%20stroke='%23888888'%20stroke-linecap='round'%20stroke-linejoin='round'%20stroke-width='1.5'%20d='m6%208%204%204%204-4'/%3E%3C/svg%3E\")] bg-[length:1.25rem_1.25rem] bg-[right_0.75rem_center] bg-no-repeat";

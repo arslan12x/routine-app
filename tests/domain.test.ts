@@ -645,10 +645,14 @@ Date,Description,Amount
       expect(COMPANY_CATEGORIES).toContain("SMALL_SCALE");
       expect(COMPANY_CATEGORIES).toContain("FOREIGN");
 
-      const startupCompanies = CURATED_COMPANIES.filter((c) => c.category === "STARTUP");
-      expect(startupCompanies.length).toBeGreaterThan(0);
-      for (const comp of startupCompanies) {
-        expect(isValidHrEmail(comp.hrEmail)).toBe(true);
+      expect(CURATED_COMPANIES.length).toBeGreaterThanOrEqual(35);
+
+      for (const cat of COMPANY_CATEGORIES) {
+        const categoryCompanies = CURATED_COMPANIES.filter((c) => c.category === cat);
+        expect(categoryCompanies.length).toBeGreaterThanOrEqual(3);
+        for (const comp of categoryCompanies) {
+          expect(isValidHrEmail(comp.hrEmail)).toBe(true);
+        }
       }
     });
 

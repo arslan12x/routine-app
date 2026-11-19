@@ -72,12 +72,70 @@ export async function getUserResume(userId: string) {
   return withUserDb(userId, (tx) => tx.userResume.findUnique({ where: { userId } }));
 }
 
+export async function getCandidateProfile(userId: string): Promise<{ email: string; isCustom: boolean }> {
+  const integration = await withUserDb(userId, (tx) =>
+    tx.userIntegration.findUnique({
+      where: {
+        userId_provider: {
+          userId,
+          provider: "CANDIDATE_JOB_PROFILE",
+        },
+      },
+    })
+  );
+
+  if (integration?.externalUsername?.trim()) {
+    return { email: integration.externalUsername.trim(), isCustom: true };
+  }
+
+  const user = await systemDb.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+
+  return { email: user?.email || "", isCustom: false };
+}
+
+export async function saveCandidateEmail(userId: string, email: string): Promise<string> {
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed || !trimmed.includes("@") || !trimmed.includes(".")) {
+    throw new ApiError(400, "INVALID_EMAIL", "Please provide a valid email address for job applications");
+  }
+
+  await withUserDb(userId, (tx) =>
+    tx.userIntegration.upsert({
+      where: {
+        userId_provider: {
+          userId,
+          provider: "CANDIDATE_JOB_PROFILE",
+        },
+      },
+      create: {
+        userId,
+        provider: "CANDIDATE_JOB_PROFILE",
+        externalUsername: trimmed,
+        lastStatus: "VERIFIED",
+        metadata: { updatedAt: new Date().toISOString() },
+      },
+      update: {
+        externalUsername: trimmed,
+        lastStatus: "VERIFIED",
+        metadata: { updatedAt: new Date().toISOString() },
+      },
+    })
+  );
+
+  return trimmed;
+}
+
 export async function queueApplications(
   userId: string,
   categories: CompanyCategory[],
-  limit = 5
+  limit = 30
 ) {
-  await ensureCompanyDirectorySeeded();
+  await ensureCompanyDirectorySeeded().catch((err) =>
+    console.warn("[Job Engine] ensureCompanyDirectorySeeded notice", err)
+  );
 
   return withUserDb(userId, async (tx) => {
     // Find already queued company IDs
@@ -145,9 +203,9 @@ export async function backfillApplications(userId: string, categories?: CompanyC
     })
   );
 
-  const needed = Math.max(0, 5 - currentToApply);
+  const needed = Math.max(0, 30 - currentToApply);
   if (needed > 0) {
-    const cats = categories && categories.length > 0 ? categories : (["STARTUP", "BIG_MNC", "BIG_SHARKS", "ACTIVELY_HIRING"] as CompanyCategory[]);
+    const cats = categories && categories.length > 0 ? categories : [...COMPANY_CATEGORIES];
     await queueApplications(userId, cats, needed);
   }
 }
@@ -157,45 +215,35 @@ export async function refreshAndRotateHiringBatch(
   userId: string,
   categories: CompanyCategory[] = [...COMPANY_CATEGORIES]
 ) {
-  // 1. Rotate hiring listings across all 7 categories
-  await rotateAllHiringCompanies();
+  // 1. Rotate hiring listings across all 7 categories (outside transaction)
+  await rotateAllHiringCompanies().catch((err) =>
+    console.warn("[Job Engine] rotateAllHiringCompanies notice", err)
+  );
 
-  return withUserDb(userId, async (tx) => {
-    // 2. Advance previously applied TO_APPLY companies to FOLLOW_UP_1 (Day 4 window)
-    const now = new Date();
-    const appliedInToApply = await tx.jobApplication.findMany({
+  await ensureCompanyDirectorySeeded().catch((err) =>
+    console.warn("[Job Engine] ensureCompanyDirectorySeeded notice", err)
+  );
+
+  // 2. Advance previously applied TO_APPLY companies to FOLLOW_UP_1 (Day 4 window)
+  const now = new Date();
+  const nextActionAt = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000);
+
+  await withUserDb(userId, async (tx) => {
+    await tx.jobApplication.updateMany({
       where: {
         userId,
         stage: "TO_APPLY",
         appliedAt: { not: null },
       },
+      data: {
+        stage: "FOLLOW_UP_1",
+        nextActionAt,
+      },
     });
-
-    for (const app of appliedInToApply) {
-      const appliedAt = app.appliedAt || now;
-      const nextActionAt = new Date(appliedAt.getTime() + 4 * 24 * 60 * 60 * 1000);
-      const existingLogs = (app.logs as Array<Record<string, unknown>>) || [];
-      await tx.jobApplication.update({
-        where: { id: app.id },
-        data: {
-          stage: "FOLLOW_UP_1",
-          nextActionAt,
-          logs: [
-            ...existingLogs,
-            {
-              action: "SHIFTED_TO_FOLLOW_UP_1",
-              stage: "FOLLOW_UP_1",
-              timestamp: now.toISOString(),
-              note: "2-Day hiring batch refresh advanced application to Follow-Up 1 stage.",
-            },
-          ] as Prisma.InputJsonValue,
-        },
-      });
-    }
-
-    // 3. Queue fresh currently hiring opportunities into TO_APPLY
-    return queueApplications(userId, categories, 6);
   });
+
+  // 3. Queue at least 30 fresh currently hiring opportunities into TO_APPLY
+  return queueApplications(userId, categories, 30);
 }
 
 export async function listUserApplications(
@@ -304,6 +352,27 @@ export async function applyToJob(
   customSubject?: string,
   customBody?: string
 ) {
+  // 1. Strict Resume Check: Do not allow applying without a resume!
+  const resume = await getUserResume(user.id);
+  if (!resume || !resume.parsedText?.trim()) {
+    throw new ApiError(
+      400,
+      "RESUME_REQUIRED",
+      "You must upload your resume document (.pdf, .doc, .docx, .txt) before applying to jobs."
+    );
+  }
+
+  // 2. Candidate Contact Email Check: Require email for replies!
+  const candidate = await getCandidateProfile(user.id);
+  const senderEmail = candidate.email;
+  if (!senderEmail) {
+    throw new ApiError(
+      400,
+      "EMAIL_REQUIRED",
+      "Please provide your contact email address before applying so hiring teams can respond directly to you."
+    );
+  }
+
   const application = await withUserDb(user.id, (tx) =>
     tx.jobApplication.findUnique({
       where: { id: applicationId },
@@ -320,15 +389,25 @@ export async function applyToJob(
     ? { subject: customSubject, body: customBody, stage: "APPLY" }
     : await getJobEmailDraftForApp(user, applicationId);
 
-  // Dispatch email
+  const resumeFileName = resume.fileUrl ? resume.fileUrl.split("/").pop() || "Resume.pdf" : "Resume.pdf";
+
+  // Dispatch email with candidate's replyTo address and resume attachment
   const dispatchResult = await dispatchJobEmail({
     to: application.hrEmail,
     subject: emailDraft.subject,
     body: emailDraft.body,
+    replyTo: senderEmail,
+    attachments: [
+      {
+        filename: resumeFileName,
+        url: resume.fileUrl,
+      },
+    ],
   });
 
   const now = new Date();
-  const transition = calculateNextStageTransition("TO_APPLY", now);
+  // Directly move to Follow-Up 1, locked for 4 days!
+  const nextActionAt = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000);
 
   const existingLogs = (application.logs as Array<Record<string, unknown>>) || [];
   const updatedLogs = [
@@ -338,6 +417,9 @@ export async function applyToJob(
       stage: "APPLY",
       subject: emailDraft.subject,
       body: emailDraft.body,
+      candidateEmail: senderEmail,
+      replyTo: senderEmail,
+      resumeAttached: resumeFileName,
       dispatchedAt: dispatchResult.dispatchedAt,
       messageId: dispatchResult.messageId,
       provider: dispatchResult.provider,
@@ -348,9 +430,9 @@ export async function applyToJob(
     tx.jobApplication.update({
       where: { id: applicationId },
       data: {
-        stage: transition.nextStage,
+        stage: "FOLLOW_UP_1",
         appliedAt: now,
-        nextActionAt: transition.nextActionAt,
+        nextActionAt, // Locked for 4 days
         emailThreadId: dispatchResult.messageId,
         logs: updatedLogs as Prisma.InputJsonValue,
       },
@@ -388,6 +470,26 @@ export async function sendJobFollowUp(
     throw new ApiError(400, "NOT_APPLIED", "Application must be in applied state first");
   }
 
+  const now = new Date();
+
+  // Enforce Time-Lock: check if enough days have passed for this specific company!
+  if (application.nextActionAt && now < new Date(application.nextActionAt)) {
+    const daysLeft = Math.ceil(
+      (new Date(application.nextActionAt).getTime() - now.getTime()) / (24 * 60 * 60 * 1000)
+    );
+    throw new ApiError(
+      400,
+      "STAGE_LOCKED",
+      `Follow-up is locked for this company. Please wait ${daysLeft} more day(s) until ${new Date(
+        application.nextActionAt
+      ).toLocaleDateString()} to follow up.`
+    );
+  }
+
+  // Get candidate email
+  const candidate = await getCandidateProfile(user.id);
+  const senderEmail = candidate.email;
+
   // Generate or use custom email
   const emailDraft = customSubject && customBody
     ? { subject: customSubject, body: customBody, stage: targetStage }
@@ -398,9 +500,27 @@ export async function sendJobFollowUp(
     subject: emailDraft.subject,
     body: emailDraft.body,
     threadId: application.emailThreadId,
+    replyTo: senderEmail,
   });
 
-  const transition = calculateNextStageTransition(targetStage, application.appliedAt);
+  // Calculate next stage transition:
+  // After Follow-Up 1 -> moves to Follow-Up 2, locked until Day 10 from initial application!
+  // After Follow-Up 2 -> moves to Follow-Up 3, locked until Day 15 from initial application!
+  // After Follow-Up 3 -> moves to CLOSED
+  const appliedAt = application.appliedAt || now;
+  let nextStage: string = "FOLLOW_UP_2";
+  let nextActionAt: Date | null = null;
+
+  if (targetStage === "FOLLOW_UP_1") {
+    nextStage = "FOLLOW_UP_2";
+    nextActionAt = new Date(appliedAt.getTime() + 10 * 24 * 60 * 60 * 1000); // 10 days from apply
+  } else if (targetStage === "FOLLOW_UP_2") {
+    nextStage = "FOLLOW_UP_3";
+    nextActionAt = new Date(appliedAt.getTime() + 15 * 24 * 60 * 60 * 1000); // 15 days from apply
+  } else {
+    nextStage = "CLOSED";
+    nextActionAt = null;
+  }
 
   const existingLogs = (application.logs as Array<Record<string, unknown>>) || [];
   const updatedLogs = [
@@ -410,6 +530,8 @@ export async function sendJobFollowUp(
       stage: targetStage,
       subject: emailDraft.subject,
       body: emailDraft.body,
+      candidateEmail: senderEmail,
+      replyTo: senderEmail,
       dispatchedAt: dispatchResult.dispatchedAt,
       messageId: dispatchResult.messageId,
       provider: dispatchResult.provider,
@@ -420,8 +542,8 @@ export async function sendJobFollowUp(
     tx.jobApplication.update({
       where: { id: applicationId },
       data: {
-        stage: transition.nextStage,
-        nextActionAt: transition.nextActionAt,
+        stage: nextStage,
+        nextActionAt,
         logs: updatedLogs as Prisma.InputJsonValue,
       },
       include: { company: true },

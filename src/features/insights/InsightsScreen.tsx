@@ -1,7 +1,7 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { Empty, Skeleton, Stat, inputCls } from "@/components/ui";
+import { Empty, Skeleton, Stat, inputCls, selectCls } from "@/components/ui";
 import { cn, pct } from "@/lib/cn";
 import { api } from "@/lib/fetcher";
 import type { InsightsData } from "./Charts";
@@ -47,7 +47,7 @@ export default function InsightsScreen({ today }: { today: string }) {
           <input type="date" aria-label="To" max={today} value={to} onChange={(e) => setTo(e.target.value)} className={cn(inputCls, "w-auto")} />
         </>)}
         <label className="ml-auto flex items-center gap-2 text-muted">Group
-          <select value={group} onChange={(e) => setGroup(e.target.value as typeof group)} className={cn(inputCls, "w-auto")}><option value="">Auto</option><option value="day">Daily</option><option value="week">Weekly</option><option value="month">Monthly</option></select>
+          <select value={group} onChange={(e) => setGroup(e.target.value as typeof group)} className={cn(selectCls, "w-auto min-w-[110px]")}><option value="">Auto</option><option value="day">Daily</option><option value="week">Weekly</option><option value="month">Monthly</option></select>
         </label>
       </div>
 

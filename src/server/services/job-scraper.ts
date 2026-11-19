@@ -78,6 +78,33 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
     description: "Worldwide leader in enterprise networking, cybersecurity, and collaboration.",
     sampleRoles: ["Full-Stack Software Engineer", "Platform Security Engineer"],
   },
+  {
+    name: "Amazon Web Services",
+    category: "BIG_MNC",
+    hrEmail: "aws-tech-recruiting@amazon.com",
+    websiteUrl: "https://aws.amazon.com/careers",
+    location: "Seattle, WA / Remote",
+    description: "Cloud computing pioneer providing over 200 fully featured services globally.",
+    sampleRoles: ["Software Development Engineer", "Cloud Infrastructure Architect"],
+  },
+  {
+    name: "Salesforce",
+    category: "BIG_MNC",
+    hrEmail: "salesforce-talent@salesforce.com",
+    websiteUrl: "https://salesforce.com/careers",
+    location: "San Francisco, CA / Remote",
+    description: "World leader in customer relationship management and enterprise cloud software.",
+    sampleRoles: ["Senior Full-Stack Engineer", "Distributed Systems Engineer"],
+  },
+  {
+    name: "IBM Enterprise",
+    category: "BIG_MNC",
+    hrEmail: "ibm-engineering-jobs@ibm.com",
+    websiteUrl: "https://ibm.com/careers",
+    location: "Armonk, NY / Global",
+    description: "Global hybrid cloud, quantum computing, and AI systems leader.",
+    sampleRoles: ["Backend Systems Architect", "Cloud Integration Engineer"],
+  },
 
   // 3. BIG_SHARKS (Tech Giants & Tier-1)
   {
@@ -106,6 +133,33 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
     location: "San Francisco, CA / Remote",
     description: "Unified data intelligence platform, Apache Spark and Lakehouse pioneer.",
     sampleRoles: ["Software Engineer - Platform Runtime", "Full-Stack Data Applications"],
+  },
+  {
+    name: "Airbnb",
+    category: "BIG_SHARKS",
+    hrEmail: "engineering-careers@airbnb.com",
+    websiteUrl: "https://airbnb.com/careers",
+    location: "San Francisco, CA / Remote",
+    description: "Global online travel, booking engine, and community experiences marketplace.",
+    sampleRoles: ["Senior Full-Stack Engineer", "Search & Discovery Architect"],
+  },
+  {
+    name: "Netflix",
+    category: "BIG_SHARKS",
+    hrEmail: "tech-recruitment@netflix.com",
+    websiteUrl: "https://jobs.netflix.com",
+    location: "Los Gatos, CA / Remote",
+    description: "World-leading streaming entertainment service with ultra-scalable distributed systems.",
+    sampleRoles: ["Senior Software Engineer - Streaming Platform", "Cloud Infrastructure SRE"],
+  },
+  {
+    name: "Spotify",
+    category: "BIG_SHARKS",
+    hrEmail: "spotify-tech-hiring@spotify.com",
+    websiteUrl: "https://lifeatspotify.com",
+    location: "Stockholm / New York / Remote",
+    description: "World's most popular audio streaming subscription service.",
+    sampleRoles: ["Full-Stack Engineer - Personalization", "Backend Microservices Specialist"],
   },
 
   // 4. ACTIVELY_HIRING (Immediate Openings)
@@ -136,6 +190,33 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
     description: "Leading collaborative API development and testing ecosystem.",
     sampleRoles: ["Full-Stack Engineer - API Platform", "Senior Backend Architect"],
   },
+  {
+    name: "Linear",
+    category: "ACTIVELY_HIRING",
+    hrEmail: "jobs@linear.app",
+    websiteUrl: "https://linear.app/careers",
+    location: "San Francisco / Remote Worldwide",
+    description: "High-performance issue tracking and modern product execution engine.",
+    sampleRoles: ["Full-Stack Engineer - Sync Engine", "Frontend Performance Lead"],
+  },
+  {
+    name: "Cloudflare",
+    category: "ACTIVELY_HIRING",
+    hrEmail: "recruiting@cloudflare.com",
+    websiteUrl: "https://cloudflare.com/careers",
+    location: "San Francisco, CA / Remote",
+    description: "Global cloud network protecting and accelerating internet properties.",
+    sampleRoles: ["Workers & Edge Runtime Engineer", "Full-Stack Platform Developer"],
+  },
+  {
+    name: "Figma",
+    category: "ACTIVELY_HIRING",
+    hrEmail: "careers@figma.com",
+    websiteUrl: "https://figma.com/careers",
+    location: "San Francisco, CA / Remote",
+    description: "Collaborative interface design tool and creative browser application engine.",
+    sampleRoles: ["Software Engineer - Multiplayer Canvas", "Full-Stack Web Architect"],
+  },
 
   // 5. MID_MNC
   {
@@ -156,6 +237,42 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
     description: "Next-generation enterprise software transformation and digital engineering.",
     sampleRoles: ["Senior Software Engineer", "DevOps & SRE Specialist"],
   },
+  {
+    name: "Globant",
+    category: "MID_MNC",
+    hrEmail: "talent@globant.com",
+    websiteUrl: "https://globant.com/careers",
+    location: "Global / Remote",
+    description: "Digitally native technology company driving cognitive transformation.",
+    sampleRoles: ["Senior Full-Stack Engineer", "AI Engineering Specialist"],
+  },
+  {
+    name: "Thoughtworks",
+    category: "MID_MNC",
+    hrEmail: "careers@thoughtworks.com",
+    websiteUrl: "https://thoughtworks.com/careers",
+    location: "Chicago, IL / Global",
+    description: "Global technology consultancy creating cutting-edge digital products.",
+    sampleRoles: ["Lead Developer (TypeScript & Node)", "Platform Architect"],
+  },
+  {
+    name: "Luxoft",
+    category: "MID_MNC",
+    hrEmail: "luxoft-recruiting@luxoft.com",
+    websiteUrl: "https://luxoft.com/careers",
+    location: "Zug, Switzerland / Global",
+    description: "Digital strategy and engineering solutions across automotive and financial sectors.",
+    sampleRoles: ["Senior Java & TypeScript Developer", "Cloud Solutions Architect"],
+  },
+  {
+    name: "Nagarro",
+    category: "MID_MNC",
+    hrEmail: "hiring@nagarro.com",
+    websiteUrl: "https://nagarro.com/careers",
+    location: "Munich, Germany / Global",
+    description: "Digital engineering leader specialized in fluid enterprise solutions.",
+    sampleRoles: ["Full-Stack Cloud Engineer", "Principal Software Developer"],
+  },
 
   // 6. SMALL_SCALE (Boutique Consultancies)
   {
@@ -175,6 +292,42 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
     location: "Seattle, WA / London / Remote",
     description: "Elite engineering agency specializing in React, Node, and Cloud native architecture.",
     sampleRoles: ["Senior Frontend Engineer", "Full-Stack Consultant"],
+  },
+  {
+    name: "Evil Martians",
+    category: "SMALL_SCALE",
+    hrEmail: "surik@evilmartians.com",
+    websiteUrl: "https://evilmartians.com",
+    location: "New York, NY / Remote",
+    description: "Top-tier product development consultancy and creators of open-source tools.",
+    sampleRoles: ["Full-Stack Engineer (Go, Node, React)", "Frontend Performance Specialist"],
+  },
+  {
+    name: "8th Light",
+    category: "SMALL_SCALE",
+    hrEmail: "careers@8thlight.com",
+    websiteUrl: "https://8thlight.com",
+    location: "Chicago, IL / Remote",
+    description: "Software craftsmanship and agile consultative development studio.",
+    sampleRoles: ["Software Crafter", "Full-Stack Consultant"],
+  },
+  {
+    name: "Hashrocket",
+    category: "SMALL_SCALE",
+    hrEmail: "jobs@hashrocket.com",
+    websiteUrl: "https://hashrocket.com",
+    location: "Jacksonville Beach, FL / Remote",
+    description: "Premier web and mobile development consultancy specialized in PostgreSQL and React.",
+    sampleRoles: ["Full-Stack Developer", "PostgreSQL Application Specialist"],
+  },
+  {
+    name: "Viget Labs",
+    category: "SMALL_SCALE",
+    hrEmail: "careers@viget.com",
+    websiteUrl: "https://viget.com/careers",
+    location: "Falls Church, VA / Remote",
+    description: "Full-service digital agency building custom web apps, systems, and platforms.",
+    sampleRoles: ["Senior Application Developer", "Frontend Architect"],
   },
 
   // 7. FOREIGN (Remote International)
@@ -204,6 +357,33 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
     location: "Remote Worldwide (London HQ)",
     description: "The publisher of Ubuntu and open-source cloud computing solutions.",
     sampleRoles: ["Software Engineer - Cloud Systems", "Web Developer - Core UI"],
+  },
+  {
+    name: "DuckDuckGo",
+    category: "FOREIGN",
+    hrEmail: "open-positions@duckduckgo.com",
+    websiteUrl: "https://duckduckgo.com/hiring",
+    location: "100% Remote Worldwide",
+    description: "Privacy-first internet search engine and browser protecting millions daily.",
+    sampleRoles: ["Senior Backend Engineer", "Core Privacy Software Developer"],
+  },
+  {
+    name: "Basecamp / 37signals",
+    category: "FOREIGN",
+    hrEmail: "jobs@37signals.com",
+    websiteUrl: "https://37signals.com/jobs",
+    location: "100% Remote Worldwide",
+    description: "Creators of Basecamp, HEY email, and the Ruby on Rails open source framework.",
+    sampleRoles: ["Senior Web Developer", "Operations & Systems Engineer"],
+  },
+  {
+    name: "Buffer",
+    category: "FOREIGN",
+    hrEmail: "hiring@buffer.com",
+    websiteUrl: "https://buffer.com/journey",
+    location: "100% Remote Worldwide",
+    description: "Fully distributed, transparent company building social media publishing tools.",
+    sampleRoles: ["Full-Stack Engineer (React, Node)", "Growth & Systems Developer"],
   },
 ];
 
@@ -365,33 +545,31 @@ export const ROTATING_STARTUP_BATCHES = ROTATING_ALL_CATEGORY_BATCHES;
 
 /** Ensures company directory has seeded records across all 7 categories with valid HR emails */
 export async function ensureCompanyDirectorySeeded(): Promise<number> {
-  let createdCount = 0;
+  const existingCompanies = await systemDb.company.findMany({
+    select: { name: true, category: true },
+  });
+  const existingSet = new Set(existingCompanies.map((c) => `${c.name}|${c.category}`));
 
-  for (const item of CURATED_COMPANIES) {
-    if (!isValidHrEmail(item.hrEmail)) continue;
+  const toCreate = CURATED_COMPANIES.filter(
+    (item) => isValidHrEmail(item.hrEmail) && !existingSet.has(`${item.name}|${item.category}`)
+  ).map((item) => ({
+    name: item.name,
+    category: item.category,
+    hrEmail: item.hrEmail,
+    websiteUrl: item.websiteUrl,
+    location: item.location,
+    description: item.description,
+    lastRefreshedAt: new Date(),
+  }));
 
-    const existing = await systemDb.company.findFirst({
-      where: { name: item.name, category: item.category },
-      select: { id: true },
+  if (toCreate.length > 0) {
+    await systemDb.company.createMany({
+      data: toCreate,
+      skipDuplicates: true,
     });
-
-    if (!existing) {
-      await systemDb.company.create({
-        data: {
-          name: item.name,
-          category: item.category,
-          hrEmail: item.hrEmail,
-          websiteUrl: item.websiteUrl,
-          location: item.location,
-          description: item.description,
-          lastRefreshedAt: new Date(),
-        },
-      });
-      createdCount++;
-    }
   }
 
-  return createdCount;
+  return toCreate.length;
 }
 
 /** 2-Day Inngest Cron & Batch Worker: Refreshes and rotates hiring companies across ALL 7 categories */
@@ -401,48 +579,73 @@ export async function rotateAllHiringCompanies(): Promise<{ rotatedCount: number
   const batchIdx = Math.floor(dayOfYear / 2) % ROTATING_ALL_CATEGORY_BATCHES.length;
   const currentBatch = ROTATING_ALL_CATEGORY_BATCHES[batchIdx];
 
-  let rotated = 0;
+  const existingCompanies = await systemDb.company.findMany({
+    where: {
+      name: { in: currentBatch.map((c) => c.name) },
+    },
+    select: { id: true, name: true },
+  });
+  const existingMap = new Map(existingCompanies.map((c) => [c.name, c.id]));
+
+  const toCreate: Array<{
+    name: string;
+    category: string;
+    hrEmail: string;
+    websiteUrl: string;
+    location: string;
+    description: string;
+    lastRefreshedAt: Date;
+  }> = [];
+
+  const updatePromises: Promise<unknown>[] = [];
+
   for (const companyData of currentBatch) {
     if (!isValidHrEmail(companyData.hrEmail)) continue;
-
-    const existing = await systemDb.company.findFirst({
-      where: { name: companyData.name },
-    });
-
-    if (existing) {
-      await systemDb.company.update({
-        where: { id: existing.id },
-        data: {
-          category: companyData.category,
-          hrEmail: companyData.hrEmail,
-          websiteUrl: companyData.websiteUrl,
-          location: companyData.location,
-          lastRefreshedAt: new Date(),
-          description: companyData.description,
-        },
-      });
+    const existingId = existingMap.get(companyData.name);
+    if (existingId) {
+      updatePromises.push(
+        systemDb.company.update({
+          where: { id: existingId },
+          data: {
+            category: companyData.category,
+            hrEmail: companyData.hrEmail,
+            websiteUrl: companyData.websiteUrl,
+            location: companyData.location,
+            lastRefreshedAt: now,
+            description: companyData.description,
+          },
+        })
+      );
     } else {
-      await systemDb.company.create({
-        data: {
-          name: companyData.name,
-          category: companyData.category,
-          hrEmail: companyData.hrEmail,
-          websiteUrl: companyData.websiteUrl,
-          location: companyData.location,
-          description: companyData.description,
-          lastRefreshedAt: new Date(),
-        },
+      toCreate.push({
+        name: companyData.name,
+        category: companyData.category,
+        hrEmail: companyData.hrEmail,
+        websiteUrl: companyData.websiteUrl,
+        location: companyData.location,
+        description: companyData.description,
+        lastRefreshedAt: now,
       });
     }
-    rotated++;
+  }
+
+  if (toCreate.length > 0) {
+    await systemDb.company.createMany({
+      data: toCreate,
+      skipDuplicates: true,
+    });
+  }
+
+  if (updatePromises.length > 0) {
+    await Promise.all(updatePromises);
   }
 
   // Touch lastRefreshedAt across all 7 categories
   await systemDb.company.updateMany({
-    data: { lastRefreshedAt: new Date() },
+    data: { lastRefreshedAt: now },
   });
 
-  return { rotatedCount: rotated };
+  return { rotatedCount: currentBatch.length };
 }
 
 /** Legacy alias: delegates to rotateAllHiringCompanies */

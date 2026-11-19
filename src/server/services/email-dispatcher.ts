@@ -30,6 +30,7 @@ export async function dispatchJobEmail(payload: SendEmailPayload): Promise<SendE
         body: JSON.stringify({
           from: process.env.JOB_DISPATCH_FROM_EMAIL || "applications@routine.app",
           to: payload.to,
+          reply_to: payload.replyTo || undefined,
           subject: payload.subject,
           text: payload.body,
         }),
@@ -50,7 +51,9 @@ export async function dispatchJobEmail(payload: SendEmailPayload): Promise<SendE
   }
 
   // Simulated reliable delivery for development & standard environments
-  console.log(`[Email Dispatcher] Sent email to ${payload.to} | Subject: "${payload.subject}" | MessageId: ${messageId}`);
+  console.log(
+    `[Email Dispatcher] Sent email to ${payload.to} | Reply-To: ${payload.replyTo || "N/A"} | Subject: "${payload.subject}" | MessageId: ${messageId}`
+  );
 
   return {
     success: true,

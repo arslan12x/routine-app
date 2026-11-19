@@ -19,25 +19,31 @@ function makeScopedClient(client: PrismaClient) {
       withUserScope<T>(
         userId: string,
         operation: (tx: Prisma.TransactionClient) => Promise<T>,
-        options?: { aiStudyCompletion?: boolean },
+        options?: { aiStudyCompletion?: boolean; timeout?: number },
       ) {
         if (!userId) throw new Error("A user ID is required for a scoped database operation.");
-        return client.$transaction(async (tx) => {
-          await tx.$executeRaw`SET LOCAL ROLE authenticated`;
-          const claims = JSON.stringify({
-            sub: userId,
-            role: "authenticated",
-            aud: "authenticated",
-            ...(options?.aiStudyCompletion ? { ai_study_completion: true } : {}),
-          });
-          await tx.$queryRaw`
-            SELECT
-              set_config('request.jwt.claims', ${claims}, true),
-              set_config('request.jwt.claim.sub', ${userId}, true),
-              set_config('request.jwt.claim.role', 'authenticated', true)
-          `;
-          return operation(tx);
-        });
+        return client.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SET LOCAL ROLE authenticated`;
+            const claims = JSON.stringify({
+              sub: userId,
+              role: "authenticated",
+              aud: "authenticated",
+              ...(options?.aiStudyCompletion ? { ai_study_completion: true } : {}),
+            });
+            await tx.$queryRaw`
+              SELECT
+                set_config('request.jwt.claims', ${claims}, true),
+                set_config('request.jwt.claim.sub', ${userId}, true),
+                set_config('request.jwt.claim.role', 'authenticated', true)
+            `;
+            return operation(tx);
+          },
+          {
+            timeout: options?.timeout ?? 30000,
+            maxWait: 15000,
+          }
+        );
       },
     },
   });

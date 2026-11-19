@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { X, Trophy } from "lucide-react";
-import { Button, inputCls } from "@/components/ui";
+import { Button, inputCls, selectCls } from "@/components/ui";
 import { api } from "@/lib/fetcher";
 import { triggerLightImpact, triggerSuccessNotification } from "@/lib/haptics";
 import { toast } from "sonner";
@@ -124,7 +124,7 @@ export default function CreateChallengeModal({
               <label className={lblCls} htmlFor="c-cat">Category</label>
               <select
                 id="c-cat"
-                className={inputCls}
+                className={selectCls}
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
               >

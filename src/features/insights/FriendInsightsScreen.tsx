@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, UserCheck } from "lucide-react";
-import { Avatar, Card, Empty, Skeleton, Stat, inputCls } from "@/components/ui";
+import { Avatar, Card, Empty, Skeleton, Stat, inputCls, selectCls } from "@/components/ui";
 import { cn, pct } from "@/lib/cn";
 import { api } from "@/lib/fetcher";
 import type { InsightsData } from "./Charts";
@@ -161,7 +161,7 @@ export default function FriendInsightsScreen({
           <select
             value={group}
             onChange={(e) => setGroup(e.target.value as typeof group)}
-            className={cn(inputCls, "w-auto")}
+            className={cn(selectCls, "w-auto min-w-[110px]")}
           >
             <option value="">Auto</option>
             <option value="day">Daily</option>

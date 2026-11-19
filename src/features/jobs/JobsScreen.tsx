@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  AlertCircle,
   Briefcase,
   Calendar,
   Check,
@@ -14,12 +15,14 @@ import {
   Globe,
   Inbox,
   Loader2,
+  Lock,
   Mail,
   MessageSquare,
   Paperclip,
   Plus,
   RefreshCw,
   Send,
+  ShieldCheck,
   Sparkles,
   Upload,
   UserCheck,
@@ -115,6 +118,11 @@ export default function JobsScreen() {
   const [queueing, setQueueing] = useState(false);
 
   // Modals / Drawers
+  const [candidateEmail, setCandidateEmail] = useState("");
+  const [candidateEmailInput, setCandidateEmailInput] = useState("");
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [savingEmail, setSavingEmail] = useState(false);
+
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [uploadTab, setUploadTab] = useState<"file" | "text">("file");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -134,9 +142,50 @@ export default function JobsScreen() {
   const [savingReply, setSavingReply] = useState(false);
 
   useEffect(() => {
+    loadCandidateProfile();
     loadResume();
     loadApplications();
   }, []);
+
+  async function loadCandidateProfile() {
+    try {
+      const res = await fetch("/api/jobs/profile");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.profile?.email) {
+          setCandidateEmail(data.profile.email);
+          setCandidateEmailInput(data.profile.email);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to load candidate email", err);
+    }
+  }
+
+  async function handleSaveCandidateEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!candidateEmailInput.trim()) return;
+    setSavingEmail(true);
+    try {
+      const res = await fetch("/api/jobs/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: candidateEmailInput.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCandidateEmail(data.email);
+        setShowEmailModal(false);
+      } else {
+        const err = await res.json();
+        alert(err.error?.message || "Failed to save email");
+      }
+    } catch (err) {
+      console.error("Failed to save candidate email", err);
+    } finally {
+      setSavingEmail(false);
+    }
+  }
 
   async function loadResume() {
     try {
@@ -271,6 +320,18 @@ export default function JobsScreen() {
   }
 
   async function handleOpenEmailDrawer(app: JobApplication) {
+    if (!resume || !resume.parsedText?.trim()) {
+      setShowResumeModal(true);
+      alert("Please upload your resume document first before applying to jobs.");
+      return;
+    }
+
+    if (!candidateEmail) {
+      setShowEmailModal(true);
+      alert("Please set your candidate contact email first so recruiters can reach you.");
+      return;
+    }
+
     setSelectedAppForEmail(app);
     setLoadingDraft(true);
     setEmailDraft(null);
@@ -427,6 +488,20 @@ export default function JobsScreen() {
 
         {/* Top Action Pill Controls */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {/* Candidate Contact Email Pill */}
+          <Button
+            variant="outline"
+            onClick={() => setShowEmailModal(true)}
+            className={`flex items-center gap-1.5 py-1.5 px-3 text-xs ${
+              !candidateEmail ? "border-amber-500/60 text-amber-600 bg-amber-500/10" : ""
+            }`}
+          >
+            <Mail size={15} className={candidateEmail ? "text-brand shrink-0" : "text-amber-600 shrink-0"} />
+            <span className="max-w-[170px] truncate">
+              {candidateEmail ? `From: ${candidateEmail}` : "Set Sender Email"}
+            </span>
+          </Button>
+
           {/* Resume Upload Pill */}
           <Button
             variant="outline"
@@ -464,6 +539,43 @@ export default function JobsScreen() {
           </Button>
         </div>
       </div>
+
+      {/* Required Setup Alerts */}
+      {!candidateEmail && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 text-xs text-amber-900 dark:text-amber-200">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle size={18} className="shrink-0 text-amber-600 mt-0.5" />
+            <div>
+              <strong>Candidate Sender Email Required:</strong> Please configure your contact email. Applications will carry this as Reply-To so company recruiter responses reach your inbox directly.
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setShowEmailModal(true)}
+            className="self-start sm:self-center shrink-0 py-1 px-3 text-xs border-amber-500/50 bg-amber-500/20 text-amber-900 dark:text-amber-100 font-semibold"
+          >
+            Set Sender Email
+          </Button>
+        </div>
+      )}
+
+      {!resume && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-blue-500/40 bg-blue-500/10 p-3.5 text-xs text-blue-900 dark:text-blue-200">
+          <div className="flex items-start gap-2.5">
+            <FileText size={18} className="shrink-0 text-blue-600 mt-0.5" />
+            <div>
+              <strong>Resume Document Required:</strong> You cannot apply to jobs without uploading a resume document (PDF, DOC, DOCX, TXT).
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setShowResumeModal(true)}
+            className="self-start sm:self-center shrink-0 py-1 px-3 text-xs border-blue-500/50 bg-blue-500/20 text-blue-900 dark:text-blue-100 font-semibold"
+          >
+            Upload Resume
+          </Button>
+        </div>
+      )}
 
       {/* Category Checkboxes Bar */}
       <Card className="border border-border/80 p-4 overflow-hidden">
@@ -648,6 +760,11 @@ export default function JobsScreen() {
             const isToApply = app.stage === "TO_APPLY";
             const isReplied = app.stage === "REPLIED";
             const isClosed = app.stage === "CLOSED";
+            const isFollowUpStage = !isToApply && !isReplied && !isClosed;
+            const isLocked = isFollowUpStage && app.nextActionAt ? new Date(app.nextActionAt) > now : false;
+            const daysRemaining = isLocked && app.nextActionAt
+              ? Math.max(1, Math.ceil((new Date(app.nextActionAt).getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
+              : 0;
 
             return (
               <Card
@@ -664,9 +781,14 @@ export default function JobsScreen() {
                       {app.company.location && (
                         <span className="text-xs text-muted">· {app.company.location}</span>
                       )}
-                      {app.stage.startsWith("WAITING") && (
-                        <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-                          <Clock size={11} /> Waiting for schedule window
+                      {isLocked && (
+                        <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          <Lock size={11} /> Locked for {daysRemaining} more day{daysRemaining > 1 ? "s" : ""} (Unlocks {new Date(app.nextActionAt!).toLocaleDateString()})
+                        </span>
+                      )}
+                      {!isLocked && isFollowUpStage && (
+                        <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                          <Zap size={11} /> Ready to Follow Up
                         </span>
                       )}
                       {isReplied && (
@@ -700,7 +822,7 @@ export default function JobsScreen() {
                       )}
                       {app.nextActionAt && !isReplied && !isClosed && (
                         <span className="font-medium text-brand">
-                          Next Action: {new Date(app.nextActionAt).toLocaleDateString()}
+                          {isLocked ? "Unlocks:" : "Target Action:"} {new Date(app.nextActionAt).toLocaleDateString()}
                         </span>
                       )}
                     </div>
@@ -751,21 +873,55 @@ export default function JobsScreen() {
 
                       {/* Primary Action Button */}
                       {!isReplied && !isClosed && (
-                        <Button
-                          onClick={() => handleOpenEmailDrawer(app)}
-                          className="flex items-center gap-1.5 py-1 px-3 text-xs"
-                        >
-                          <Send size={13} />
-                          <span>
-                            {isToApply
-                              ? "Apply Now"
-                              : app.stage.includes("1")
-                              ? "Send FU 1"
-                              : app.stage.includes("2")
-                              ? "Send FU 2"
-                              : "Send Final FU"}
-                          </span>
-                        </Button>
+                        isToApply ? (
+                          !resume ? (
+                            <Button
+                              onClick={() => setShowResumeModal(true)}
+                              className="flex items-center gap-1.5 py-1 px-3 text-xs bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 font-semibold"
+                            >
+                              <Upload size={13} />
+                              <span>Resume Required</span>
+                            </Button>
+                          ) : !candidateEmail ? (
+                            <Button
+                              onClick={() => setShowEmailModal(true)}
+                              className="flex items-center gap-1.5 py-1 px-3 text-xs bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 font-semibold"
+                            >
+                              <Mail size={13} />
+                              <span>Set Email to Apply</span>
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => handleOpenEmailDrawer(app)}
+                              className="flex items-center gap-1.5 py-1 px-3 text-xs"
+                            >
+                              <Send size={13} />
+                              <span>Apply Now</span>
+                            </Button>
+                          )
+                        ) : isLocked ? (
+                          <Button
+                            disabled
+                            className="flex items-center gap-1.5 py-1 px-3 text-xs opacity-60 cursor-not-allowed bg-soft text-muted border border-border"
+                          >
+                            <Lock size={13} />
+                            <span>Locked ({daysRemaining}d left)</span>
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => handleOpenEmailDrawer(app)}
+                            className="flex items-center gap-1.5 py-1 px-3 text-xs bg-brand text-brandfg hover:bg-brand/90"
+                          >
+                            <Send size={13} />
+                            <span>
+                              {app.stage.includes("1")
+                                ? "Send FU 1"
+                                : app.stage.includes("2")
+                                ? "Send FU 2"
+                                : "Send Final FU"}
+                            </span>
+                          </Button>
+                        )
                       )}
                     </div>
                   </div>
@@ -781,6 +937,66 @@ export default function JobsScreen() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Candidate Contact Email Modal */}
+      {showEmailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <Card className="w-full max-w-md border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
+              <div>
+                <h2 className="text-lg font-bold">Candidate Contact Email</h2>
+                <p className="text-xs text-muted">
+                  Companies and HR recruiters will reply directly to this email address.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowEmailModal(false)}
+                className="rounded-lg p-1.5 text-muted hover:bg-soft"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCandidateEmail} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1.5">
+                  Your Professional Email Address
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. yourname.engineer@gmail.com"
+                  value={candidateEmailInput}
+                  onChange={(e) => setCandidateEmailInput(e.target.value)}
+                  className={inputCls}
+                />
+                <p className="mt-1.5 text-[11px] text-muted leading-relaxed">
+                  Every application email dispatched to HR recruiters will include this address in the <strong>Reply-To</strong> header. When the company responds, the email lands directly in your private personal inbox.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowEmailModal(false)}
+                  className="py-1.5 px-3 text-xs"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={savingEmail || !candidateEmailInput.trim()}
+                  className="flex items-center gap-2 py-1.5 px-3 text-xs"
+                >
+                  {savingEmail && <Loader2 size={14} className="animate-spin" />}
+                  <span>Save Contact Email</span>
+                </Button>
+              </div>
+            </form>
+          </Card>
         </div>
       )}
 
@@ -1034,6 +1250,26 @@ export default function JobsScreen() {
               </div>
             ) : emailDraft ? (
               <div className="mt-4 space-y-4">
+                {/* Sender & Recipient Information */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-xl bg-soft/70 p-2.5 border border-border/60">
+                    <span className="text-[10px] uppercase font-semibold text-muted block">
+                      From / Reply-To (Your Private Inbox)
+                    </span>
+                    <span className="font-semibold text-fg break-all">
+                      {candidateEmail || "No candidate email configured"}
+                    </span>
+                  </div>
+                  <div className="rounded-xl bg-soft/70 p-2.5 border border-border/60">
+                    <span className="text-[10px] uppercase font-semibold text-muted block">
+                      To (Company Recruiter)
+                    </span>
+                    <span className="font-semibold text-fg break-all">
+                      {selectedAppForEmail.hrEmail}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Resume Attachment Info */}
                 <div className="flex items-center justify-between rounded-xl bg-soft/70 px-3 py-2 text-xs border border-border/60">
                   <div className="flex items-center gap-2 min-w-0">

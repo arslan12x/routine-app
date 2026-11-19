@@ -2,7 +2,7 @@
 import { useTheme } from "next-themes";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Button, Card, inputCls } from "@/components/ui";
+import { Button, Card, inputCls, selectCls } from "@/components/ui";
 import { api } from "@/lib/fetcher";
 import SignOutButton from "./SignOutButton";
 import PushReminderToggle from "./PushReminderToggle";
@@ -39,9 +39,9 @@ export default function SettingsForm({ initial, username }: { initial: S; userna
       <form onSubmit={save} className="mt-4 space-y-4">
         <div><label className={lbl} htmlFor="s-name">Display name (shown to friends)</label><input id="s-name" maxLength={30} className={inputCls} value={s.displayName ?? ""} onChange={(e) => setS({ ...s, displayName: e.target.value })} placeholder="Your name" /></div>
         <div><label className={lbl} htmlFor="s-tz">Timezone</label><input id="s-tz" list="zones" className={inputCls} value={s.timezone} onChange={(e) => setS({ ...s, timezone: e.target.value })} /><datalist id="zones">{zones.map((z) => <option key={z} value={z} />)}</datalist></div>
-        <div><label className={lbl} htmlFor="s-wk">Week starts on</label><select id="s-wk" className={inputCls} value={s.weekStartsOn} onChange={(e) => setS({ ...s, weekStartsOn: Number(e.target.value) as 1 | 7 })}><option value={1}>Monday</option><option value={7}>Sunday</option></select></div>
+        <div><label className={lbl} htmlFor="s-wk">Week starts on</label><select id="s-wk" className={selectCls} value={s.weekStartsOn} onChange={(e) => setS({ ...s, weekStartsOn: Number(e.target.value) as 1 | 7 })}><option value={1}>Monday</option><option value={7}>Sunday</option></select></div>
         <label className="flex min-h-11 items-center justify-between rounded-xl border border-border bg-card px-3 text-sm"><span>Show me on the friends leaderboard</span><input type="checkbox" className="size-5 accent-[var(--brand)]" checked={s.showOnLeaderboard} onChange={(e) => setS({ ...s, showOnLeaderboard: e.target.checked })} /></label>
-        <div><label className={lbl} htmlFor="s-theme">Theme</label><select id="s-theme" className={inputCls} value={theme ?? "system"} onChange={(e) => setTheme(e.target.value)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+        <div><label className={lbl} htmlFor="s-theme">Theme</label><select id="s-theme" className={selectCls} value={theme ?? "system"} onChange={(e) => setTheme(e.target.value)}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
         <Button type="submit" className="w-full">Save</Button>
         {msg && <p role="status" className="text-sm text-muted">{msg}</p>}
       </form>
