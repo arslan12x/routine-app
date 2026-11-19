@@ -1,5 +1,5 @@
 "use client";
-import { BookOpen, CalendarDays, ListChecks, TrendingUp, Trophy, Users } from "lucide-react";
+import { BookOpen, Briefcase, CalendarDays, ListChecks, Sparkles, TrendingUp, Trophy, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
@@ -8,6 +8,9 @@ const items = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
   { href: "/challenges", label: "Challenges", Icon: Trophy },
   { href: "/novels", label: "Novels", Icon: BookOpen },
+  { href: "/blogs", label: "Blogs", Icon: Sparkles },
+  { href: "/jobs", label: "Jobs", Icon: Briefcase },
+  { href: "/finance", label: "Finance", Icon: Wallet },
   { href: "/calendar", label: "Calendar", Icon: CalendarDays },
   { href: "/insights", label: "Insights", Icon: TrendingUp },
   { href: "/friends", label: "Friends", Icon: Users },
@@ -32,14 +35,14 @@ export default function Nav() {
       </aside>
       {/* Mobile bottom bar */}
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(28,25,23,0.05)] backdrop-blur-xl md:hidden">
-        <ul className="grid grid-cols-6">
+        <ul className="flex items-center justify-around overflow-x-auto py-1">
           {items.map(({ href, label, Icon }) => {
             const on = path.startsWith(href);
             return (
-              <li key={href}>
+              <li key={href} className="shrink-0 min-w-[3.75rem]">
                 <Link href={href} aria-current={on ? "page" : undefined}
-                  className={cn("flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors", on ? "text-brand" : "text-muted")}>
-                  <Icon size={22} strokeWidth={on ? 2.5 : 2} /> {label}
+                  className={cn("flex min-h-12 flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition-colors px-1", on ? "text-brand" : "text-muted")}>
+                  <Icon size={20} strokeWidth={on ? 2.5 : 2} /> {label}
                 </Link>
               </li>
             );

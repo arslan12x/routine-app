@@ -11,6 +11,20 @@ import { evaluateEligibleBadges, BADGE_DEFINITIONS } from "../src/lib/domain/ach
 import { isValidNovelRedirectUrl } from "../src/lib/domain/novels.ts";
 import { buildSmartReminderPrompt } from "../src/server/ai/reminders.ts";
 import { buildFallbackCoachReview } from "../src/server/ai/coach.ts";
+import { computeTaskStreakAndCompletedDays } from "../src/server/ai/learning-context.ts";
+import { buildFallbackBlogPlan, buildFallbackMarkdown } from "../src/server/services/blogs.ts";
+import { CsvFinancialProvider } from "../src/server/finance/csv-provider.ts";
+import {
+  calculateNextStageTransition,
+  shouldPromoteFollowUp,
+  isValidHrEmail,
+  extractAndValidateEmails,
+  COMPANY_CATEGORIES,
+  FOLLOWUP_DAY_OFFSETS,
+} from "../src/lib/domain/jobs.ts";
+import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
+import { extractSkillsFromText } from "../src/server/services/jobs.ts";
+import { CURATED_COMPANIES } from "../src/server/services/job-scraper.ts";
 import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
@@ -435,3 +449,249 @@ describe("leaderboard row routing attributes", () => {
     expect(ranked[1].rank).toBe(2);
   });
 });
+
+describe("Phase 5: AI adaptive learning course memory context", () => {
+    it("handles 0 completed days by defaulting to Day 1 onboarding foundations", () => {
+      const t = task("dsa-task", { startDate: "2026-11-01" });
+      const emptyLogs = new Map<string, number>();
+      const result = computeTaskStreakAndCompletedDays(t, emptyLogs, "2026-11-05");
+
+      expect(result.completedDays).toBe(0);
+      expect(result.streak).toBe(0);
+    });
+
+    it("calculates exact unique completed days and active streak for multi-day logs", () => {
+      const t = task("dsa-task", { startDate: "2026-11-01" });
+      const logMap = new Map<string, number>([
+        [logKey("dsa-task", "2026-11-01"), 1],
+        [logKey("dsa-task", "2026-11-02"), 1],
+        [logKey("dsa-task", "2026-11-03"), 1],
+        [logKey("dsa-task", "2026-11-04"), 1],
+        [logKey("dsa-task", "2026-11-05"), 1],
+      ]);
+
+      const result = computeTaskStreakAndCompletedDays(t, logMap, "2026-11-05");
+      expect(result.completedDays).toBe(5);
+      expect(result.streak).toBe(5);
+
+      // Verify module mapping
+      const currentDay = result.completedDays + 1; // Day 6
+      const currentModule = Math.floor(result.completedDays / 5) + 1; // Module 2
+      expect(currentDay).toBe(6);
+      expect(currentModule).toBe(2);
+    });
+  });
+
+  describe("Phase 5: Multi-day AI blog plan generator", () => {
+    it("generates structured progressive plan with exact totalDays without overlapping", () => {
+      const topic = "Distributed Systems in Go";
+      const totalDays = 5;
+      const plan = buildFallbackBlogPlan(topic, totalDays);
+
+      expect(plan).toHaveLength(5);
+      expect(plan.map((p) => p.dayNumber)).toEqual([1, 2, 3, 4, 5]);
+
+      // Ensure each day has a unique title and distinct subtopics
+      const titles = new Set(plan.map((p) => p.title));
+      expect(titles.size).toBe(5);
+
+      for (const day of plan) {
+        expect(day.subtopics.length).toBeGreaterThanOrEqual(2);
+        expect(day.summaryGoal.length).toBeGreaterThan(10);
+      }
+    });
+
+    it("generates markdown content with narrative continuity from previous day", () => {
+      const topic = "PostgreSQL Indexing";
+      const md = buildFallbackMarkdown(
+        topic,
+        2,
+        5,
+        "Day 2: B-Trees & Hash Indexes",
+        ["B-Tree Anatomy", "Hash Index Limitations"],
+        "Foundational table scans and cost models"
+      );
+
+      expect(md).toContain("# Day 2: B-Trees & Hash Indexes");
+      expect(md).toContain("Recap from Day 1");
+      expect(md).toContain("Foundational table scans and cost models");
+      expect(md).toContain("B-Tree Anatomy");
+      expect(md).toContain("Day 3");
+    });
+  });
+
+  describe("Phase 6: Financial provider CSV parsing and category inference", () => {
+    it("parses standard CSV statement with headers, currencies, and commas", async () => {
+      const provider = new CsvFinancialProvider();
+      const csv = `
+Date,Description,Amount,Category,PaymentMethod
+2026-11-01,"Whole Foods Supermarket",$125.50,Groceries,CARD
+2026-11-02,"Uber Technologies Inc",-24.80,Transport,CARD
+2026-11-03,"Starbucks Coffee",6.75,Dining,UPI
+      `.trim();
+
+      const transactions = await provider.parseTransactions(csv);
+      expect(transactions).toHaveLength(3);
+
+      expect(transactions[0].description).toBe("Whole Foods Supermarket");
+      expect(transactions[0].amount).toBe(125.5);
+      expect(transactions[0].category).toBe("Groceries");
+      expect(transactions[0].paymentMethod).toBe("CARD");
+
+      // Verify absolute debit amount parsing
+      expect(transactions[1].amount).toBe(24.8);
+      expect(transactions[1].category).toBe("Transport");
+
+      expect(transactions[2].amount).toBe(6.75);
+      expect(transactions[2].category).toBe("Dining");
+      expect(transactions[2].paymentMethod).toBe("UPI");
+    });
+
+    it("accurately infers categories when category is omitted in statement", async () => {
+      const provider = new CsvFinancialProvider();
+      const csv = `
+Date,Description,Amount
+2026-11-04,"Netflix Subscription",19.99
+2026-11-05,"Trader Joe's Grocery",55.10
+2026-11-06,"ConEd Electric Power",140.00
+2026-11-07,"Amazon Prime Retail",35.50
+      `.trim();
+
+      const transactions = await provider.parseTransactions(csv);
+      expect(transactions).toHaveLength(4);
+
+      expect(transactions[0].category).toBe("Entertainment");
+      expect(transactions[1].category).toBe("Groceries");
+      expect(transactions[2].category).toBe("Utilities");
+      expect(transactions[3].category).toBe("Shopping");
+    });
+  });
+
+  describe("Phase 7: Automated Job Application Engine & 4-Stage Shifting State Machine", () => {
+    const appliedAt = new Date("2026-11-01T10:00:00.000Z");
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    it("shifts from TO_APPLY to WAITING_FU1 with nextActionAt set to +4 days", () => {
+      const transition = calculateNextStageTransition("TO_APPLY", appliedAt);
+      expect(transition.nextStage).toBe("WAITING_FU1");
+      expect(transition.nextActionAt).toEqual(new Date(appliedAt.getTime() + 4 * dayMs));
+    });
+
+    it("shifts from FOLLOW_UP_1 to WAITING_FU2 with nextActionAt set to +10 days from initial apply", () => {
+      const transition = calculateNextStageTransition("FOLLOW_UP_1", appliedAt);
+      expect(transition.nextStage).toBe("WAITING_FU2");
+      expect(transition.nextActionAt).toEqual(new Date(appliedAt.getTime() + 10 * dayMs));
+    });
+
+    it("shifts from FOLLOW_UP_2 to WAITING_FU3 with nextActionAt set to +15 days from initial apply", () => {
+      const transition = calculateNextStageTransition("FOLLOW_UP_2", appliedAt);
+      expect(transition.nextStage).toBe("WAITING_FU3");
+      expect(transition.nextActionAt).toEqual(new Date(appliedAt.getTime() + 15 * dayMs));
+    });
+
+    it("shifts from FOLLOW_UP_3 to CLOSED with nextActionAt set to null", () => {
+      const transition = calculateNextStageTransition("FOLLOW_UP_3", appliedAt);
+      expect(transition.nextStage).toBe("CLOSED");
+      expect(transition.nextActionAt).toBeNull();
+    });
+
+    it("evaluates buffer state promotion only when schedule window arrives", () => {
+      const dueDay4 = new Date(appliedAt.getTime() + 4 * dayMs);
+      const beforeDue = new Date(appliedAt.getTime() + 3 * dayMs);
+      const afterDue = new Date(appliedAt.getTime() + 4.5 * dayMs);
+
+      expect(shouldPromoteFollowUp("WAITING_FU1", dueDay4, beforeDue)).toBeNull();
+      expect(shouldPromoteFollowUp("WAITING_FU1", dueDay4, afterDue)).toBe("FOLLOW_UP_1");
+
+      const dueDay10 = new Date(appliedAt.getTime() + 10 * dayMs);
+      expect(shouldPromoteFollowUp("WAITING_FU2", dueDay10, dueDay10)).toBe("FOLLOW_UP_2");
+
+      const dueDay15 = new Date(appliedAt.getTime() + 15 * dayMs);
+      expect(shouldPromoteFollowUp("WAITING_FU3", dueDay15, dueDay15)).toBe("FOLLOW_UP_3");
+    });
+
+    it("validates HR emails and rejects invalid or disposable addresses", () => {
+      expect(isValidHrEmail("careers@stripe.com")).toBe(true);
+      expect(isValidHrEmail("talent.acquisition@microsoft.com")).toBe(true);
+      expect(isValidHrEmail("hiring@cortexflow.ai")).toBe(true);
+
+      // Invalid formats
+      expect(isValidHrEmail("not-an-email")).toBe(false);
+      expect(isValidHrEmail("@missinguser.com")).toBe(false);
+      expect(isValidHrEmail("user@missingtld")).toBe(false);
+
+      // Disposable domains
+      expect(isValidHrEmail("spammer@mailinator.com")).toBe(false);
+      expect(isValidHrEmail("fake@tempmail.com")).toBe(false);
+    });
+
+    it("extracts and deduplicates valid HR emails from unstructured text", () => {
+      const text = `
+        Please reach out to our team at careers@company.com or talent@company.com.
+        Duplicate mention: careers@company.com.
+        Ignore spam bots like test@mailinator.com or malformed@com.
+      `;
+      const extracted = extractAndValidateEmails(text);
+      expect(extracted).toEqual(["careers@company.com", "talent@company.com"]);
+    });
+
+    it("supports all 7 company categories with curated listings", () => {
+      expect(COMPANY_CATEGORIES).toHaveLength(7);
+      expect(COMPANY_CATEGORIES).toContain("STARTUP");
+      expect(COMPANY_CATEGORIES).toContain("BIG_MNC");
+      expect(COMPANY_CATEGORIES).toContain("BIG_SHARKS");
+      expect(COMPANY_CATEGORIES).toContain("ACTIVELY_HIRING");
+      expect(COMPANY_CATEGORIES).toContain("MID_MNC");
+      expect(COMPANY_CATEGORIES).toContain("SMALL_SCALE");
+      expect(COMPANY_CATEGORIES).toContain("FOREIGN");
+
+      const startupCompanies = CURATED_COMPANIES.filter((c) => c.category === "STARTUP");
+      expect(startupCompanies.length).toBeGreaterThan(0);
+      for (const comp of startupCompanies) {
+        expect(isValidHrEmail(comp.hrEmail)).toBe(true);
+      }
+    });
+
+    it("extracts skills accurately from resume text", () => {
+      const resume = `
+        Senior Full-Stack Engineer with 6+ years designing scalable cloud architectures.
+        Core Stack: TypeScript, React, Next.js, Node.js, PostgreSQL, Docker, AWS, GraphQL, and Redis.
+        Led migration to microservices with CI/CD and Vitest.
+      `;
+      const skills = extractSkillsFromText(resume);
+      expect(skills).toContain("TypeScript");
+      expect(skills).toContain("React");
+      expect(skills).toContain("Next.js");
+      expect(skills).toContain("PostgreSQL");
+      expect(skills).toContain("AWS");
+      expect(skills).toContain("Docker");
+    });
+
+    it("generates distinct, non-repetitive email copies across all 4 pipeline stages", () => {
+      const input = {
+        candidateName: "Alex Rivera",
+        jobTitle: "Senior Systems Engineer",
+        companyName: "Stripe",
+        hrEmail: "careers@stripe.com",
+        skills: ["TypeScript", "Distributed Systems", "PostgreSQL"],
+      };
+
+      const day0 = buildFallbackEmail({ ...input, stage: "APPLY" });
+      const day4 = buildFallbackEmail({ ...input, stage: "FOLLOW_UP_1" });
+      const day10 = buildFallbackEmail({ ...input, stage: "FOLLOW_UP_2" });
+      const day15 = buildFallbackEmail({ ...input, stage: "FOLLOW_UP_3" });
+
+      expect(day0.subject).toContain("Application: Senior Systems Engineer - Alex Rivera");
+      expect(day0.body).toContain("attached my resume");
+
+      expect(day4.subject).toContain("Following up:");
+      expect(day4.body).toContain("quickly follow up on my application");
+      expect(day4.body).not.toContain("reflecting on common technical hurdles");
+
+      expect(day10.subject).toContain("Additional context & project insights");
+      expect(day10.body).toContain("reflecting on common technical hurdles");
+
+      expect(day15.subject).toContain("Final follow-up");
+      expect(day15.body).toContain("one final check-in");
+    });
+  });

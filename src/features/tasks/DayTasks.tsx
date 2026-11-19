@@ -1,5 +1,5 @@
 "use client";
-import { Check, Pencil } from "lucide-react";
+import { Check, Pencil, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card, Empty } from "@/components/ui";
 import { cn, fmtNum } from "@/lib/cn";
@@ -35,6 +35,9 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
 }) {
   const measurable = item.completionType === "MEASURABLE";
   const weekly = item.recurrence === "WEEKLY_TOTAL";
+  const isDuolingo = item.title.toLowerCase().includes("duolingo") || (item.description?.toLowerCase().includes("duolingo") ?? false);
+  const [syncing, setSyncing] = useState(false);
+  const [duoWarning, setDuoWarning] = useState<string | null>(null);
   const [draft, setDraft] = useState(item.value ? String(item.value) : "");
   useEffect(() => setDraft(item.value ? String(item.value) : ""), [item.value]);
   const commit = () => {
@@ -43,6 +46,29 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
     if (n !== item.value) onProgress(item, n);
   };
   const unit = item.unit ?? "";
+
+  const handleDuolingoSync = async () => {
+    setSyncing(true);
+    setDuoWarning(null);
+    try {
+      const res = await fetch("/api/integrations/duolingo/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: item.id }),
+      });
+      const data = await res.json();
+      if (data.completedToday) {
+        onProgress(item, item.target || 1);
+      }
+      if (data.warning) {
+        setDuoWarning(data.warning);
+      }
+    } catch {
+      setDuoWarning("Unable to connect to Duolingo. You can mark this task complete manually.");
+    } finally {
+      setSyncing(false);
+    }
+  };
   return (
     <Card className={cn("flex items-start gap-3 p-3", item.done && "border-ok/40")}>
       <button
@@ -73,6 +99,24 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
           {weekly && ` · Week: ${fmtNum(item.weekSum ?? 0)} / ${fmtNum(item.target)} ${unit}`.trimEnd()}
           {item.description && ` · ${item.description}`}
         </div>
+        {isDuolingo && (
+          <div className="mt-2 space-y-1.5">
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={handleDuolingoSync}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+            >
+              <RefreshCw size={12} className={cn(syncing && "animate-spin")} />
+              <span>{syncing ? "Syncing Duolingo..." : "Refresh Sync"}</span>
+            </button>
+            {duoWarning && (
+              <div className="rounded-md bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-300 border border-amber-500/20">
+                <span>⚠️ {duoWarning}</span>
+              </div>
+            )}
+          </div>
+        )}
         {measurable && (
           <div className="mt-2">
             <div className="h-2 overflow-hidden rounded-full bg-soft" role="progressbar" aria-valuenow={Math.round(item.progress * 100)} aria-valuemin={0} aria-valuemax={100}>

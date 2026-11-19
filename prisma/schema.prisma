@@ -65,6 +65,12 @@ model User {
   createdChallenges Challenge[]            @relation("ChallengeCreator")
   challengeParticipations ChallengeParticipant[]
   readingSessions   UserReadingSession[]
+  blogPlans         BlogPlan[]
+  integrations      UserIntegration[]
+  financeBudgets    FinanceBudget[]
+  financeExpenses   FinanceExpense[]
+  resumes           UserResume[]
+  jobApplications   JobApplication[]
 }
 
 model Friendship {
@@ -398,4 +404,138 @@ model UserReadingSession {
   @@index([userId, status])
   @@index([novelId])
 }
+
+model BlogPlan {
+  id             String           @id @default(cuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic          String
+  totalDays      Int
+  tone           String           @default("Professional")
+  targetAudience String           @default("General")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  days           BlogDayContent[]
+
+  @@index([userId, createdAt])
+}
+
+model BlogDayContent {
+  id              String   @id @default(cuid())
+  planId          String
+  plan            BlogPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  dayNumber       Int
+  title           String
+  subtopicsJson   Json
+  markdownContent String?  @db.Text
+  status          String   @default("PENDING")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([planId, dayNumber])
+  @@index([planId, dayNumber])
+}
+
+model UserIntegration {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider         String
+  externalUsername String
+  lastSyncedAt     DateTime?
+  lastStatus       String    @default("PENDING")
+  metadata         Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([userId, provider])
+  @@index([userId, provider])
+}
+
+model FinanceBudget {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category     String
+  monthlyLimit Float
+  currency     String   @default("USD")
+  monthYear    String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, category, monthYear])
+  @@index([userId, monthYear])
+}
+
+model FinanceExpense {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Float
+  category      String
+  description   String
+  spentAt       DateTime
+  paymentMethod String   @default("CARD")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, spentAt])
+  @@index([userId, category])
+}
+
+model UserResume {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileUrl    String
+  parsedText String   @db.Text
+  skillsJson Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Company {
+  id              String           @id @default(cuid())
+  name            String
+  category        String           // STARTUP, BIG_MNC, BIG_SHARKS, ACTIVELY_HIRING, MID_MNC, SMALL_SCALE, FOREIGN
+  hrEmail         String
+  websiteUrl      String?
+  description     String?
+  location        String?
+  lastRefreshedAt DateTime         @default(now())
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  jobApplications JobApplication[]
+
+  @@index([category, lastRefreshedAt])
+  @@index([name])
+}
+
+model JobApplication {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  jobTitle      String
+  jobUrl        String?
+  hrEmail       String
+  stage         String    @default("TO_APPLY") // TO_APPLY, WAITING_FU1, FOLLOW_UP_1, WAITING_FU2, FOLLOW_UP_2, WAITING_FU3, FOLLOW_UP_3, REPLIED, CLOSED
+  appliedAt     DateTime?
+  nextActionAt  DateTime?
+  emailThreadId String?
+  autoSend      Boolean   @default(false)
+  logs          Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([userId, companyId, jobTitle])
+  @@index([userId, stage])
+  @@index([stage, nextActionAt])
+  @@index([userId, createdAt])
+}
+
+
 

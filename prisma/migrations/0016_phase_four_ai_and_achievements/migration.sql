@@ -1,4 +1,4 @@
-CREATE TABLE public."Achievement" (
+CREATE TABLE IF NOT EXISTS public."Achievement" (
   "id" TEXT NOT NULL,
   "userId" TEXT NOT NULL,
   "badgeType" TEXT NOT NULL,
@@ -7,15 +7,19 @@ CREATE TABLE public."Achievement" (
   CONSTRAINT "Achievement_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "Achievement_userId_badgeType_key" ON public."Achievement"("userId", "badgeType");
-CREATE INDEX "Achievement_userId_unlockedAt_idx" ON public."Achievement"("userId", "unlockedAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "Achievement_userId_badgeType_key" ON public."Achievement"("userId", "badgeType");
+CREATE INDEX IF NOT EXISTS "Achievement_userId_unlockedAt_idx" ON public."Achievement"("userId", "unlockedAt");
 
-ALTER TABLE public."Achievement"
-  ADD CONSTRAINT "Achievement_userId_fkey"
-  FOREIGN KEY ("userId") REFERENCES public."User"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE public."Achievement"
+    ADD CONSTRAINT "Achievement_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES public."User"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
-CREATE TABLE public."CoachReview" (
+CREATE TABLE IF NOT EXISTS public."CoachReview" (
   "id" TEXT NOT NULL,
   "userId" TEXT NOT NULL,
   "weekStartDate" DATE NOT NULL,
@@ -25,13 +29,17 @@ CREATE TABLE public."CoachReview" (
   CONSTRAINT "CoachReview_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "CoachReview_userId_weekStartDate_key" ON public."CoachReview"("userId", "weekStartDate");
-CREATE INDEX "CoachReview_userId_createdAt_idx" ON public."CoachReview"("userId", "createdAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "CoachReview_userId_weekStartDate_key" ON public."CoachReview"("userId", "weekStartDate");
+CREATE INDEX IF NOT EXISTS "CoachReview_userId_createdAt_idx" ON public."CoachReview"("userId", "createdAt");
 
-ALTER TABLE public."CoachReview"
-  ADD CONSTRAINT "CoachReview_userId_fkey"
-  FOREIGN KEY ("userId") REFERENCES public."User"("id")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE public."CoachReview"
+    ADD CONSTRAINT "CoachReview_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES public."User"("id")
+    ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 ALTER TABLE public."Achievement" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."CoachReview" ENABLE ROW LEVEL SECURITY;

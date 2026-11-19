@@ -481,3 +481,111 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, reminder-time, 
 - The Settings page marks its reminder toggle as available only in production because service worker registration is production-only.
 - Current tests are unit tests for domain rules, not a full integration suite.
 - `npm run build` applies migrations as part of the build command; do not run it against an unintended database.
+
+## Phase 5: AI & External Sync Architecture
+
+Phase 5 introduces deterministic AI learning memory, a multi-day AI blog content generation pipeline, and external integration verification via the Duolingo API.
+
+### 1. AI Adaptive Learning Course Generator (Memory Fix)
+- **Deterministic Context Injection:** Querying `TaskLog` provides exact historical metrics: unique completed days, current learning streak, and curriculum stage (`Day X+1`, `Module Math.floor(X/5) + 1`).
+- **Memory Fix (`getTaskLearningContext`):** Solves LLM amnesia across sessions by pre-calculating state deterministically and injecting a `SYSTEM_CONTEXT / DETERMINISTIC LEARNER MEMORY` block into the Gemini prompt.
+- **Syllabus & Badging:** When `completedDays === 0`, defaults strictly to a Day 1 Onboarding Course (Foundations at absolute zero). The UI modal surfaces a `"Based on X completed days"` (or `"Day 1 Onboarding"`) badge with an active Pomodoro timer.
+- **API Endpoint:** `GET /api/tasks/[id]/learning-context`.
+
+### 2. Multi-Day AI Blog Content Generator
+- **Data Models:**
+  - `BlogPlan`: `id`, `userId`, `topic`, `totalDays`, `tone`, `targetAudience`, timestamps.
+  - `BlogDayContent`: `id`, `planId`, `dayNumber`, `title`, `subtopicsJson`, `markdownContent`, `status` (`PENDING` | `GENERATED`).
+- **2-Step AI Pipeline:**
+  - *Step 1 (`POST /api/blogs/plan`):* Divides the topic into an exact JSON outline array of length `totalDays` with sequential logical progression and no topic overlap between days.
+  - *Step 2 (`POST /api/blogs/[planId]/generate-day/[dayNumber]`):* Generates comprehensive, publication-ready GitHub-flavored Markdown for that specific day, pulling in the previous day's summary to maintain narrative continuity.
+- **UI Screen (`/blogs`):** Full series management with a setup form (topic, duration selector, tone, audience), day-by-day interactive timeline, Markdown viewer, live inline editor, regenerate action, and one-click clipboard copy.
+
+### 3. Duolingo API Task Verification
+- **Data Model:** `UserIntegration` (`userId`, `provider: DUOLINGO`, `externalUsername`, `lastSyncedAt`, `lastStatus`, `metadata`).
+- **Verification Engine (`POST /api/integrations/duolingo/sync`):**
+  - Queries Duolingo's public profile endpoint (`/2017-06-30/users?username=...`) with timeout protection.
+  - Analyzes `xpGainedToday` and streak progress in the user's local timezone.
+  - When verified, automatically marks the linked task complete in `TaskLog`.
+  - Gracefully detects private profiles (`DISABLE_PUBLIC_PROFILE`) or rate limits (`429`), surfacing a non-blocking warning while allowing manual completion override.
+- **Background Sync:** Inngest cron worker `duolingoDailySync` runs every 4 hours to verify active integrations automatically.
+
+---
+
+## Phase 6: High-Security Standalone Financial Budgeting & Expenditure Tracker
+
+Phase 6 implements a strictly isolated, personal financial tracker with bank-grade security boundaries and PostgreSQL Row-Level Security.
+
+### 1. Database & Row-Level Security (Strict Tenant Isolation)
+- **Tables:**
+  - `FinanceBudget`: `id`, `userId`, `category`, `monthlyLimit`, `currency`, `monthYear`, timestamps.
+  - `FinanceExpense`: `id`, `userId`, `amount`, `category`, `description`, `spentAt`, `paymentMethod`, timestamps.
+- **Security & RLS Policies:**
+  - PostgreSQL Row-Level Security enabled on all `Finance*` tables.
+  - Revoked from `PUBLIC` and `anon`; granted exclusively to `authenticated`.
+  - Policies enforce `"userId" = (current_setting('request.jwt.claims', true)::jsonb ->> 'sub')` for SELECT, INSERT, UPDATE, and DELETE.
+  - All server endpoints strictly derive `userId` from the verified server-side session token via `requireUser()`.
+  - **Zero Leakage Guarantee:** `Finance*` tables are strictly isolated and never queried, joined, or referenced by Friend Insights, Leaderboards, or shared AI summaries.
+
+### 2. Extensible Financial Provider Layer
+- **Architecture:** Abstracted behind the `FinancialProvider` interface:
+  ```typescript
+  export interface FinancialProvider {
+    providerId: string;
+    providerName: string;
+    parseTransactions(input: string | Buffer | Record<string, unknown>): Promise<NormalizedTransaction[]>;
+  }
+  ```
+- **CSV Provider (`CsvFinancialProvider`):** Parses bank and credit card CSV exports. Features intelligent keyword-based category inference (e.g., Whole Foods → Groceries, Uber → Transport, Netflix → Entertainment, Starbucks → Dining) and currency sanitization.
+
+### 3. Frontend Dashboard (`/finance`)
+- **Privacy Blur Mode:** Instant toggle (`Eye` / `EyeOff`) that masks all balances and amounts on-screen with CSS blur, preventing shoulder surfing in public spaces.
+- **Budget-vs-Actual Tracking:** Monthly progress bars by category with dynamic color thresholds (emerald for < 80%, amber for 80-99%, rose for ≥ 100% over-budget).
+- **Expense Logging & Statement Import:** Quick-add modal for manual expense entries, inline category budget configuration, and CSV drag-and-drop / paste importer.
+
+---
+
+## Phase 7: Automated Job Application Engine & 4-Stage Shifting Follow-Up Pipeline
+
+Phase 7 introduces an end-to-end automated job application pipeline, resume intelligence, multi-channel company categorization, and a deterministic shifting follow-up timeline powered by Inngest and Gemini.
+
+### 1. Schema & Categorization
+- **Data Models:**
+  - `UserResume`: `id`, `userId`, `fileUrl`, `parsedText`, `skillsJson`, timestamps.
+  - `Company`: `id`, `name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`, timestamps.
+  - `JobApplication`: `id`, `userId`, `companyId`, `jobTitle`, `jobUrl`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`, timestamps.
+- **7 Company Categories:**
+  - `STARTUP`: Seed / Series A–C startups (refreshed and rotated every 2 days).
+  - `BIG_MNC`: Global Fortune 500 enterprises (Microsoft, Oracle, Cisco).
+  - `BIG_SHARKS`: Tech giants and tier-1 unicorns (Stripe, Uber, Databricks).
+  - `ACTIVELY_HIRING`: Organizations experiencing urgent, open hiring surges (Vercel, Supabase, Postman).
+  - `MID_MNC`: Mid-market multinational digital engineering leaders (EPAM, Endava).
+  - `SMALL_SCALE`: Boutique consultancies and specialized agencies (Thoughtbot, Formidable Labs).
+  - `FOREIGN`: Distributed, remote-first international companies (GitLab, Automattic, Canonical).
+- **2-Day Startup Rotation Cron:** Inngest cron job `rotateStartupCompanies` (`0 0 */2 * *`) updates listings and rotates active startup listings every 48 hours.
+
+### 2. Scraping & AI Email Drafter
+- **Recruitment Scraper & HR Email Validation:**
+  - Validates RFC email formats, verifies domain TLD structures, rejects disposable mail domains (`mailinator.com`, `tempmail.com`), and deduplicates contacts.
+  - Automatic directory seeding ensures immediate availability of validated opportunities across all 7 channels.
+- **AI Email Drafter:**
+  - Leverages candidate's parsed resume (`parsedText`, `skillsJson`) and job specifications to draft distinct, non-repetitive copy:
+    - *Day 0 (Initial Application):* Direct application, tailoring top candidate skills to company challenges with resume attachment confirmation.
+    - *Day 4 (Follow-Up 1):* Courteous 2-paragraph nudge acknowledging busy hiring schedules.
+    - *Day 10 (Follow-Up 2):* Proactive value-add message sharing relevant architectural/technical insights.
+    - *Day 15 (Final Follow-Up):* Professional closing check-in leaving the door open for future collaboration.
+  - Includes a global / per-application "Auto-Send" vs. "Review & Approve" toggle before dispatching via SMTP/Resend/mock providers.
+
+### 3. 4-Stage Shifting State Machine
+- **Timeline Progression (`calculateNextStageTransition` & `shouldPromoteFollowUp`):**
+  - *Stage 1 (`TO_APPLY`):* Newly discovered and queued positions. Upon application, sets `appliedAt = now()`, moves to `WAITING_FU1`, sets `nextActionAt = appliedAt + 4 days`, and immediately backfills new opportunities into `TO_APPLY`.
+  - *Stage 2 (`FOLLOW_UP_1`):* Surfaces 4 days after `appliedAt`. Once sent, transitions to `WAITING_FU2` with `nextActionAt = appliedAt + 10 days`.
+  - *Stage 3 (`FOLLOW_UP_2`):* Surfaces 10 days after `appliedAt`. Once sent, transitions to `WAITING_FU3` with `nextActionAt = appliedAt + 15 days`.
+  - *Stage 4 (`FOLLOW_UP_3`):* Surfaces 15 days after `appliedAt`. Once sent, archives into `CLOSED`.
+- **Immediate Reply Short-Circuiting:** Logging an HR response (`POST /api/jobs/applications/[id]/reply`) instantly moves the application to `REPLIED` and nullifies `nextActionAt`, halting all further follow-ups.
+- **Hourly Pipeline Advancement:** Inngest cron worker `jobFollowUpScheduler` (`0 * * * *`) promotes buffer states and automatically dispatches due follow-ups when `autoSend` is enabled.
+
+### 4. Frontend UI (`/jobs`)
+- **Top Bar:** Resume text / document uploader, detected technical skill chips, multi-select checkboxes for the 7 company channels, and Auto-Send mode toggle.
+- **4-Tab Pipeline View:** `1. Apply`, `2. Follow-Up 1 (Day 4)`, `3. Follow-Up 2 (Day 10)`, `4. Follow-Up 3 (Day 15)`, and `Replied & Closed` with live badge counters.
+- **Interactive Email Drawer:** In-context preview and editing of AI-generated subject and body, one-click AI copy regeneration, and instant dispatch.

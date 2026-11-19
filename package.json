@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma migrate deploy && next build",
+    "build": "node scripts/repair-failed-migrations.js && prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",

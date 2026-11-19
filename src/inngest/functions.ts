@@ -3,7 +3,11 @@ import { inngest, reminderSendEvent } from "@/inngest/client";
 import { getReminderSlot } from "@/lib/domain/reminders";
 import { systemDb } from "@/lib/db";
 import { generateWeeklyCoachReview } from "@/server/ai/coach";
+import { syncDuolingo } from "@/server/services/duolingo";
+import { rotateStartupCompanies } from "@/server/services/job-scraper";
+import { advanceJobPipeline } from "@/server/services/jobs";
 import { dispatchUserTaskReminder } from "@/server/services/reminders";
+import type { AppUser } from "@/lib/auth/session";
 
 export const scheduleTaskReminders = inngest.createFunction(
   {
@@ -91,4 +95,86 @@ export const weeklyRoutineCoach = inngest.createFunction(
   },
 );
 
-export const reminderFunctions = [scheduleTaskReminders, sendTaskReminder, weeklyRoutineCoach];
+export const duolingoDailySync = inngest.createFunction(
+  {
+    id: "duolingo-daily-sync",
+    triggers: { cron: "0 */4 * * *" }, // Run every 4 hours
+    onFailure: async ({ error }) => {
+      Sentry.captureException(error, {
+        tags: { inngestFunction: "duolingo-daily-sync" },
+      });
+    },
+  },
+  async ({ step }) => {
+    const integrations = await step.run("find-duolingo-integrations", async () => {
+      return systemDb.userIntegration.findMany({
+        where: { provider: "DUOLINGO" },
+        include: {
+          user: {
+            select: {
+              id: true,
+              settings: {
+                select: { timezone: true, weekStartsOn: true },
+              },
+            },
+          },
+        },
+      });
+    });
+
+    if (integrations.length === 0) return { synced: 0 };
+
+    for (const item of integrations) {
+      if (!item.user) continue;
+      await step.run(`sync-duo-${item.userId}`, async () => {
+        const userContext = {
+          id: item.user.id,
+          timezone: item.user.settings?.timezone || "Asia/Kolkata",
+          weekStartsOn: (item.user.settings?.weekStartsOn === 7 ? 7 : 1) as 1 | 7,
+        };
+        return syncDuolingo(userContext, item.externalUsername);
+      });
+    }
+
+    return { synced: integrations.length };
+  },
+);
+
+export const startupRotationCron = inngest.createFunction(
+  {
+    id: "rotate-startup-companies",
+    triggers: { cron: "0 0 */2 * *" }, // Runs every 2 days
+    onFailure: async ({ error }) => {
+      Sentry.captureException(error, {
+        tags: { inngestFunction: "rotate-startup-companies" },
+      });
+    },
+  },
+  async ({ step }) => {
+    return step.run("rotate-startups", () => rotateStartupCompanies());
+  },
+);
+
+export const jobFollowUpScheduler = inngest.createFunction(
+  {
+    id: "advance-job-pipeline",
+    triggers: { cron: "0 * * * *" }, // Runs hourly to advance follow-up states
+    onFailure: async ({ error }) => {
+      Sentry.captureException(error, {
+        tags: { inngestFunction: "advance-job-pipeline" },
+      });
+    },
+  },
+  async ({ step }) => {
+    return step.run("advance-pipeline", () => advanceJobPipeline());
+  },
+);
+
+export const reminderFunctions = [
+  scheduleTaskReminders,
+  sendTaskReminder,
+  weeklyRoutineCoach,
+  duolingoDailySync,
+  startupRotationCron,
+  jobFollowUpScheduler,
+];

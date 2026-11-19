@@ -1,8 +1,12 @@
 -- CreateEnum
-CREATE TYPE "ReadingSessionStatus" AS ENUM ('READING', 'COMPLETED');
+DO $$ BEGIN
+  CREATE TYPE "ReadingSessionStatus" AS ENUM ('READING', 'COMPLETED');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- CreateTable
-CREATE TABLE public."NovelCatalog" (
+CREATE TABLE IF NOT EXISTS public."NovelCatalog" (
     "id" TEXT NOT NULL,
     "externalId" TEXT,
     "title" TEXT NOT NULL,
@@ -19,7 +23,7 @@ CREATE TABLE public."NovelCatalog" (
 );
 
 -- CreateTable
-CREATE TABLE public."UserReadingSession" (
+CREATE TABLE IF NOT EXISTS public."UserReadingSession" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "novelId" TEXT NOT NULL,
@@ -32,18 +36,27 @@ CREATE TABLE public."UserReadingSession" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "NovelCatalog_externalId_key" ON public."NovelCatalog"("externalId");
-CREATE INDEX "NovelCatalog_genre_idx" ON public."NovelCatalog"("genre");
-CREATE INDEX "NovelCatalog_title_idx" ON public."NovelCatalog"("title");
+CREATE UNIQUE INDEX IF NOT EXISTS "NovelCatalog_externalId_key" ON public."NovelCatalog"("externalId");
+CREATE INDEX IF NOT EXISTS "NovelCatalog_genre_idx" ON public."NovelCatalog"("genre");
+CREATE INDEX IF NOT EXISTS "NovelCatalog_title_idx" ON public."NovelCatalog"("title");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UserReadingSession_userId_novelId_key" ON public."UserReadingSession"("userId", "novelId");
-CREATE INDEX "UserReadingSession_userId_status_idx" ON public."UserReadingSession"("userId", "status");
-CREATE INDEX "UserReadingSession_novelId_idx" ON public."UserReadingSession"("novelId");
+CREATE UNIQUE INDEX IF NOT EXISTS "UserReadingSession_userId_novelId_key" ON public."UserReadingSession"("userId", "novelId");
+CREATE INDEX IF NOT EXISTS "UserReadingSession_userId_status_idx" ON public."UserReadingSession"("userId", "status");
+CREATE INDEX IF NOT EXISTS "UserReadingSession_novelId_idx" ON public."UserReadingSession"("novelId");
 
 -- AddForeignKey
-ALTER TABLE public."UserReadingSession" ADD CONSTRAINT "UserReadingSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES public."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE public."UserReadingSession" ADD CONSTRAINT "UserReadingSession_novelId_fkey" FOREIGN KEY ("novelId") REFERENCES public."NovelCatalog"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE public."UserReadingSession" ADD CONSTRAINT "UserReadingSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES public."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public."UserReadingSession" ADD CONSTRAINT "UserReadingSession_novelId_fkey" FOREIGN KEY ("novelId") REFERENCES public."NovelCatalog"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Enable RLS
 ALTER TABLE public."NovelCatalog" ENABLE ROW LEVEL SECURITY;

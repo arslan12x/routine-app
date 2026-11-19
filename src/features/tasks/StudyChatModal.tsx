@@ -71,6 +71,7 @@ export default function StudyChatModal({
 }) {
   const [input, setInput] = useState("");
   const [didComplete, setDidComplete] = useState(false);
+  const [learningBadge, setLearningBadge] = useState<string | null>(null);
   const notifiedStudyResults = useRef(new Set<string>());
   const didStartSession = useRef(false);
   const messagesContainer = useRef<HTMLDivElement>(null);
@@ -95,6 +96,21 @@ export default function StudyChatModal({
   });
   const busy = status === "submitted" || status === "streaming";
   const courseName = task.aiSubject === "CUSTOM" ? task.aiCourseName : subjectLabels[task.aiSubject ?? "DSA"];
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/tasks/${task.id}/learning-context`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { badgeLabel?: string } | null) => {
+        if (active && data?.badgeLabel) {
+          setLearningBadge(data.badgeLabel);
+        }
+      })
+      .catch((err) => console.warn("[AI study] Failed to load learning context", err));
+    return () => {
+      active = false;
+    };
+  }, [task.id]);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -148,7 +164,14 @@ export default function StudyChatModal({
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="grid size-9 shrink-0 place-items-center rounded-full bg-brand/10 text-brand sm:size-10"><Sparkles size={19} aria-hidden /></div>
             <div className="min-w-0">
-              <h1 className="truncate font-semibold">{courseName}</h1>
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h1 className="truncate font-semibold">{courseName}</h1>
+                {learningBadge && (
+                  <span className="inline-flex items-center rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand sm:text-[11px]">
+                    {learningBadge}
+                  </span>
+                )}
+              </div>
               <p className="truncate text-xs text-muted">Study session · {task.title}</p>
             </div>
           </div>
