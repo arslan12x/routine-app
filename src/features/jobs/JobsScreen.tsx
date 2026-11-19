@@ -524,154 +524,185 @@ export default function JobsScreen() {
 
   return (
     <div className="space-y-6">
-      {/* 1. Page Header */}
-      <div className="space-y-1.5">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Candidate Job Application Engine</h1>
-          <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 border border-brand/20 px-2.5 py-0.5 text-xs font-semibold text-brand">
-            4-Stage Follow-Up Shifter
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-            ⚡ 2-Day Auto-Rotation
-          </span>
+      {/* 1. Page Header & Primary Actions */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Candidate Job Application Engine</h1>
+            <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 border border-brand/20 px-2.5 py-0.5 text-xs font-semibold text-brand">
+              4-Stage Follow-Up Shifter
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              ⚡ 2-Day Auto-Rotation
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-muted max-w-3xl leading-relaxed">
+            Candidate dispatch and scheduled outreach pipeline curated for your experience level. Applications advance through <strong>Day 0 Apply</strong> → <strong>Day 4 Follow-Up 1</strong> → <strong>Day 10 Follow-Up 2</strong> → <strong>Day 15 Final Follow-Up</strong>.
+          </p>
         </div>
-        <p className="text-xs sm:text-sm text-muted max-w-4xl leading-relaxed">
-          Outreach and scheduled follow-up pipeline curated for your experience level. Applied companies advance through <strong>Day 0 Apply</strong> → <strong>Day 4 Follow-Up 1</strong> → <strong>Day 10 Follow-Up 2</strong> → <strong>Day 15 Final Follow-Up</strong>.
-        </p>
+
+        {/* Global Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setGlobalAutoSend(!globalAutoSend)}
+            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold transition-all ${
+              globalAutoSend
+                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 shadow-sm"
+                : "bg-soft text-muted hover:text-fg border-border"
+            }`}
+          >
+            <Zap size={14} className={globalAutoSend ? "text-emerald-500" : "text-muted"} />
+            <span>{globalAutoSend ? "Mode: Auto-Send" : "Mode: Review & Approve"}</span>
+          </button>
+
+          <Button
+            disabled={queueing}
+            onClick={() => handleQueueJobsWithExp()}
+            className="flex items-center gap-2 py-2 px-4 text-xs font-semibold shadow-sm"
+          >
+            {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            <span>⚡ 2-Day Batch Refresh</span>
+          </Button>
+        </div>
       </div>
 
-      {/* 2. Candidate Profile & Readiness Dashboard Bar */}
+      {/* 2. Candidate Profile & Readiness Dashboard Bar (Full Width, Spacious 3-Column Layout) */}
       <Card className="border border-border/80 bg-card p-4 sm:p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          {/* Profile Metrics & Config Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-1">
-            {/* Sender Email Card */}
-            <div
-              className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors ${
-                candidateEmail ? "border-border bg-soft/50" : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"
-              }`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-                    candidateEmail ? "bg-brand/10 text-brand" : "bg-amber-500/10 text-amber-500"
-                  }`}
-                >
-                  <Mail size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-medium text-muted">Sender Email (Reply-To)</div>
-                  <div className="font-semibold text-xs truncate text-fg">
-                    {candidateEmail || "Not Configured"}
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowEmailModal(true)}
-                className="h-7 text-xs px-2.5 shrink-0"
-              >
-                {candidateEmail ? "Edit" : "Set Email"}
-              </Button>
-            </div>
+        <div className="flex items-center justify-between border-b border-border/60 pb-2.5 mb-3.5">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+            <UserCheck size={14} className="text-brand" />
+            <span>Candidate Readiness & Dispatch Profile</span>
+          </div>
+          <span className="text-[11px] font-medium text-muted">
+            {candidateEmail && resume ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Ready to Dispatch</span>
+            ) : (
+              <span className="text-amber-600 dark:text-amber-400 font-semibold">Setup Required Before Dispatch</span>
+            )}
+          </span>
+        </div>
 
-            {/* Resume Document Card */}
-            <div
-              className={`flex items-center justify-between gap-3 rounded-xl border p-3 transition-colors ${
-                resume ? "border-border bg-soft/50" : "border-blue-500/30 bg-blue-500/5 text-blue-700 dark:text-blue-300"
-              }`}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+          {/* Sender Email Card */}
+          <div
+            className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 transition-colors ${
+              candidateEmail
+                ? "border-border bg-soft/50"
+                : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div
+                className={`grid size-10 shrink-0 place-items-center rounded-xl ${
+                  candidateEmail ? "bg-brand/10 text-brand" : "bg-amber-500/10 text-amber-500"
+                }`}
+              >
+                <Mail size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-medium text-muted">Sender Email (Reply-To)</div>
+                <div className="font-semibold text-xs sm:text-sm truncate text-fg mt-0.5" title={candidateEmail || "Not Configured"}>
+                  {candidateEmail || "Not Configured"}
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => setShowEmailModal(true)}
+              className="h-8 text-xs px-3 shrink-0"
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div
-                  className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-                    resume ? "bg-brand/10 text-brand" : "bg-blue-500/10 text-blue-500"
-                  }`}
-                >
-                  <FileText size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-medium text-muted">Resume Document</div>
-                  <div className="font-semibold text-xs truncate text-fg">
-                    {resume?.fileUrl ? resume.fileUrl.split("/").pop() : resume ? `${resume.skillsJson?.length || 0} Skills Parsed` : "Not Uploaded"}
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowResumeModal(true)}
-                className="h-7 text-xs px-2.5 shrink-0"
-              >
-                {resume ? "Replace" : "Upload"}
-              </Button>
-            </div>
-
-            {/* Experience Level Card */}
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-soft/50 p-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <GraduationCap size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-[11px] font-medium text-muted">Experience Level</div>
-                  <div className="font-semibold text-xs truncate text-fg">
-                    {EXPERIENCE_LEVEL_SHORT_LABELS[candidateExperience] || "Fresher (0-1 Yrs)"}
-                  </div>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSelectedExpChoice(candidateExperience);
-                  setShowExperienceModal(true);
-                }}
-                className="h-7 text-xs px-2.5 shrink-0"
-              >
-                Change
-              </Button>
-            </div>
+              {candidateEmail ? "Edit" : "Set Email"}
+            </Button>
           </div>
 
-          {/* Action Group: Mode + Refresh */}
-          <div className="flex flex-wrap items-center gap-2.5 pt-2 lg:pt-0 lg:border-l lg:border-border/60 lg:pl-4 shrink-0">
-            {/* Auto-Send Mode Toggle */}
-            <button
-              type="button"
-              onClick={() => setGlobalAutoSend(!globalAutoSend)}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${
-                globalAutoSend
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
-                  : "bg-soft text-muted hover:text-fg border-border"
-              }`}
-            >
-              <Zap size={14} className={globalAutoSend ? "text-emerald-500" : "text-muted"} />
-              <span>{globalAutoSend ? "Mode: Auto-Send" : "Mode: Review & Approve"}</span>
-            </button>
-
-            {/* 2-Day Batch Refresh Button */}
+          {/* Resume Document Card */}
+          <div
+            className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 transition-colors ${
+              resume
+                ? "border-border bg-soft/50"
+                : "border-blue-500/30 bg-blue-500/5 text-blue-700 dark:text-blue-300"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div
+                className={`grid size-10 shrink-0 place-items-center rounded-xl ${
+                  resume ? "bg-brand/10 text-brand" : "bg-blue-500/10 text-blue-500"
+                }`}
+              >
+                <FileText size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-medium text-muted">Resume Document</div>
+                <div
+                  className="font-semibold text-xs sm:text-sm truncate text-fg mt-0.5"
+                  title={resume?.fileUrl ? resume.fileUrl.split("/").pop() : resume ? `${resume.skillsJson?.length || 0} Skills Parsed` : "Not Uploaded"}
+                >
+                  {resume?.fileUrl ? resume.fileUrl.split("/").pop() : resume ? `${resume.skillsJson?.length || 0} Skills Parsed` : "Not Uploaded"}
+                </div>
+              </div>
+            </div>
             <Button
-              disabled={queueing}
-              onClick={() => handleQueueJobsWithExp()}
-              className="flex items-center gap-1.5 py-2 px-3.5 text-xs font-semibold shadow-sm"
+              variant="outline"
+              onClick={() => setShowResumeModal(true)}
+              className="h-8 text-xs px-3 shrink-0"
             >
-              {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              <span>⚡ 2-Day Batch Refresh</span>
+              {resume ? "Replace" : "Upload"}
+            </Button>
+          </div>
+
+          {/* Experience Level Card */}
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-soft/50 p-3.5">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                <GraduationCap size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-medium text-muted">Experience Level</div>
+                <div className="font-semibold text-xs sm:text-sm truncate text-fg mt-0.5">
+                  {EXPERIENCE_LEVEL_LABELS[candidateExperience] || "Fresher (0 - 1 Years)"}
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSelectedExpChoice(candidateExperience);
+                setShowExperienceModal(true);
+              }}
+              className="h-8 text-xs px-3 shrink-0"
+            >
+              Change
             </Button>
           </div>
         </div>
       </Card>
 
       {/* 3. Company Categories Bar (Balanced Responsive Grid) */}
-      <Card className="border border-border/80 p-4 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-border/60 pb-2.5 mb-3">
+      <Card className="border border-border/80 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5 mb-3">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
             <Filter size={14} /> Target Company Categories (7 Channels · ⚡ 2-Day Refresh for All)
           </div>
-          <span className="text-xs text-muted">
-            {selectedCategories.length} of 7 active
-          </span>
+          <div className="flex items-center gap-3 text-xs text-muted">
+            <span>{selectedCategories.length} of 7 active</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedCategories.length === COMPANY_CATEGORIES.length) {
+                  setSelectedCategories(["STARTUP"]);
+                } else {
+                  setSelectedCategories([...COMPANY_CATEGORIES]);
+                }
+              }}
+              className="text-brand hover:underline font-semibold"
+            >
+              {selectedCategories.length === COMPANY_CATEGORIES.length ? "Reset" : "Select All"}
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
           {COMPANY_CATEGORIES.map((cat) => {
             const checked = selectedCategories.includes(cat);
             return (
@@ -681,43 +712,41 @@ export default function JobsScreen() {
                   e.preventDefault();
                   toggleCategory(cat);
                 }}
-                className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-2.5 text-xs transition-all ${
+                className={`flex cursor-pointer items-center justify-between gap-2.5 rounded-xl border px-3 py-2.5 text-xs transition-all ${
                   checked
                     ? "border-brand bg-brand/5 text-fg font-medium shadow-sm"
                     : "border-border/60 bg-card text-muted hover:bg-soft"
                 }`}
               >
-                <div
-                  className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded border transition-colors ${
-                    checked ? "bg-brand text-brandfg border-brand" : "border-border bg-card"
-                  }`}
-                >
-                  {checked && <Check size={12} strokeWidth={3} />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="leading-snug">
-                    <span className="font-semibold text-xs leading-tight text-fg">
-                      {CATEGORY_LABELS[cat]}
-                    </span>
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div
+                    className={`grid size-4 shrink-0 place-items-center rounded border transition-colors ${
+                      checked ? "bg-brand text-brandfg border-brand" : "border-border bg-card"
+                    }`}
+                  >
+                    {checked && <Check size={12} strokeWidth={3} />}
                   </div>
-                  <span className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                    ⚡ 2-Day Refresh
+                  <span className="font-semibold text-xs leading-snug truncate text-fg" title={CATEGORY_LABELS[cat]}>
+                    {CATEGORY_LABELS[cat]}
                   </span>
                 </div>
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                  ⚡ 2d
+                </span>
               </label>
             );
           })}
         </div>
       </Card>
 
-      {/* 4. Pipeline Navigation & Experience Filter Bar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-border/80 pb-2">
-        {/* Shifting Stage Tabs */}
+      {/* 4. Pipeline Navigation & Filter Bar (Cleanly Separated Rows) */}
+      <div className="space-y-3 border-b border-border/80 pb-3">
+        {/* Row 1: Shifting Stage Tabs (Full Width, Never Truncated) */}
         <div className="overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex min-w-max space-x-1 sm:space-x-2">
+          <div className="flex min-w-max space-x-2 sm:space-x-3">
             <button
               onClick={() => setActiveTab("APPLY")}
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 py-2 text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold transition-all ${
                 activeTab === "APPLY"
                   ? "border-brand text-brand"
                   : "border-transparent text-muted hover:border-border hover:text-fg"
@@ -725,7 +754,7 @@ export default function JobsScreen() {
             >
               <span>1. Apply</span>
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
                   activeTab === "APPLY" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
                 }`}
               >
@@ -735,16 +764,15 @@ export default function JobsScreen() {
 
             <button
               onClick={() => setActiveTab("FU1")}
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 py-2 text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold transition-all ${
                 activeTab === "FU1"
                   ? "border-brand text-brand"
                   : "border-transparent text-muted hover:border-border hover:text-fg"
               }`}
             >
-              <span className="hidden sm:inline">2. Follow-Up 1 (Day 4)</span>
-              <span className="sm:hidden">2. FU 1 (Day 4)</span>
+              <span>2. Follow-Up 1 (Day 4)</span>
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
                   activeTab === "FU1" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
                 }`}
               >
@@ -754,16 +782,15 @@ export default function JobsScreen() {
 
             <button
               onClick={() => setActiveTab("FU2")}
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 py-2 text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold transition-all ${
                 activeTab === "FU2"
                   ? "border-brand text-brand"
                   : "border-transparent text-muted hover:border-border hover:text-fg"
               }`}
             >
-              <span className="hidden sm:inline">3. Follow-Up 2 (Day 10)</span>
-              <span className="sm:hidden">3. FU 2 (Day 10)</span>
+              <span>3. Follow-Up 2 (Day 10)</span>
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
                   activeTab === "FU2" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
                 }`}
               >
@@ -773,16 +800,15 @@ export default function JobsScreen() {
 
             <button
               onClick={() => setActiveTab("FU3")}
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 py-2 text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold transition-all ${
                 activeTab === "FU3"
                   ? "border-brand text-brand"
                   : "border-transparent text-muted hover:border-border hover:text-fg"
               }`}
             >
-              <span className="hidden sm:inline">4. Follow-Up 3 (Day 15)</span>
-              <span className="sm:hidden">4. FU 3 (Day 15)</span>
+              <span>4. Follow-Up 3 (Day 15)</span>
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
                   activeTab === "FU3" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
                 }`}
               >
@@ -792,16 +818,15 @@ export default function JobsScreen() {
 
             <button
               onClick={() => setActiveTab("REPLIED")}
-              className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 py-2 text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold transition-all ${
                 activeTab === "REPLIED"
                   ? "border-brand text-brand"
                   : "border-transparent text-muted hover:border-border hover:text-fg"
               }`}
             >
-              <span className="hidden sm:inline">Replied & Closed</span>
-              <span className="sm:hidden">Replied</span>
+              <span>Replied & Closed</span>
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold ${
+                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
                   activeTab === "REPLIED" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
                 }`}
               >
@@ -811,64 +836,74 @@ export default function JobsScreen() {
           </div>
         </div>
 
-        {/* Experience Level Quick Filter Selector */}
-        <div className="flex items-center gap-1.5 shrink-0 overflow-x-auto pb-1 sm:pb-0">
-          <span className="text-[11px] font-medium text-muted shrink-0 mr-1">Experience:</span>
-          <button
-            type="button"
-            onClick={() => setExperienceFilter("ALL")}
-            className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              experienceFilter === "ALL"
-                ? "bg-brand text-brandfg"
-                : "bg-soft text-muted hover:text-fg"
-            }`}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            onClick={() => setExperienceFilter("FRESHER")}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              experienceFilter === "FRESHER"
-                ? "bg-emerald-600 text-white"
-                : "bg-soft text-muted hover:text-fg"
-            }`}
-          >
-            🎓 Fresher
-          </button>
-          <button
-            type="button"
-            onClick={() => setExperienceFilter("JUNIOR")}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              experienceFilter === "JUNIOR"
-                ? "bg-sky-600 text-white"
-                : "bg-soft text-muted hover:text-fg"
-            }`}
-          >
-            💼 1-3 Yrs
-          </button>
-          <button
-            type="button"
-            onClick={() => setExperienceFilter("MID")}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              experienceFilter === "MID"
-                ? "bg-indigo-600 text-white"
-                : "bg-soft text-muted hover:text-fg"
-            }`}
-          >
-            🚀 3-5 Yrs
-          </button>
-          <button
-            type="button"
-            onClick={() => setExperienceFilter("SENIOR")}
-            className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-              experienceFilter === "SENIOR"
-                ? "bg-amber-600 text-white"
-                : "bg-soft text-muted hover:text-fg"
-            }`}
-          >
-            ⭐ 5+ Yrs
-          </button>
+        {/* Row 2: Sub-Toolbar with Active Count & Experience Filter Pills */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-1">
+          <div className="text-xs text-muted flex items-center gap-2">
+            <span>Showing <strong className="text-fg">{filteredApps.length}</strong> active openings</span>
+            <span>•</span>
+            <span>Targeting <strong>{EXPERIENCE_LEVEL_SHORT_LABELS[candidateExperience]}</strong></span>
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            <span className="text-[11px] font-medium text-muted shrink-0 mr-1 flex items-center gap-1">
+              <Filter size={12} /> Filter Tier:
+            </span>
+            <button
+              type="button"
+              onClick={() => setExperienceFilter("ALL")}
+              className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                experienceFilter === "ALL"
+                  ? "bg-brand text-brandfg shadow-sm"
+                  : "bg-soft text-muted hover:text-fg"
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setExperienceFilter("FRESHER")}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                experienceFilter === "FRESHER"
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "bg-soft text-muted hover:text-fg"
+              }`}
+            >
+              🎓 Fresher
+            </button>
+            <button
+              type="button"
+              onClick={() => setExperienceFilter("JUNIOR")}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                experienceFilter === "JUNIOR"
+                  ? "bg-sky-600 text-white shadow-sm"
+                  : "bg-soft text-muted hover:text-fg"
+              }`}
+            >
+              💼 1-3 Yrs
+            </button>
+            <button
+              type="button"
+              onClick={() => setExperienceFilter("MID")}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                experienceFilter === "MID"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-soft text-muted hover:text-fg"
+              }`}
+            >
+              🚀 3-5 Yrs
+            </button>
+            <button
+              type="button"
+              onClick={() => setExperienceFilter("SENIOR")}
+              className={`flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                experienceFilter === "SENIOR"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "bg-soft text-muted hover:text-fg"
+              }`}
+            >
+              ⭐ 5+ Yrs
+            </button>
+          </div>
         </div>
       </div>
 
@@ -964,9 +999,11 @@ export default function JobsScreen() {
 
                   {/* Role Title & Company Details */}
                   <div>
-                    <h3 className="text-base font-bold text-fg sm:text-lg leading-snug break-words">
-                      {app.jobTitle}
-                    </h3>
+                    <div className="min-h-[3rem] flex items-center">
+                      <h3 className="text-base font-bold text-fg sm:text-lg leading-snug break-words">
+                        {app.jobTitle}
+                      </h3>
+                    </div>
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                       <span className="font-semibold text-fg">{app.company.name}</span>
                       <span>·</span>
@@ -995,7 +1032,7 @@ export default function JobsScreen() {
 
                   {/* Description */}
                   {app.company.description && (
-                    <p className="text-xs text-muted leading-relaxed line-clamp-2">
+                    <p className="text-xs text-muted leading-relaxed line-clamp-2 min-h-[2.5rem]">
                       {app.company.description}
                     </p>
                   )}
