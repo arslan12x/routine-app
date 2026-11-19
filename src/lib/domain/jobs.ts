@@ -11,13 +11,13 @@ export const COMPANY_CATEGORIES = [
 export type CompanyCategory = (typeof COMPANY_CATEGORIES)[number];
 
 export const CATEGORY_LABELS: Record<CompanyCategory, string> = {
-  STARTUP: "Start-up Companies (2-Day Refresh)",
-  BIG_MNC: "Big MNCs (Fortune 500)",
-  BIG_SHARKS: "Big Sharks (Tech Giants & Tier-1)",
-  ACTIVELY_HIRING: "Actively Hiring (Immediate Openings)",
+  STARTUP: "Start-up Companies",
+  BIG_MNC: "Big MNCs",
+  BIG_SHARKS: "Big Sharks",
+  ACTIVELY_HIRING: "Actively Hiring",
   MID_MNC: "Mid-Market MNCs",
-  SMALL_SCALE: "Small-Scale & Boutique Agencies",
-  FOREIGN: "Foreign & Remote International",
+  SMALL_SCALE: "Small-Scale & Consulting Agencies",
+  FOREIGN: "Foreign & Remote International company",
 };
 
 export const APPLICATION_STAGES = [

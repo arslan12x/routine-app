@@ -16,6 +16,7 @@ import {
   Loader2,
   Mail,
   MessageSquare,
+  Paperclip,
   Plus,
   RefreshCw,
   Send,
@@ -115,8 +116,11 @@ export default function JobsScreen() {
 
   // Modals / Drawers
   const [showResumeModal, setShowResumeModal] = useState(false);
+  const [uploadTab, setUploadTab] = useState<"file" | "text">("file");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [resumeInputText, setResumeInputText] = useState("");
   const [savingResume, setSavingResume] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   // Email Drawer / Modal
   const [selectedAppForEmail, setSelectedAppForEmail] = useState<JobApplication | null>(null);
@@ -174,21 +178,69 @@ export default function JobsScreen() {
     }
     setQueueing(true);
     try {
-      const res = await fetch("/api/jobs/applications", {
+      const res = await fetch("/api/jobs/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categories: selectedCategories, limit: 5 }),
+        body: JSON.stringify({ categories: selectedCategories }),
       });
       if (res.ok) {
         await loadApplications();
       } else {
         const err = await res.json();
-        alert(err.error?.message || "Failed to queue jobs");
+        alert(err.error?.message || "Failed to refresh 2-day hiring batch");
       }
     } catch (err) {
       console.error("Failed to queue jobs", err);
     } finally {
       setQueueing(false);
+    }
+  }
+
+  function handleFileSelect(file: File) {
+    if (!file) return;
+    const validExts = [".pdf", ".doc", ".docx", ".txt", ".md"];
+    const hasValidExt = validExts.some((ext) => file.name.toLowerCase().endsWith(ext));
+    if (!hasValidExt) {
+      alert("Please select a valid resume document (.pdf, .doc, .docx, or .txt)");
+      return;
+    }
+    setSelectedFile(file);
+  }
+
+  async function handleUploadResumeDocument(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedFile) {
+      alert("Please select a resume file (.pdf, .doc, .docx, .txt)");
+      return;
+    }
+
+    setSavingResume(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      const res = await fetch("/api/jobs/resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setResume(data.resume);
+        if (data.resume?.parsedText) {
+          setResumeInputText(data.resume.parsedText);
+        }
+        setShowResumeModal(false);
+        setSelectedFile(null);
+      } else {
+        const err = await res.json();
+        alert(err.error?.message || "Failed to parse uploaded resume document");
+      }
+    } catch (err) {
+      console.error("Failed to upload resume document", err);
+      alert("Network error while uploading resume document");
+    } finally {
+      setSavingResume(false);
     }
   }
 
@@ -363,13 +415,13 @@ export default function JobsScreen() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight">Automated Job Engine</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Candidate Job Application Engine</h1>
             <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand border border-brand/20 shrink-0">
               4-Stage Follow-Up Shifter
             </span>
           </div>
           <p className="mt-1 text-sm text-muted">
-            Intelligent job application dispatch and automated shifting timeline: Day 0 Apply → Day 4 Follow-Up 1 → Day 10 Follow-Up 2 → Day 15 Final Follow-Up.
+            Candidate dispatch and follow-up pipeline (for candidates applying to companies, not posting openings). Every 2 days, new hiring companies rotate in across all 7 categories while active applications advance through Day 0 Apply → Day 4 Follow-Up 1 → Day 10 Follow-Up 2 → Day 15 Final Follow-Up.
           </p>
         </div>
 
@@ -382,7 +434,9 @@ export default function JobsScreen() {
             className="flex items-center gap-1.5 py-1.5 px-3 text-xs"
           >
             <FileText size={15} className="text-brand shrink-0" />
-            <span>{resume ? `Resume: ${resume.skillsJson?.length || 0} Skills` : "Upload Resume"}</span>
+            <span className="max-w-[150px] truncate">
+              {resume?.fileUrl ? resume.fileUrl.split("/").pop() : resume ? `Resume: ${resume.skillsJson?.length || 0} Skills` : "Upload Resume (PDF/DOC)"}
+            </span>
           </Button>
 
           {/* Mode Indicator Toggle */}
@@ -399,14 +453,14 @@ export default function JobsScreen() {
             <span>{globalAutoSend ? "Mode: Auto-Send" : "Mode: Review & Approve"}</span>
           </button>
 
-          {/* Queue Jobs Button */}
+          {/* 2-Day Batch Refresh Button */}
           <Button
             disabled={queueing}
             onClick={handleQueueJobs}
             className="flex items-center gap-1.5 py-1.5 px-3 text-xs"
           >
-            {queueing ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            <span>Find & Queue Jobs</span>
+            {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            <span>⚡ 2-Day Batch Refresh</span>
           </Button>
         </div>
       </div>
@@ -415,7 +469,7 @@ export default function JobsScreen() {
       <Card className="border border-border/80 p-4 overflow-hidden">
         <div className="flex items-center justify-between border-b border-border/60 pb-2.5 mb-3">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
-            <Filter size={14} /> Target Company Categories (7 Channels)
+            <Filter size={14} /> Target Company Categories (7 Channels · ⚡ 2-Day Refresh for All)
           </div>
           <span className="text-xs text-muted">
             {selectedCategories.length} of 7 active
@@ -425,7 +479,6 @@ export default function JobsScreen() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {COMPANY_CATEGORIES.map((cat) => {
             const checked = selectedCategories.includes(cat);
-            const isStartup = cat === "STARTUP";
             return (
               <label
                 key={cat}
@@ -448,15 +501,13 @@ export default function JobsScreen() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="leading-snug">
-                    <span className="line-clamp-2 font-medium leading-tight text-xs">
-                      {CATEGORY_LABELS[cat].split("(")[0].trim()}
+                    <span className="font-semibold text-xs leading-tight text-fg">
+                      {CATEGORY_LABELS[cat]}
                     </span>
                   </div>
-                  {isStartup && (
-                    <span className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                      ⚡ 2-Day Refresh
-                    </span>
-                  )}
+                  <span className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    ⚡ 2-Day Refresh
+                  </span>
                 </div>
               </label>
             );
@@ -581,13 +632,13 @@ export default function JobsScreen() {
           <h2 className="text-lg font-semibold">No Applications in this Stage</h2>
           <p className="mt-1 max-w-sm text-xs text-muted">
             {activeTab === "APPLY"
-              ? "Click 'Find & Queue Jobs' above to populate opportunities matching your selected company categories."
+              ? "Click '⚡ 2-Day Batch Refresh' above to populate fresh opportunities matching your selected company categories."
               : "Applications automatically advance to this tab as their shifting follow-up timeline elapses (Day 4, Day 10, Day 15)."}
           </p>
           {activeTab === "APPLY" && (
             <Button onClick={handleQueueJobs} disabled={queueing} className="mt-5 flex items-center gap-2 py-1.5 px-3 text-xs">
-              {queueing && <Loader2 size={14} className="animate-spin" />}
-              <span>Queue New Opportunities</span>
+              {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              <span>⚡ 2-Day Batch Refresh</span>
             </Button>
           )}
         </Card>
@@ -608,7 +659,7 @@ export default function JobsScreen() {
                   <div className="space-y-1.5 min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-md bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
-                        {app.company.category}
+                        {CATEGORY_LABELS[app.company.category as CompanyCategory] || app.company.category}
                       </span>
                       {app.company.location && (
                         <span className="text-xs text-muted">· {app.company.location}</span>
@@ -737,61 +788,213 @@ export default function JobsScreen() {
       {showResumeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <Card className="w-full max-w-lg border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold">Candidate Resume & Skills</h2>
-            <p className="mt-1 text-xs text-muted">
-              Paste your resume or engineering profile text. The parser extracts core technical skills and structures AI email context.
-            </p>
-
-            <form onSubmit={handleSaveResume} className="mt-4 space-y-4">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3">
               <div>
-                <label className="block text-xs font-semibold text-muted mb-1.5">
-                  Resume Content / Professional Summary
-                </label>
-                <textarea
-                  required
-                  rows={10}
-                  placeholder="Paste your resume work history, technical stack (e.g. TypeScript, React, PostgreSQL, Docker, AWS), and project achievements..."
-                  value={resumeInputText}
-                  onChange={(e) => setResumeInputText(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-bg p-3 font-mono text-xs leading-relaxed text-fg focus:outline-none focus:ring-2 focus:ring-brand"
-                />
+                <h2 className="text-lg font-bold">Candidate Resume Document</h2>
+                <p className="text-xs text-muted">
+                  Upload your resume in PDF, DOC, DOCX, or TXT format. We extract your skills and attach the file when applying.
+                </p>
               </div>
+              <button
+                onClick={() => {
+                  setShowResumeModal(false);
+                  setSelectedFile(null);
+                }}
+                className="rounded-lg p-1.5 text-muted hover:bg-soft"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-              {resume?.skillsJson && resume.skillsJson.length > 0 && (
-                <div>
-                  <div className="text-xs font-semibold text-muted mb-1.5">Detected Skills:</div>
-                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                    {resume.skillsJson.map((skill, i) => (
-                      <span
-                        key={i}
-                        className="rounded-md bg-soft px-2 py-0.5 text-[10px] font-semibold text-muted border border-border/50"
-                      >
-                        {skill}
-                      </span>
-                    ))}
+            {/* Tab switch: File Upload vs Text Paste */}
+            <div className="mt-4 flex border-b border-border">
+              <button
+                type="button"
+                onClick={() => setUploadTab("file")}
+                className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-all ${
+                  uploadTab === "file"
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted hover:text-fg"
+                }`}
+              >
+                <Upload size={14} /> Upload Document (PDF / DOC)
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadTab("text")}
+                className={`flex items-center gap-1.5 border-b-2 px-3 py-2 text-xs font-semibold transition-all ${
+                  uploadTab === "text"
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted hover:text-fg"
+                }`}
+              >
+                <FileText size={14} /> Paste Text Manually
+              </button>
+            </div>
+
+            {uploadTab === "file" ? (
+              <form onSubmit={handleUploadResumeDocument} className="mt-4 space-y-4">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                      handleFileSelect(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  className={`relative flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition-all ${
+                    dragActive
+                      ? "border-brand bg-brand/5 scale-[1.01]"
+                      : "border-border/80 bg-soft/40 hover:border-brand/60 hover:bg-soft"
+                  }`}
+                >
+                  <input
+                    type="file"
+                    id="resume-file-input"
+                    accept=".pdf,.doc,.docx,.txt"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleFileSelect(e.target.files[0]);
+                      }
+                    }}
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                  />
+                  <div className="mb-2 rounded-full bg-brand/10 p-3 text-brand">
+                    <Upload size={24} />
                   </div>
+                  <p className="text-xs font-semibold text-fg">
+                    Drag and drop your resume document, or <span className="text-brand underline">browse</span>
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted">
+                    Supports PDF, DOC, DOCX, and TXT (up to 10MB)
+                  </p>
                 </div>
-              )}
 
-              <div className="mt-5 flex justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowResumeModal(false)}
-                  className="py-1.5 px-3 text-xs"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={savingResume}
-                  className="flex items-center gap-2 py-1.5 px-3 text-xs"
-                >
-                  {savingResume && <Loader2 size={14} className="animate-spin" />}
-                  <span>Save & Extract Skills</span>
-                </Button>
-              </div>
-            </form>
+                {selectedFile && (
+                  <div className="flex items-center justify-between rounded-xl border border-brand/30 bg-brand/5 p-3 text-xs">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <FileText size={18} className="text-brand shrink-0" />
+                      <div className="min-w-0 truncate">
+                        <div className="font-semibold text-fg truncate">{selectedFile.name}</div>
+                        <div className="text-[10px] text-muted">
+                          {(selectedFile.size / 1024).toFixed(1)} KB · Ready to parse
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFile(null)}
+                      className="p-1 text-muted hover:text-fg"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                )}
+
+                {resume?.fileUrl && !selectedFile && (
+                  <div className="flex items-center gap-2 rounded-lg bg-soft p-2.5 text-xs text-muted border border-border/60">
+                    <Paperclip size={14} className="text-brand shrink-0" />
+                    <span className="truncate">
+                      Current active file: <strong className="text-fg">{resume.fileUrl.split("/").pop()}</strong>
+                    </span>
+                  </div>
+                )}
+
+                {resume?.skillsJson && resume.skillsJson.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-muted mb-1.5">Parsed Skills:</div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {resume.skillsJson.map((skill, i) => (
+                        <span
+                          key={i}
+                          className="rounded-md bg-brand/10 px-2 py-0.5 text-[10px] font-semibold text-brand border border-brand/20"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-5 flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setShowResumeModal(false);
+                      setSelectedFile(null);
+                    }}
+                    className="py-1.5 px-3 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={savingResume || !selectedFile}
+                    className="flex items-center gap-2 py-1.5 px-3 text-xs"
+                  >
+                    {savingResume && <Loader2 size={14} className="animate-spin" />}
+                    <span>Upload & Extract Skills</span>
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleSaveResume} className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-muted mb-1.5">
+                    Resume Content / Professional Summary
+                  </label>
+                  <textarea
+                    required
+                    rows={8}
+                    placeholder="Paste your resume work history, technical stack (e.g. TypeScript, React, PostgreSQL, Docker, AWS), and project achievements..."
+                    value={resumeInputText}
+                    onChange={(e) => setResumeInputText(e.target.value)}
+                    className="w-full rounded-xl border border-border bg-bg p-3 font-mono text-xs leading-relaxed text-fg focus:outline-none focus:ring-2 focus:ring-brand"
+                  />
+                </div>
+
+                {resume?.skillsJson && resume.skillsJson.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold text-muted mb-1.5">Detected Skills:</div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {resume.skillsJson.map((skill, i) => (
+                        <span
+                          key={i}
+                          className="rounded-md bg-soft px-2 py-0.5 text-[10px] font-semibold text-muted border border-border/50"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-5 flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowResumeModal(false)}
+                    className="py-1.5 px-3 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={savingResume}
+                    className="flex items-center gap-2 py-1.5 px-3 text-xs"
+                  >
+                    {savingResume && <Loader2 size={14} className="animate-spin" />}
+                    <span>Save & Extract Skills</span>
+                  </Button>
+                </div>
+              </form>
+            )}
           </Card>
         </div>
       )}
@@ -831,6 +1034,19 @@ export default function JobsScreen() {
               </div>
             ) : emailDraft ? (
               <div className="mt-4 space-y-4">
+                {/* Resume Attachment Info */}
+                <div className="flex items-center justify-between rounded-xl bg-soft/70 px-3 py-2 text-xs border border-border/60">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Paperclip size={14} className="text-brand shrink-0" />
+                    <span className="truncate">
+                      Resume Attachment: <strong className="text-fg">{resume?.fileUrl ? resume.fileUrl.split("/").pop() : "Candidate_Resume.pdf"}</strong>
+                    </span>
+                  </div>
+                  <span className="shrink-0 rounded bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                    Attached for Day 0
+                  </span>
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-muted mb-1">Subject Line</label>
                   <input

@@ -38,6 +38,7 @@ export default function NovelsScreen({
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [failedCovers, setFailedCovers] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let active = true;
@@ -135,15 +136,18 @@ export default function NovelsScreen({
             {sessions.map((s) => (
               <Card key={s.id} className="flex items-center gap-3 p-3 border-brand/20 bg-card">
                 <div className="relative h-16 w-11 shrink-0 overflow-hidden rounded-md bg-soft">
-                  {s.novel.coverUrl ? (
+                  {s.novel.coverUrl && !failedCovers[s.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={s.novel.coverUrl}
                       alt={s.novel.title}
+                      referrerPolicy="no-referrer"
+                      crossOrigin="anonymous"
+                      onError={() => setFailedCovers((prev) => ({ ...prev, [s.id]: true }))}
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <div className="grid h-full w-full place-items-center text-xs font-bold text-muted">
+                    <div className="grid h-full w-full place-items-center text-xs font-bold text-muted bg-soft">
                       {s.novel.title.slice(0, 1)}
                     </div>
                   )}
@@ -236,19 +240,29 @@ export default function NovelsScreen({
             >
               <div>
                 <div className="relative mb-3 aspect-[2/3] w-full overflow-hidden rounded-xl bg-soft shadow-inner">
-                  {novel.coverUrl ? (
+                  {novel.coverUrl && !failedCovers[novel.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={novel.coverUrl}
                       alt={novel.title}
+                      referrerPolicy="no-referrer"
+                      crossOrigin="anonymous"
+                      onError={() => setFailedCovers((prev) => ({ ...prev, [novel.id]: true }))}
                       className="h-full w-full object-cover transition duration-300 hover:scale-105"
                       loading="lazy"
                     />
                   ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center">
-                      <BookOpen size={32} className="text-muted/60 mb-2" aria-hidden />
+                    <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-soft to-card border border-border/40">
+                      <div className="rounded-full bg-brand/10 p-3 text-brand mb-2">
+                        <BookOpen size={28} aria-hidden />
+                      </div>
                       <div className="text-sm font-semibold text-foreground line-clamp-2">{novel.title}</div>
-                      <div className="text-xs text-muted mt-1">{novel.author}</div>
+                      <div className="text-xs text-muted mt-1">{novel.author ?? "Classic"}</div>
+                      {novel.genre && (
+                        <span className="mt-2 rounded-full bg-soft px-2 py-0.5 text-[10px] font-medium text-muted">
+                          {novel.genre}
+                        </span>
+                      )}
                     </div>
                   )}
                   {novel.sessionStatus && (

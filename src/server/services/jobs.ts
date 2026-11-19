@@ -11,7 +11,8 @@ import {
 } from "@/lib/domain/jobs";
 import { generateJobEmailDraft, type EmailDraft } from "@/server/ai/jobs";
 import { dispatchJobEmail } from "@/server/services/email-dispatcher";
-import { CURATED_COMPANIES, ensureCompanyDirectorySeeded } from "@/server/services/job-scraper";
+import { CURATED_COMPANIES, ensureCompanyDirectorySeeded, rotateAllHiringCompanies } from "@/server/services/job-scraper";
+import { COMPANY_CATEGORIES } from "@/lib/domain/jobs";
 
 const COMMON_SKILLS_LIST = [
   "TypeScript", "JavaScript", "Python", "Java", "Go", "Rust", "C++", "C#", "PHP", "Ruby",
@@ -149,6 +150,52 @@ export async function backfillApplications(userId: string, categories?: CompanyC
     const cats = categories && categories.length > 0 ? categories : (["STARTUP", "BIG_MNC", "BIG_SHARKS", "ACTIVELY_HIRING"] as CompanyCategory[]);
     await queueApplications(userId, cats, needed);
   }
+}
+
+/** Refreshes the 2-day batch across ALL 7 categories and shifts previous applied jobs to Follow-Up 1 */
+export async function refreshAndRotateHiringBatch(
+  userId: string,
+  categories: CompanyCategory[] = [...COMPANY_CATEGORIES]
+) {
+  // 1. Rotate hiring listings across all 7 categories
+  await rotateAllHiringCompanies();
+
+  return withUserDb(userId, async (tx) => {
+    // 2. Advance previously applied TO_APPLY companies to FOLLOW_UP_1 (Day 4 window)
+    const now = new Date();
+    const appliedInToApply = await tx.jobApplication.findMany({
+      where: {
+        userId,
+        stage: "TO_APPLY",
+        appliedAt: { not: null },
+      },
+    });
+
+    for (const app of appliedInToApply) {
+      const appliedAt = app.appliedAt || now;
+      const nextActionAt = new Date(appliedAt.getTime() + 4 * 24 * 60 * 60 * 1000);
+      const existingLogs = (app.logs as Array<Record<string, unknown>>) || [];
+      await tx.jobApplication.update({
+        where: { id: app.id },
+        data: {
+          stage: "FOLLOW_UP_1",
+          nextActionAt,
+          logs: [
+            ...existingLogs,
+            {
+              action: "SHIFTED_TO_FOLLOW_UP_1",
+              stage: "FOLLOW_UP_1",
+              timestamp: now.toISOString(),
+              note: "2-Day hiring batch refresh advanced application to Follow-Up 1 stage.",
+            },
+          ] as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    // 3. Queue fresh currently hiring opportunities into TO_APPLY
+    return queueApplications(userId, categories, 6);
+  });
 }
 
 export async function listUserApplications(

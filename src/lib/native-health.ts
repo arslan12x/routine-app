@@ -16,12 +16,11 @@ const MOCK_HEALTH_STORAGE_KEY = "routine:mock-health-data";
 
 /** Determines if the current environment can support native health synchronization. */
 export function isHealthSyncAvailable(): boolean {
+  if (typeof window === "undefined") return false;
   if (Capacitor.isNativePlatform()) return true;
-  if (typeof window !== "undefined") {
-    const plugins = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } })?.Capacitor?.Plugins;
-    if (plugins?.HealthKit || plugins?.HealthConnect || plugins?.CapacitorHealthKit) return true;
-  }
-  return true; // Supported with local health bridge in browser
+  const plugins = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } })?.Capacitor?.Plugins;
+  if (plugins?.HealthKit || plugins?.HealthConnect || plugins?.CapacitorHealthKit) return true;
+  return false;
 }
 
 export function isHealthSyncEnabled(): boolean {
@@ -179,8 +178,8 @@ export async function fetchTodayHealthMetrics(): Promise<HealthMetrics> {
   }
 
   return {
-    steps: stored.steps ?? 8450,
-    workoutMinutes: stored.workoutMinutes ?? 45,
+    steps: stored.steps ?? 0,
+    workoutMinutes: stored.workoutMinutes ?? 0,
     lastSynced: now.toISOString(),
   };
 }
@@ -202,8 +201,8 @@ export async function autoSyncHealthTasks(
     if (!metricType) continue;
 
     const nativeValue = metricType === "STEPS" ? metrics.steps : metrics.workoutMinutes;
-    // Only update if native measurement has higher/newer progress than recorded
-    if (nativeValue > item.value) {
+    // Only update if native measurement has higher/newer progress than recorded and is greater than 0
+    if (nativeValue > 0 && nativeValue > item.value) {
       onUpdateProgress(item, nativeValue);
       updatedCount += 1;
     }
@@ -216,7 +215,11 @@ export async function autoSyncHealthTasks(
     );
   } else if (options?.manual) {
     triggerLightImpact();
-    toast.info(`Health up to date: ${metrics.steps.toLocaleString()} steps, ${metrics.workoutMinutes} workout mins.`);
+    if (!isHealthSyncAvailable() && metrics.steps === 0 && metrics.workoutMinutes === 0) {
+      toast.info("Health Sensor: 0 steps recorded. (Native auto-sync connects directly with Apple Health & Health Connect on iOS/Android).");
+    } else {
+      toast.info(`Health up to date: ${metrics.steps.toLocaleString()} steps, ${metrics.workoutMinutes} workout mins.`);
+    }
   }
 
   return { updatedCount, steps: metrics.steps, workoutMinutes: metrics.workoutMinutes };

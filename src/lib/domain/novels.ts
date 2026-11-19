@@ -2,10 +2,13 @@ export const ALLOWED_NOVEL_HOSTS = [
   "www.gutenberg.org",
   "gutenberg.org",
   "openlibrary.org",
+  "covers.openlibrary.org",
   "archive.org",
   "www.archive.org",
   "standardebooks.org",
   "www.standardebooks.org",
+  "wikisource.org",
+  "en.wikisource.org",
 ] as const;
 
 export const NOVEL_GENRES = [

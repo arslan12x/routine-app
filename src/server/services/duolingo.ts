@@ -98,16 +98,34 @@ export async function syncDuolingo(
     } else if (response.status === 403) {
       result.lastStatus = "PRIVATE_PROFILE";
       result.warning = "Your Duolingo profile is set to private. Make it public in Duolingo settings or use manual completion.";
-    } else if (response.status === 404) {
-      result.lastStatus = "USER_NOT_FOUND";
-      result.warning = `Duolingo user "${username}" was not found. Check the username or complete manually.`;
     } else if (response.ok) {
       const data = await response.json().catch(() => null);
       const userObj = data?.users?.[0];
 
       if (!userObj) {
-        result.lastStatus = "USER_NOT_FOUND";
-        result.warning = `Duolingo user "${username}" was not found.`;
+        // Fallback to legacy v1 endpoint
+        const legacyRes = await fetch(`https://www.duolingo.com/users/${encodeURIComponent(username)}`, {
+          headers: { "User-Agent": "Mozilla/5.0 (RoutineTracker/1.0)", Accept: "application/json" },
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null);
+
+        if (legacyRes && legacyRes.ok) {
+          const legacyData = await legacyRes.json().catch(() => null);
+          if (legacyData?.username) {
+            const streak = Number(legacyData.site_streak ?? legacyData.streak ?? 0);
+            const extendedToday = Boolean(legacyData.streak_extended_today);
+            result.streak = streak;
+            result.xpGainedToday = extendedToday ? 10 : 0;
+            result.completedToday = extendedToday;
+            result.lastStatus = extendedToday ? "COMPLETED_TODAY" : "NOT_COMPLETED_TODAY";
+          } else {
+            result.lastStatus = "USER_NOT_FOUND";
+            result.warning = `Duolingo user "${username}" was not found.`;
+          }
+        } else {
+          result.lastStatus = "USER_NOT_FOUND";
+          result.warning = `Duolingo user "${username}" was not found.`;
+        }
       } else {
         const privacySettings: string[] = userObj.privacySettings || [];
         if (privacySettings.includes("DISABLE_PUBLIC_PROFILE")) {
@@ -115,19 +133,44 @@ export async function syncDuolingo(
           result.warning = "Your Duolingo profile is private. You can verify manually.";
         } else {
           const xpGainedToday = typeof userObj.xpGainedToday === "number" ? userObj.xpGainedToday : 0;
-          const streak = typeof userObj.streak === "number" ? userObj.streak : 0;
+          const streak = typeof userObj.streak === "number" ? userObj.streak : (typeof userObj.site_streak === "number" ? userObj.site_streak : 0);
+          const streakExtendedToday = Boolean(userObj.streakData?.currentStreak?.startDate);
 
           result.xpGainedToday = xpGainedToday;
           result.streak = streak;
 
           // Check if lessons were completed today
-          if (xpGainedToday > 0) {
+          if (xpGainedToday > 0 || streakExtendedToday) {
             result.completedToday = true;
             result.lastStatus = "COMPLETED_TODAY";
           } else {
             result.lastStatus = "NOT_COMPLETED_TODAY";
           }
         }
+      }
+    } else if (response.status === 404) {
+      // Fallback to legacy v1 endpoint
+      const legacyRes = await fetch(`https://www.duolingo.com/users/${encodeURIComponent(username)}`, {
+        headers: { "User-Agent": "Mozilla/5.0 (RoutineTracker/1.0)", Accept: "application/json" },
+        signal: AbortSignal.timeout(5000),
+      }).catch(() => null);
+
+      if (legacyRes && legacyRes.ok) {
+        const legacyData = await legacyRes.json().catch(() => null);
+        if (legacyData?.username) {
+          const streak = Number(legacyData.site_streak ?? legacyData.streak ?? 0);
+          const extendedToday = Boolean(legacyData.streak_extended_today);
+          result.streak = streak;
+          result.xpGainedToday = extendedToday ? 10 : 0;
+          result.completedToday = extendedToday;
+          result.lastStatus = extendedToday ? "COMPLETED_TODAY" : "NOT_COMPLETED_TODAY";
+        } else {
+          result.lastStatus = "USER_NOT_FOUND";
+          result.warning = `Duolingo user "${username}" was not found. Check the username or complete manually.`;
+        }
+      } else {
+        result.lastStatus = "USER_NOT_FOUND";
+        result.warning = `Duolingo user "${username}" was not found. Check the username or complete manually.`;
       }
     } else {
       result.lastStatus = "NETWORK_ERROR";

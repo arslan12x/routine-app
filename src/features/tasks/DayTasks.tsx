@@ -1,11 +1,12 @@
 "use client";
-import { Check, Pencil, RefreshCw } from "lucide-react";
+import { Check, Flame, Globe, Loader2, Pencil, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Card, Empty } from "@/components/ui";
+import { Button, Card, Empty, inputCls } from "@/components/ui";
 import { cn, fmtNum } from "@/lib/cn";
-import { triggerLightImpact } from "@/lib/haptics";
+import { triggerLightImpact, triggerSuccessNotification } from "@/lib/haptics";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import { catLabel } from "./constants";
+import { toast } from "sonner";
 
 /** Optimistic local update; the server value replaces it right after the request completes (or fails). */
 export function applyLocal(d: DayView, id: string, value: number): DayView {
@@ -38,8 +39,31 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
   const isDuolingo = item.title.toLowerCase().includes("duolingo") || (item.description?.toLowerCase().includes("duolingo") ?? false);
   const [syncing, setSyncing] = useState(false);
   const [duoWarning, setDuoWarning] = useState<string | null>(null);
+  const [duoAccount, setDuoAccount] = useState<{ username: string; streak?: number; xpGainedToday?: number } | null>(null);
+  const [showDuoModal, setShowDuoModal] = useState(false);
+  const [duoInput, setDuoInput] = useState("");
+  const [savingDuo, setSavingDuo] = useState(false);
   const [draft, setDraft] = useState(item.value ? String(item.value) : "");
   useEffect(() => setDraft(item.value ? String(item.value) : ""), [item.value]);
+
+  useEffect(() => {
+    if (!isDuolingo) return;
+    fetch("/api/integrations/duolingo")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.integration?.externalUsername) {
+          const meta = data.integration.metadata as { streak?: number; xpGainedToday?: number } | null;
+          setDuoAccount({
+            username: data.integration.externalUsername,
+            streak: meta?.streak,
+            xpGainedToday: meta?.xpGainedToday,
+          });
+          setDuoInput(data.integration.externalUsername);
+        }
+      })
+      .catch(() => {});
+  }, [isDuolingo]);
+
   const commit = () => {
     const n = Number(draft);
     if (draft.trim() === "" || Number.isNaN(n) || n < 0) return setDraft(item.value ? String(item.value) : "");
@@ -47,26 +71,60 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
   };
   const unit = item.unit ?? "";
 
-  const handleDuolingoSync = async () => {
+  const handleDuolingoSync = async (overrideUsername?: string) => {
+    const targetUsername = overrideUsername ?? duoAccount?.username;
+    if (!targetUsername) {
+      setShowDuoModal(true);
+      return;
+    }
     setSyncing(true);
     setDuoWarning(null);
     try {
       const res = await fetch("/api/integrations/duolingo/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: item.id }),
+        body: JSON.stringify({ username: targetUsername, taskId: item.id }),
       });
       const data = await res.json();
-      if (data.completedToday) {
-        onProgress(item, item.target || 1);
-      }
-      if (data.warning) {
-        setDuoWarning(data.warning);
+      if (res.ok) {
+        setDuoAccount({
+          username: data.username,
+          streak: data.streak,
+          xpGainedToday: data.xpGainedToday,
+        });
+        if (data.completedToday) {
+          triggerSuccessNotification();
+          onProgress(item, item.target || 1);
+          toast.success(`Duolingo lesson verified for @${data.username}! Task marked complete.`);
+        } else {
+          toast.info(`@${data.username} has not completed lessons today (0 XP). Practice on Duolingo, then sync!`);
+        }
+        if (data.warning) {
+          setDuoWarning(data.warning);
+        }
+      } else {
+        if (data.error?.code === "MISSING_USERNAME") {
+          setShowDuoModal(true);
+        } else {
+          setDuoWarning(data.error?.message || "Could not sync Duolingo.");
+        }
       }
     } catch {
       setDuoWarning("Unable to connect to Duolingo. You can mark this task complete manually.");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleSaveDuoAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!duoInput.trim()) return;
+    setSavingDuo(true);
+    try {
+      await handleDuolingoSync(duoInput.trim());
+      setShowDuoModal(false);
+    } finally {
+      setSavingDuo(false);
     }
   };
   return (
@@ -100,21 +158,120 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
           {item.description && ` · ${item.description}`}
         </div>
         {isDuolingo && (
-          <div className="mt-2 space-y-1.5">
-            <button
-              type="button"
-              disabled={syncing}
-              onClick={handleDuolingoSync}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors"
-            >
-              <RefreshCw size={12} className={cn(syncing && "animate-spin")} />
-              <span>{syncing ? "Syncing Duolingo..." : "Refresh Sync"}</span>
-            </button>
+          <div className="mt-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-2.5 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                <Globe size={14} className="text-emerald-500 shrink-0" />
+                {duoAccount ? (
+                  <span>Duolingo: @{duoAccount.username}</span>
+                ) : (
+                  <span>Duolingo Not Connected</span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {duoAccount ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={syncing}
+                      onClick={() => handleDuolingoSync()}
+                      className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/25 transition-colors"
+                    >
+                      <RefreshCw size={11} className={cn(syncing && "animate-spin")} />
+                      <span>{syncing ? "Syncing..." : "Sync"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowDuoModal(true)}
+                      title="Change username"
+                      className="rounded-md p-1 text-muted hover:bg-soft"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowDuoModal(true)}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 text-white px-2.5 py-1 text-xs font-medium hover:bg-emerald-700 transition"
+                  >
+                    <span>Connect Account</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {duoAccount && (
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted">
+                {typeof duoAccount.streak === "number" && (
+                  <span className="flex items-center gap-1 font-medium text-foreground">
+                    <Flame size={12} className="text-brand" /> {duoAccount.streak}d streak
+                  </span>
+                )}
+                {typeof duoAccount.xpGainedToday === "number" && (
+                  <span>• {duoAccount.xpGainedToday} XP gained today</span>
+                )}
+              </div>
+            )}
+
             {duoWarning && (
               <div className="rounded-md bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-300 border border-amber-500/20">
                 <span>⚠️ {duoWarning}</span>
               </div>
             )}
+          </div>
+        )}
+        {showDuoModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <Card className="w-full max-w-sm border border-border bg-card p-5 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <div className="flex items-center gap-2">
+                  <Globe size={18} className="text-emerald-500" />
+                  <h3 className="font-bold text-sm">Connect Duolingo Account</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDuoModal(false)}
+                  className="rounded-lg p-1 text-muted hover:bg-soft"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <form onSubmit={handleSaveDuoAccount} className="mt-3 space-y-3">
+                <p className="text-xs text-muted">
+                  Enter your public Duolingo username. We will map your routine to this account and auto-sync your completed lessons.
+                </p>
+                <div>
+                  <label className="block text-xs font-semibold text-muted mb-1">Duolingo Username</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. duo_learner"
+                    value={duoInput}
+                    onChange={(e) => setDuoInput(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowDuoModal(false)}
+                    className="py-1 px-3 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={savingDuo || !duoInput.trim()}
+                    className="flex items-center gap-1.5 py-1 px-3 text-xs"
+                  >
+                    {savingDuo && <Loader2 size={13} className="animate-spin" />}
+                    <span>Save & Sync</span>
+                  </Button>
+                </div>
+              </form>
+            </Card>
           </div>
         )}
         {measurable && (
