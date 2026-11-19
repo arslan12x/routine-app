@@ -18,6 +18,104 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button, Card, inputCls } from "@/components/ui";
+import { cn } from "@/lib/cn";
+
+const markdownComponents = {
+  h1: ({ children, ...props }: any) => (
+    <h1 className="mt-6 mb-3 text-xl font-bold tracking-tight text-foreground sm:text-2xl break-words" {...props}>
+      {children}
+    </h1>
+  ),
+  h2: ({ children, ...props }: any) => (
+    <h2 className="mt-5 mb-2.5 text-lg font-semibold tracking-tight text-foreground sm:text-xl break-words" {...props}>
+      {children}
+    </h2>
+  ),
+  h3: ({ children, ...props }: any) => (
+    <h3 className="mt-4 mb-2 text-base font-semibold text-foreground break-words" {...props}>
+      {children}
+    </h3>
+  ),
+  p: ({ children, ...props }: any) => (
+    <p className="my-2.5 leading-relaxed text-foreground/90 break-words" {...props}>
+      {children}
+    </p>
+  ),
+  ul: ({ children, ...props }: any) => (
+    <ul className="my-2.5 ml-5 list-disc space-y-1 text-foreground/90 break-words" {...props}>
+      {children}
+    </ul>
+  ),
+  ol: ({ children, ...props }: any) => (
+    <ol className="my-2.5 ml-5 list-decimal space-y-1 text-foreground/90 break-words" {...props}>
+      {children}
+    </ol>
+  ),
+  li: ({ children, ...props }: any) => (
+    <li className="leading-relaxed break-words" {...props}>
+      {children}
+    </li>
+  ),
+  blockquote: ({ children, ...props }: any) => (
+    <blockquote className="my-3 border-l-4 border-brand/50 bg-soft/50 py-2 px-4 italic text-muted rounded-r-lg break-words" {...props}>
+      {children}
+    </blockquote>
+  ),
+  a: ({ href, children, ...props }: any) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-brand hover:underline break-words"
+      {...props}
+    >
+      {children}
+    </a>
+  ),
+  pre: ({ children, ...props }: any) => (
+    <div className="relative my-4 w-full overflow-hidden rounded-xl border border-border/80 bg-neutral-900 shadow-sm">
+      <pre className="max-w-full overflow-x-auto p-4 font-mono text-xs leading-relaxed text-neutral-100" {...props}>
+        {children}
+      </pre>
+    </div>
+  ),
+  code: ({ className, children, ...props }: any) => {
+    const isInline = !className && typeof children === "string" && !children.includes("\n");
+    if (isInline) {
+      return (
+        <code
+          className={cn("rounded-md bg-soft px-1.5 py-0.5 font-mono text-xs text-brand break-words", className)}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code className={cn("font-mono text-xs text-neutral-100", className)} {...props}>
+        {children}
+      </code>
+    );
+  },
+  table: ({ children, ...props }: any) => (
+    <div className="my-4 w-full overflow-x-auto rounded-xl border border-border">
+      <table className="w-full border-collapse text-left text-xs sm:text-sm" {...props}>
+        {children}
+      </table>
+    </div>
+  ),
+  th: ({ children, ...props }: any) => (
+    <th className="border-b border-border bg-soft px-3.5 py-2 font-semibold text-foreground" {...props}>
+      {children}
+    </th>
+  ),
+  td: ({ children, ...props }: any) => (
+    <td className="border-b border-border/60 px-3.5 py-2 text-foreground/90" {...props}>
+      {children}
+    </td>
+  ),
+  hr: () => <hr className="my-6 border-border/60" />,
+};
 
 interface BlogDay {
   id: string;
@@ -269,9 +367,9 @@ export default function BlogsScreen() {
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
           {/* Series Sidebar */}
-          <div className="space-y-2 lg:col-span-1">
+          <div className="space-y-2 lg:col-span-4 xl:col-span-3">
             <h2 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted">
               Your Series ({plans.length})
             </h2>
@@ -294,7 +392,7 @@ export default function BlogsScreen() {
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="line-clamp-2 font-medium text-sm leading-snug">{p.topic}</h3>
+                      <h3 className="line-clamp-2 font-medium text-sm leading-snug break-words hyphens-auto">{p.topic}</h3>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -308,7 +406,7 @@ export default function BlogsScreen() {
                         <Trash2 size={14} />
                       </button>
                     </div>
-                    <div className="mt-2 flex items-center gap-2 text-xs opacity-80">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs opacity-80">
                       <span>{p.totalDays} Days</span>
                       <span>·</span>
                       <span>{genCount}/{p.totalDays} Done</span>
@@ -321,24 +419,25 @@ export default function BlogsScreen() {
 
           {/* Plan Content and Timeline */}
           {selectedPlan && (
-            <div className="space-y-6 lg:col-span-3">
+            <div className="min-w-0 space-y-6 lg:col-span-8 xl:col-span-9">
               {/* Plan Metadata Card */}
-              <Card className="border border-border/80 p-5">
+              <Card className="border border-border/80 p-4 sm:p-5 overflow-hidden">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
+                  <div className="min-w-0">
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-medium text-brand">
                       <Sparkles size={12} /> {selectedPlan.tone} Tone · {selectedPlan.targetAudience}
                     </span>
-                    <h2 className="mt-2 text-xl font-bold">{selectedPlan.topic}</h2>
+                    <h2 className="mt-2 text-xl font-bold break-words">{selectedPlan.topic}</h2>
                   </div>
                 </div>
 
                 {/* Day Stepper / Timeline */}
                 <div className="mt-5 border-t border-border/60 pt-4">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">
-                    Curriculum Timeline
+                  <div className="mb-2.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-muted">
+                    <span>Curriculum Timeline</span>
+                    <span>{selectedPlan.days?.filter(d => d.status === "GENERATED").length || 0} of {selectedPlan.totalDays} Done</span>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5 sm:gap-2 max-h-56 overflow-y-auto pr-1">
                     {selectedPlan.days?.map((d) => {
                       const isDaySelected = d.dayNumber === selectedDayNumber;
                       const isGenerated = d.status === "GENERATED";
@@ -346,7 +445,7 @@ export default function BlogsScreen() {
                         <button
                           key={d.dayNumber}
                           onClick={() => setSelectedDayNumber(d.dayNumber)}
-                          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                          className={`flex items-center justify-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium transition-all ${
                             isDaySelected
                               ? "bg-brand text-brandfg shadow-sm"
                               : isGenerated
@@ -354,7 +453,7 @@ export default function BlogsScreen() {
                               : "bg-soft text-muted hover:text-fg border border-border"
                           }`}
                         >
-                          {isGenerated && <Check size={12} />}
+                          {isGenerated && <Check size={12} className="shrink-0" />}
                           <span>Day {d.dayNumber}</span>
                         </button>
                       );
@@ -365,23 +464,23 @@ export default function BlogsScreen() {
 
               {/* Selected Day Workspace */}
               {currentDay && (
-                <Card className="border border-border/80 p-6">
+                <Card className="border border-border/80 p-4 sm:p-6 overflow-hidden break-words">
                   {/* Day Header */}
                   <div className="flex flex-col gap-4 border-b border-border/60 pb-5 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-xs font-semibold uppercase tracking-wider text-brand">
                         Day {currentDay.dayNumber} of {selectedPlan.totalDays}
                       </div>
-                      <h3 className="text-lg font-bold sm:text-xl">{currentDay.title}</h3>
+                      <h3 className="text-lg font-bold sm:text-xl break-words">{currentDay.title}</h3>
                       {currentDay.subtopicsJson?.summaryGoal && (
-                        <p className="mt-1 text-xs text-muted">
+                        <p className="mt-1 text-xs text-muted break-words">
                           Goal: {currentDay.subtopicsJson.summaryGoal}
                         </p>
                       )}
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       {currentDay.status === "GENERATED" && (
                         <>
                           <Button
@@ -432,7 +531,7 @@ export default function BlogsScreen() {
                       {currentDay.subtopicsJson.subtopics.map((sub, idx) => (
                         <span
                           key={idx}
-                          className="inline-flex items-center rounded-md bg-soft px-2.5 py-1 text-xs text-muted border border-border/50"
+                          className="inline-flex items-center rounded-md bg-soft px-2.5 py-1 text-xs text-muted border border-border/50 break-words"
                         >
                           • {sub}
                         </span>
@@ -483,8 +582,11 @@ export default function BlogsScreen() {
                       </div>
                     </div>
                   ) : (
-                    <div className="prose prose-neutral dark:prose-invert max-w-none pt-4 text-sm leading-relaxed">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    <div className="w-full min-w-0 overflow-hidden pt-2 text-sm leading-relaxed">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={markdownComponents}
+                      >
                         {currentDay.markdownContent || ""}
                       </ReactMarkdown>
                     </div>
@@ -499,7 +601,7 @@ export default function BlogsScreen() {
       {/* Create New Series Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-lg border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-lg border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold">New Multi-Day Blog Series</h2>
             <p className="mt-1 text-xs text-muted">
               Configure your topic, duration, and target audience. The AI will formulate a progressive curriculum with zero topic overlap.

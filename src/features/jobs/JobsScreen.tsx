@@ -361,27 +361,27 @@ export default function JobsScreen() {
     <div className="space-y-6">
       {/* Top Header & Overview */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight">Automated Job Engine</h1>
-            <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand border border-brand/20">
+            <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand border border-brand/20 shrink-0">
               4-Stage Follow-Up Shifter
             </span>
           </div>
-          <p className="text-sm text-muted">
+          <p className="mt-1 text-sm text-muted">
             Intelligent job application dispatch and automated shifting timeline: Day 0 Apply → Day 4 Follow-Up 1 → Day 10 Follow-Up 2 → Day 15 Final Follow-Up.
           </p>
         </div>
 
         {/* Top Action Pill Controls */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {/* Resume Upload Pill */}
           <Button
             variant="outline"
             onClick={() => setShowResumeModal(true)}
             className="flex items-center gap-1.5 py-1.5 px-3 text-xs"
           >
-            <FileText size={15} className="text-brand" />
+            <FileText size={15} className="text-brand shrink-0" />
             <span>{resume ? `Resume: ${resume.skillsJson?.length || 0} Skills` : "Upload Resume"}</span>
           </Button>
 
@@ -412,7 +412,7 @@ export default function JobsScreen() {
       </div>
 
       {/* Category Checkboxes Bar */}
-      <Card className="border border-border/80 p-4">
+      <Card className="border border-border/80 p-4 overflow-hidden">
         <div className="flex items-center justify-between border-b border-border/60 pb-2.5 mb-3">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
             <Filter size={14} /> Target Company Categories (7 Channels)
@@ -422,7 +422,7 @@ export default function JobsScreen() {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {COMPANY_CATEGORIES.map((cat) => {
             const checked = selectedCategories.includes(cat);
             const isStartup = cat === "STARTUP";
@@ -433,7 +433,7 @@ export default function JobsScreen() {
                   e.preventDefault();
                   toggleCategory(cat);
                 }}
-                className={`flex cursor-pointer items-start gap-2 rounded-xl border p-2.5 text-xs transition-all ${
+                className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-2.5 text-xs transition-all ${
                   checked
                     ? "border-brand bg-brand/5 text-fg font-medium shadow-sm"
                     : "border-border/60 bg-card text-muted hover:bg-soft"
@@ -446,12 +446,14 @@ export default function JobsScreen() {
                 >
                   {checked && <Check size={12} strokeWidth={3} />}
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 leading-snug">
-                    <span className="truncate">{CATEGORY_LABELS[cat].split("(")[0]}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="leading-snug">
+                    <span className="line-clamp-2 font-medium leading-tight text-xs">
+                      {CATEGORY_LABELS[cat].split("(")[0].trim()}
+                    </span>
                   </div>
                   {isStartup && (
-                    <span className="mt-0.5 inline-block text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    <span className="mt-1 inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
                       ⚡ 2-Day Refresh
                     </span>
                   )}
@@ -463,12 +465,12 @@ export default function JobsScreen() {
       </Card>
 
       {/* 4-Tab Shifting Pipeline Navigation */}
-      <div className="border-b border-border/80">
-        <div className="flex space-x-2 overflow-x-auto pb-px">
+      <div className="border-b border-border/80 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-max space-x-1 sm:space-x-2 pb-px">
           {/* Tab 1 */}
           <button
             onClick={() => setActiveTab("APPLY")}
-            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
               activeTab === "APPLY"
                 ? "border-brand text-brand"
                 : "border-transparent text-muted hover:border-border hover:text-fg"
@@ -476,7 +478,7 @@ export default function JobsScreen() {
           >
             <span>1. Apply</span>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs ${
+              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold ${
                 activeTab === "APPLY" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
               }`}
             >
@@ -487,15 +489,16 @@ export default function JobsScreen() {
           {/* Tab 2 */}
           <button
             onClick={() => setActiveTab("FU1")}
-            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
               activeTab === "FU1"
                 ? "border-brand text-brand"
                 : "border-transparent text-muted hover:border-border hover:text-fg"
             }`}
           >
-            <span>2. Follow-Up 1 (Day 4)</span>
+            <span className="hidden sm:inline">2. Follow-Up 1 (Day 4)</span>
+            <span className="sm:hidden">2. FU 1 (Day 4)</span>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs ${
+              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold ${
                 activeTab === "FU1" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
               }`}
             >
@@ -506,15 +509,16 @@ export default function JobsScreen() {
           {/* Tab 3 */}
           <button
             onClick={() => setActiveTab("FU2")}
-            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
               activeTab === "FU2"
                 ? "border-brand text-brand"
                 : "border-transparent text-muted hover:border-border hover:text-fg"
             }`}
           >
-            <span>3. Follow-Up 2 (Day 10)</span>
+            <span className="hidden sm:inline">3. Follow-Up 2 (Day 10)</span>
+            <span className="sm:hidden">3. FU 2 (Day 10)</span>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs ${
+              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold ${
                 activeTab === "FU2" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
               }`}
             >
@@ -525,15 +529,16 @@ export default function JobsScreen() {
           {/* Tab 4 */}
           <button
             onClick={() => setActiveTab("FU3")}
-            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
               activeTab === "FU3"
                 ? "border-brand text-brand"
                 : "border-transparent text-muted hover:border-border hover:text-fg"
             }`}
           >
-            <span>4. Follow-Up 3 (Day 15)</span>
+            <span className="hidden sm:inline">4. Follow-Up 3 (Day 15)</span>
+            <span className="sm:hidden">4. FU 3 (Day 15)</span>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs ${
+              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold ${
                 activeTab === "FU3" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
               }`}
             >
@@ -544,15 +549,16 @@ export default function JobsScreen() {
           {/* Tab 5 (Replied & Closed) */}
           <button
             onClick={() => setActiveTab("REPLIED")}
-            className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold transition-all ${
+            className={`flex shrink-0 items-center gap-1.5 sm:gap-2 border-b-2 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm font-semibold transition-all ${
               activeTab === "REPLIED"
                 ? "border-brand text-brand"
                 : "border-transparent text-muted hover:border-border hover:text-fg"
             }`}
           >
-            <span>Replied & Closed</span>
+            <span className="hidden sm:inline">Replied & Closed</span>
+            <span className="sm:hidden">Replied</span>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs ${
+              className={`rounded-full px-1.5 sm:px-2 py-0.5 text-[11px] sm:text-xs font-bold ${
                 activeTab === "REPLIED" ? "bg-brand/15 text-brand" : "bg-soft text-muted"
               }`}
             >
@@ -595,11 +601,11 @@ export default function JobsScreen() {
             return (
               <Card
                 key={app.id}
-                className="border border-border/80 p-5 transition-all hover:border-border"
+                className="border border-border/80 p-4 sm:p-5 transition-all hover:border-border overflow-hidden"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   {/* Job Details */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-md bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
                         {app.company.category}
@@ -619,11 +625,11 @@ export default function JobsScreen() {
                       )}
                     </div>
 
-                    <h2 className="text-base font-bold sm:text-lg">{app.jobTitle}</h2>
+                    <h2 className="text-base font-bold sm:text-lg break-words">{app.jobTitle}</h2>
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-                      <span className="font-semibold text-fg">{app.company.name}</span>
+                      <span className="font-semibold text-fg break-words">{app.company.name}</span>
                       <span>·</span>
-                      <span className="font-mono text-muted">{app.hrEmail}</span>
+                      <span className="font-mono text-muted break-all sm:break-normal">{app.hrEmail}</span>
                       {app.company.websiteUrl && (
                         <a
                           href={app.company.websiteUrl}
@@ -650,7 +656,7 @@ export default function JobsScreen() {
                   </div>
 
                   {/* Actions & Toggles */}
-                  <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+                  <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end shrink-0">
                     <div className="flex items-center gap-2">
                       {/* Auto-Send Checkbox per app */}
                       <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
@@ -730,7 +736,7 @@ export default function JobsScreen() {
       {/* Resume Upload / Update Modal */}
       {showResumeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-lg border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-lg border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold">Candidate Resume & Skills</h2>
             <p className="mt-1 text-xs text-muted">
               Paste your resume or engineering profile text. The parser extracts core technical skills and structures AI email context.
@@ -793,7 +799,7 @@ export default function JobsScreen() {
       {/* Email Preview & Approval Drawer / Modal */}
       {selectedAppForEmail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-2xl border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-2xl border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border/60 pb-3">
               <div>
                 <span className="rounded-full bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
@@ -881,7 +887,7 @@ export default function JobsScreen() {
       {/* Log HR Reply Modal */}
       {replyAppId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-md border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-md border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold">Log HR Response</h2>
             <p className="mt-1 text-xs text-muted">
               Logging an HR response pauses and cancels all automated follow-up sequences immediately.

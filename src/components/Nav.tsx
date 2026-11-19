@@ -35,7 +35,7 @@ export default function Nav() {
       </aside>
       {/* Mobile bottom bar */}
       <nav aria-label="Primary" className="fixed inset-x-0 bottom-0 z-40 border-t border-border/80 bg-card/85 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(28,25,23,0.05)] backdrop-blur-xl md:hidden">
-        <ul className="flex items-center justify-around overflow-x-auto py-1">
+        <ul className="flex items-center justify-start sm:justify-around overflow-x-auto py-1 px-1.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
           {items.map(({ href, label, Icon }) => {
             const on = path.startsWith(href);
             return (

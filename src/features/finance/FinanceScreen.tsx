@@ -329,55 +329,55 @@ export default function FinanceScreen() {
         <div className="space-y-6">
           {/* KPI Summary Cards */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="border border-border/80 p-5">
+            <Card className="border border-border/80 p-5 overflow-hidden">
               <div className="flex items-center justify-between text-muted text-xs font-semibold uppercase tracking-wider">
                 <span>Monthly Budget</span>
-                <Wallet size={16} className="text-brand" />
+                <Wallet size={16} className="text-brand shrink-0" />
               </div>
-              <div className={`mt-2 text-2xl font-bold tracking-tight ${blurCls}`}>
+              <div className={`mt-2 text-xl sm:text-2xl font-bold tracking-tight truncate ${blurCls}`}>
                 {formatCurrency(summary.totalBudget, summary.currency)}
               </div>
-              <div className="mt-1 text-xs text-muted">
+              <div className="mt-1 text-xs text-muted truncate">
                 {summary.categories.filter((c) => c.monthlyLimit > 0).length} category limit(s) set
               </div>
             </Card>
 
-            <Card className="border border-border/80 p-5">
+            <Card className="border border-border/80 p-5 overflow-hidden">
               <div className="flex items-center justify-between text-muted text-xs font-semibold uppercase tracking-wider">
                 <span>Total Spent</span>
-                <TrendingDown size={16} className="text-rose-500" />
+                <TrendingDown size={16} className="text-rose-500 shrink-0" />
               </div>
-              <div className={`mt-2 text-2xl font-bold tracking-tight text-rose-500 ${blurCls}`}>
+              <div className={`mt-2 text-xl sm:text-2xl font-bold tracking-tight text-rose-500 truncate ${blurCls}`}>
                 {formatCurrency(summary.totalSpent, summary.currency)}
               </div>
-              <div className="mt-1 text-xs text-muted">
+              <div className="mt-1 text-xs text-muted truncate">
                 {summary.recentExpenses.length} transaction(s) logged
               </div>
             </Card>
 
-            <Card className="border border-border/80 p-5">
+            <Card className="border border-border/80 p-5 overflow-hidden">
               <div className="flex items-center justify-between text-muted text-xs font-semibold uppercase tracking-wider">
                 <span>Net Remaining</span>
-                <TrendingUp size={16} className={summary.netRemaining >= 0 ? "text-emerald-500" : "text-rose-500"} />
+                <TrendingUp size={16} className={`shrink-0 ${summary.netRemaining >= 0 ? "text-emerald-500" : "text-rose-500"}`} />
               </div>
               <div
-                className={`mt-2 text-2xl font-bold tracking-tight ${
+                className={`mt-2 text-xl sm:text-2xl font-bold tracking-tight truncate ${
                   summary.netRemaining >= 0 ? "text-emerald-500" : "text-rose-500"
                 } ${blurCls}`}
               >
                 {formatCurrency(summary.netRemaining, summary.currency)}
               </div>
-              <div className="mt-1 text-xs text-muted">
+              <div className="mt-1 text-xs text-muted truncate">
                 {summary.netRemaining >= 0 ? "Under budget" : "Over budget limit"}
               </div>
             </Card>
 
-            <Card className="border border-border/80 p-5">
+            <Card className="border border-border/80 p-5 overflow-hidden">
               <div className="flex items-center justify-between text-muted text-xs font-semibold uppercase tracking-wider">
                 <span>Budget Utilized</span>
-                <PieChart size={16} className="text-brand" />
+                <PieChart size={16} className="text-brand shrink-0" />
               </div>
-              <div className="mt-2 text-2xl font-bold tracking-tight">
+              <div className="mt-2 text-xl sm:text-2xl font-bold tracking-tight truncate">
                 {summary.percentageUsed.toFixed(1)}%
               </div>
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-soft">
@@ -500,15 +500,15 @@ export default function FinanceScreen() {
                 {summary.recentExpenses.map((exp) => (
                   <div
                     key={exp.id}
-                    className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0"
+                    className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0 gap-3"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="grid size-9 place-items-center rounded-xl bg-soft text-muted font-bold text-xs uppercase">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-soft text-muted font-bold text-xs uppercase">
                         {exp.category.slice(0, 2)}
                       </div>
-                      <div>
-                        <div className="font-semibold text-sm leading-snug">{exp.description}</div>
-                        <div className="flex items-center gap-2 text-xs text-muted">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm leading-snug line-clamp-1 break-words">{exp.description}</div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                           <span>{new Date(exp.spentAt).toLocaleDateString()}</span>
                           <span>•</span>
                           <span>{exp.category}</span>
@@ -520,7 +520,7 @@ export default function FinanceScreen() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex shrink-0 items-center gap-3 pl-2">
                       <div className={`font-bold text-sm text-fg ${blurCls}`}>
                         -{formatCurrency(exp.amount, summary.currency)}
                       </div>
@@ -543,7 +543,7 @@ export default function FinanceScreen() {
       {/* Add Expense Modal */}
       {showAddExpense && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-md border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-md border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold">Log New Expense</h2>
             <p className="mt-1 text-xs text-muted">
               Add a manual transaction strictly isolated to your private account.
@@ -643,7 +643,7 @@ export default function FinanceScreen() {
       {/* Set Budget Modal */}
       {showSetBudget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-md border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-md border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold">Set Category Budget</h2>
             <p className="mt-1 text-xs text-muted">
               Configure your spending limit for {monthLabel()}.
@@ -706,7 +706,7 @@ export default function FinanceScreen() {
       {/* CSV Statement Import Modal */}
       {showImportCsv && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-lg border border-border bg-card p-6 shadow-2xl">
+          <Card className="w-full max-w-lg border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold">Import CSV Statement</h2>
             <p className="mt-1 text-xs text-muted">
               Paste standard bank or card statement CSV data. Transactions will be parsed and auto-categorized automatically.

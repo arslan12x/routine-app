@@ -10,9 +10,11 @@ export default async function TasksPage() {
   const user = await pageUser();
   const date = todayIn(user.timezone);
   return (
-    <Suspense fallback={<TasksLoading />}>
-      <TasksContent user={user} date={date} />
-    </Suspense>
+    <div className="mx-auto max-w-2xl">
+      <Suspense fallback={<TasksLoading />}>
+        <TasksContent user={user} date={date} />
+      </Suspense>
+    </div>
   );
 }
 
