@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { getCandidateProfile, saveCandidateProfile } from "@/server/services/jobs";
+import { isLiveEmailConfigured } from "@/server/services/email-dispatcher";
 import { CANDIDATE_EXPERIENCE_LEVELS, type CandidateExperienceLevel } from "@/lib/domain/jobs";
 import { ApiError } from "@/lib/api";
 
@@ -36,9 +37,12 @@ export async function GET() {
   try {
     const user = await requireUser();
     const profile = await getCandidateProfile(user.id);
-    return Response.json({ profile }, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    return Response.json(
+      { profile, isLiveEmail: isLiveEmailConfigured() },
+      {
+        headers: { "Cache-Control": "private, no-store" },
+      }
+    );
   } catch (err) {
     return errorResponse(err);
   }
@@ -56,10 +60,18 @@ export async function POST(request: Request) {
       experienceYears: validated.experienceYears,
     });
 
-    return Response.json({ profile: savedProfile, email: savedProfile.email, success: true }, {
-      status: 200,
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    return Response.json(
+      {
+        profile: savedProfile,
+        email: savedProfile.email,
+        isLiveEmail: isLiveEmailConfigured(),
+        success: true,
+      },
+      {
+        status: 200,
+        headers: { "Cache-Control": "private, no-store" },
+      }
+    );
   } catch (err) {
     return errorResponse(err);
   }

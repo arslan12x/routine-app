@@ -137,6 +137,7 @@ export default function JobsScreen() {
   // Modals / Drawers
   const [candidateEmail, setCandidateEmail] = useState("");
   const [candidateEmailInput, setCandidateEmailInput] = useState("");
+  const [isLiveEmail, setIsLiveEmail] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
 
@@ -176,6 +177,9 @@ export default function JobsScreen() {
         if (data.profile?.experienceLevel) {
           setCandidateExperience(data.profile.experienceLevel);
           setSelectedExpChoice(data.profile.experienceLevel);
+        }
+        if (data.isLiveEmail !== undefined) {
+          setIsLiveEmail(Boolean(data.isLiveEmail));
         }
       }
     } catch (err) {
@@ -428,8 +432,14 @@ export default function JobsScreen() {
       });
 
       if (res.ok) {
+        const resData = await res.json().catch(() => ({}));
         setSelectedAppForEmail(null);
         await loadApplications();
+        if (resData.provider === "RESEND") {
+          alert(`Application dispatched to recruiter! A copy has also been sent to ${candidateEmail || "your email"}.`);
+        } else {
+          alert("Application marked as applied and moved to Follow-Up 1!\n\n(Note: Running in Simulated Delivery mode. To dispatch real emails over the internet, add RESEND_API_KEY in Vercel).");
+        }
       } else {
         const err = await res.json();
         alert(err.error?.message || "Failed to dispatch email");
@@ -1630,6 +1640,28 @@ export default function JobsScreen() {
                     </span>
                   </div>
                 </div>
+
+                {/* Delivery Mode Banner */}
+                {isLiveEmail ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                    <div>
+                      <span className="font-semibold block">Live Resend Dispatch Enabled</span>
+                      <span className="text-[11px] text-muted">Recruiter receives email + an instant copy is BCC'd to {candidateEmail || "your email"}.</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AlertCircle size={16} className="text-amber-500 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="font-semibold block">Simulated Delivery (MOCK Mode)</span>
+                        <span className="text-[11px] text-muted">To send real emails over the internet to recruiters, add <code>RESEND_API_KEY</code> in Vercel.</span>
+                      </div>
+                    </div>
+                    <span className="shrink-0 rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold">MOCK</span>
+                  </div>
+                )}
 
                 {/* Resume Attachment Info */}
                 <div className="flex items-center justify-between rounded-xl bg-soft/70 px-3 py-2 text-xs border border-border/60">
