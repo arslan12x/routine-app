@@ -480,6 +480,63 @@ describe("Phase 5: AI adaptive learning course memory context", () => {
       expect(currentDay).toBe(6);
       expect(currentModule).toBe(2);
     });
+
+    it("detects skipped day for AI guided study tasks and enforces consistency penalty with minimum 10 exercises on previous topics", () => {
+      // User completed Nov 1, Nov 2, Nov 3, then SKIPPED Nov 4 (yesterday). Today is Nov 5.
+      const t = task("dsa-task", { startDate: "2026-11-01", isAiGated: true, aiSubject: "DSA" });
+      const logMap = new Map<string, number>([
+        [logKey("dsa-task", "2026-11-01"), 1],
+        [logKey("dsa-task", "2026-11-02"), 1],
+        [logKey("dsa-task", "2026-11-03"), 1],
+        // 2026-11-04 is missing (skipped)
+      ]);
+
+      const result = computeTaskStreakAndCompletedDays(t, logMap, "2026-11-05");
+      expect(result.completedDays).toBe(3);
+      expect(result.streak).toBe(0); // Streak broken
+      expect(result.hasSkippedDays).toBe(true);
+      expect(result.missedDaysCount).toBe(1);
+      expect(result.missedDates).toContain("2026-11-04");
+      expect(result.penaltyRequired).toBe(true);
+      // Strictly enforces minimum 10 exercises
+      expect(result.penaltyExerciseCount).toBe(10);
+    });
+
+    it("scales penalty exercises up to 15 questions for multi-day skips", () => {
+      // User completed Nov 1, then skipped Nov 2, 3, 4, 5, 6, 7 (6 skipped days). Today is Nov 8.
+      const t = task("dsa-task", { startDate: "2026-11-01", isAiGated: true, aiSubject: "DSA" });
+      const logMap = new Map<string, number>([
+        [logKey("dsa-task", "2026-11-01"), 1],
+      ]);
+
+      const result = computeTaskStreakAndCompletedDays(t, logMap, "2026-11-08");
+      expect(result.completedDays).toBe(1);
+      expect(result.streak).toBe(0);
+      expect(result.hasSkippedDays).toBe(true);
+      expect(result.missedDaysCount).toBe(6);
+      expect(result.penaltyRequired).toBe(true);
+      // Strictly capped at maximum 15 exercises (range 10-15)
+      expect(result.penaltyExerciseCount).toBe(15);
+    });
+
+    it("does not enforce penalty when consecutive study streak is intact", () => {
+      // User did Nov 1, 2, 3, 4. Today is Nov 5.
+      const t = task("dsa-task", { startDate: "2026-11-01", isAiGated: true, aiSubject: "DSA" });
+      const logMap = new Map<string, number>([
+        [logKey("dsa-task", "2026-11-01"), 1],
+        [logKey("dsa-task", "2026-11-02"), 1],
+        [logKey("dsa-task", "2026-11-03"), 1],
+        [logKey("dsa-task", "2026-11-04"), 1],
+      ]);
+
+      const result = computeTaskStreakAndCompletedDays(t, logMap, "2026-11-05");
+      expect(result.completedDays).toBe(4);
+      expect(result.streak).toBe(4);
+      expect(result.hasSkippedDays).toBe(false);
+      expect(result.missedDaysCount).toBe(0);
+      expect(result.penaltyRequired).toBe(false);
+      expect(result.penaltyExerciseCount).toBe(0);
+    });
   });
 
   describe("Phase 5: Multi-day AI blog plan generator", () => {

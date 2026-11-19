@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { useChat } from "@ai-sdk/react";
-import { Send, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Send, Sparkles, X } from "lucide-react";
 import { Button, inputCls } from "@/components/ui";
 import type { DayItem } from "@/server/services/tasks";
 import MermaidDiagram from "./MermaidDiagram";
@@ -18,6 +18,23 @@ const subjectLabels = {
   SYSTEM_DESIGN: "System Design",
   CUSTOM: "Custom study course",
 } as const;
+
+interface LearningContextData {
+  taskId: string;
+  completedDays: number;
+  streak: number;
+  currentDay: number;
+  currentModule: number;
+  stage: string;
+  badgeLabel: string;
+  summary: string;
+  hasSkippedDays: boolean;
+  missedDaysCount: number;
+  missedDates: string[];
+  penaltyRequired: boolean;
+  penaltyExerciseCount: number;
+  penaltyNotice: string | null;
+}
 
 function completionOutput(message: UIMessage) {
   for (const part of message.parts) {
@@ -72,6 +89,8 @@ export default function StudyChatModal({
   const [input, setInput] = useState("");
   const [didComplete, setDidComplete] = useState(false);
   const [learningBadge, setLearningBadge] = useState<string | null>(null);
+  const [learningContext, setLearningContext] = useState<LearningContextData | null>(null);
+  const [loadingContext, setLoadingContext] = useState(true);
   const notifiedStudyResults = useRef(new Set<string>());
   const didStartSession = useRef(false);
   const messagesContainer = useRef<HTMLDivElement>(null);
@@ -101,16 +120,32 @@ export default function StudyChatModal({
     let active = true;
     fetch(`/api/tasks/${task.id}/learning-context`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { badgeLabel?: string } | null) => {
-        if (active && data?.badgeLabel) {
-          setLearningBadge(data.badgeLabel);
+      .then((data: LearningContextData | null) => {
+        if (active) {
+          if (data) {
+            setLearningContext(data);
+            if (data.badgeLabel) {
+              setLearningBadge(data.badgeLabel);
+            }
+          }
+          setLoadingContext(false);
         }
       })
-      .catch((err) => console.warn("[AI study] Failed to load learning context", err));
+      .catch((err) => {
+        console.warn("[AI study] Failed to load learning context", err);
+        if (active) setLoadingContext(false);
+      });
     return () => {
       active = false;
     };
   }, [task.id]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoadingContext(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -129,10 +164,18 @@ export default function StudyChatModal({
   }, [onClose, stop]);
 
   useEffect(() => {
-    if (didStartSession.current) return;
+    if (didStartSession.current || loadingContext) return;
     didStartSession.current = true;
-    void sendMessage({ text: "Start today's study session with a structured lesson and progressive practice set for this course. Guide me through answering the practical exercise." });
-  }, [sendMessage]);
+    if (learningContext?.penaltyRequired) {
+      void sendMessage({
+        text: `I missed ${learningContext.missedDaysCount} scheduled study day(s). Initiate my Consistency Penalty Review Sprint with ${learningContext.penaltyExerciseCount} practice exercises on previous topics before unlocking today's lesson.`,
+      });
+    } else {
+      void sendMessage({
+        text: "Start today's study session with a structured lesson and progressive practice set for this course. Guide me through answering the practical exercise.",
+      });
+    }
+  }, [loadingContext, learningContext, sendMessage]);
 
   useEffect(() => {
     messagesContainer.current?.scrollTo({ top: messagesContainer.current.scrollHeight, behavior: "smooth" });
@@ -162,15 +205,22 @@ export default function StudyChatModal({
       <header className="flex shrink-0 items-center justify-between border-b border-border bg-card/95 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-8">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 sm:gap-4">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-brand/10 text-brand sm:size-10"><Sparkles size={19} aria-hidden /></div>
+            <div className={`grid size-9 shrink-0 place-items-center rounded-full sm:size-10 ${learningContext?.penaltyRequired ? "bg-amber-500/10 text-amber-500" : "bg-brand/10 text-brand"}`}>
+              {learningContext?.penaltyRequired ? <AlertTriangle size={19} aria-hidden /> : <Sparkles size={19} aria-hidden />}
+            </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                 <h1 className="truncate font-semibold">{courseName}</h1>
-                {learningBadge && (
+                {learningContext?.penaltyRequired ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400 sm:text-[11px]">
+                    <AlertTriangle size={12} aria-hidden />
+                    <span>{learningContext.penaltyExerciseCount} Penalty Qs Required</span>
+                  </span>
+                ) : learningBadge ? (
                   <span className="inline-flex items-center rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand sm:text-[11px]">
                     {learningBadge}
                   </span>
-                )}
+                ) : null}
               </div>
               <p className="truncate text-xs text-muted">Study session · {task.title}</p>
             </div>
@@ -187,11 +237,31 @@ export default function StudyChatModal({
 
       <main ref={messagesContainer} className="min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 sm:px-8" aria-live="polite">
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col py-6 sm:py-10">
+          {learningContext?.penaltyRequired && (
+            <div className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3.5 sm:p-4 text-amber-700 dark:text-amber-300">
+              <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
+                <AlertTriangle size={16} className="shrink-0 text-amber-500" />
+                <span>Consistency Penalty Active · {learningContext.missedDaysCount} Missed Day{learningContext.missedDaysCount > 1 ? "s" : ""}</span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted">
+                Inconsistency detected. Today&apos;s new lesson content is locked. Complete <strong>{learningContext.penaltyExerciseCount} review exercises</strong> on previous topics to regain consistency before today&apos;s curriculum is displayed.
+              </p>
+            </div>
+          )}
+
           {messages.length === 0 && (
             <div className="m-auto max-w-lg text-center">
-              <div className="mx-auto mb-4 grid size-14 place-items-center rounded-full bg-brand/10 text-brand"><Sparkles size={24} aria-hidden /></div>
-              <h2 className="display text-2xl font-semibold">Let’s make progress</h2>
-              <p className="mt-2 text-sm leading-6 text-muted">Your tutor is preparing a lesson and a structured set of exercises for {courseName}.</p>
+              <div className={`mx-auto mb-4 grid size-14 place-items-center rounded-full ${learningContext?.penaltyRequired ? "bg-amber-500/10 text-amber-500" : "bg-brand/10 text-brand"}`}>
+                {learningContext?.penaltyRequired ? <AlertTriangle size={24} aria-hidden /> : <Sparkles size={24} aria-hidden />}
+              </div>
+              <h2 className="display text-2xl font-semibold">
+                {learningContext?.penaltyRequired ? "Consistency Penalty Active" : "Let’s make progress"}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                {learningContext?.penaltyRequired
+                  ? `You missed ${learningContext.missedDaysCount} scheduled study day${learningContext.missedDaysCount > 1 ? "s" : ""}. Your tutor is preparing a ${learningContext.penaltyExerciseCount}-question review sprint on previous topics before revealing today's lesson.`
+                  : `Your tutor is preparing a lesson and a structured set of exercises for ${courseName}.`}
+              </p>
             </div>
           )}
 
@@ -265,14 +335,24 @@ export default function StudyChatModal({
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder={didComplete ? "Session passed — you can end this session." : "Ask a question or write your answer…"}
+              placeholder={
+                didComplete
+                  ? "Session passed — you can end this session."
+                  : learningContext?.penaltyRequired
+                    ? "Submit your answers for the review questions or ask a question…"
+                    : "Ask a question or write your answer…"
+              }
               disabled={busy || didComplete}
             />
             <Button type="submit" className="size-11 min-h-11 shrink-0 rounded-full px-0" disabled={busy || !input.trim() || didComplete} aria-label="Send message">
               <Send size={17} aria-hidden />
             </Button>
           </form>
-          <p className="mt-2 text-center text-[11px] text-muted">Your progress updates after your tutor evaluates a passing practical exercise.</p>
+          <p className="mt-2 text-center text-[11px] text-muted">
+            {learningContext?.penaltyRequired
+              ? "Today's new lesson unlocks once your answers to all penalty review questions pass evaluation."
+              : "Your progress updates after your tutor evaluates a passing practical exercise."}
+          </p>
         </div>
       </footer>
     </div>
