@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertCircle,
+  ArrowUpDown,
   Briefcase,
   Calendar,
   Check,
@@ -31,6 +32,7 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Target,
   Upload,
   UserCheck,
   X,
@@ -77,6 +79,9 @@ interface JobApplication {
   jobTitle: string;
   jobUrl?: string | null;
   jobLocation?: string | null;
+  jobDescription?: string | null;
+  atsMatchScore?: number | null;
+  atsBreakdownJson?: string | null;
   externalJobId?: string | null;
   postedAt?: string | null;
   isLiveVerified?: boolean;
@@ -147,6 +152,12 @@ export default function JobsScreen() {
   // Parent Location & Eligibility Filter
   const [locationFilter, setLocationFilter] = useState<LocationEligibilityFilter>("ALL_INDIA_ELIGIBLE");
   const [lastLiveSyncAt, setLastLiveSyncAt] = useState<Date | null>(new Date());
+
+  // ATS Match & Shortlist Predictor States
+  const [atsSort, setAtsSort] = useState<"INDIA_PRIORITY" | "HIGHEST_ATS" | "NEWEST">("INDIA_PRIORITY");
+  const [onlyHighAtsMatch, setOnlyHighAtsMatch] = useState(false);
+  const [selectedAtsApp, setSelectedAtsApp] = useState<JobApplication | null>(null);
+  const [runningAtsAnalysis, setRunningAtsAnalysis] = useState(false);
 
   // Filters & selection (7 Sub-Filter Channels)
   const [selectedCategories, setSelectedCategories] = useState<CompanyCategory[]>([
@@ -693,6 +704,40 @@ export default function JobsScreen() {
     }
   }
 
+  async function handleRunDeepAtsAnalysis(appId: string) {
+    setRunningAtsAnalysis(true);
+    try {
+      const res = await fetch(`/api/jobs/applications/${appId}/ats-analysis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error?.message || "Failed to analyze ATS fit");
+      }
+
+      toast.success("Deep ATS Gap Analysis complete!");
+      if (selectedAtsApp && selectedAtsApp.id === appId) {
+        setSelectedAtsApp({
+          ...selectedAtsApp,
+          atsMatchScore: data.atsScore,
+          atsBreakdownJson: JSON.stringify(data.breakdown),
+        });
+      }
+      setApplications((prev) =>
+        prev.map((app) =>
+          app.id === appId
+            ? { ...app, atsMatchScore: data.atsScore, atsBreakdownJson: JSON.stringify(data.breakdown) }
+            : app
+        )
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "ATS Analysis failed");
+    } finally {
+      setRunningAtsAnalysis(false);
+    }
+  }
+
   function toggleCategory(cat: CompanyCategory) {
     setSelectedCategories((prev) =>
       prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
@@ -740,11 +785,29 @@ export default function JobsScreen() {
       if (appExp !== experienceFilter) return false;
     }
 
+    // 4. Quick filter: Only High ATS Match (70%+)
+    if (onlyHighAtsMatch) {
+      if ((app.atsMatchScore ?? 0) < 70) return false;
+    }
+
     return true;
   });
 
-  // Sort India jobs to the top on priority by default
+  // Sort applications based on user selection: India Priority, Highest ATS Match, or Newest
   filteredApps.sort((a, b) => {
+    if (atsSort === "HIGHEST_ATS") {
+      const scoreA = a.atsMatchScore ?? -1;
+      const scoreB = b.atsMatchScore ?? -1;
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
+      }
+    } else if (atsSort === "NEWEST") {
+      const timeA = a.postedAt ? new Date(a.postedAt).getTime() : new Date(a.createdAt).getTime();
+      const timeB = b.postedAt ? new Date(b.postedAt).getTime() : new Date(b.createdAt).getTime();
+      return timeB - timeA;
+    }
+
+    // Default: India Priority ranking
     return compareLiveJobsPriority(
       {
         isIndiaBased: a.company.isIndiaBased,
@@ -1256,6 +1319,62 @@ export default function JobsScreen() {
             </button>
           </div>
         </div>
+
+        {/* Row 3: ATS Match Ranking & Quick Filter Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-border/50 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold text-muted flex items-center gap-1.5">
+              <ArrowUpDown size={12} className="text-brand" /> Sort Openings:
+            </span>
+            <div className="flex items-center gap-1 bg-soft/70 rounded-lg p-0.5 border border-border/60">
+              <button
+                type="button"
+                onClick={() => setAtsSort("INDIA_PRIORITY")}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                  atsSort === "INDIA_PRIORITY"
+                    ? "bg-card text-fg shadow-xs border border-border/80"
+                    : "text-muted hover:text-fg"
+                }`}
+              >
+                🇮🇳 India Priority
+              </button>
+              <button
+                type="button"
+                onClick={() => setAtsSort("HIGHEST_ATS")}
+                className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                  atsSort === "HIGHEST_ATS"
+                    ? "bg-card text-emerald-600 dark:text-emerald-400 shadow-xs border border-border/80"
+                    : "text-muted hover:text-fg"
+                }`}
+              >
+                <Target size={11} /> Highest ATS Match
+              </button>
+              <button
+                type="button"
+                onClick={() => setAtsSort("NEWEST")}
+                className={`rounded-md px-2.5 py-1 text-[11px] font-semibold transition-all ${
+                  atsSort === "NEWEST"
+                    ? "bg-card text-fg shadow-xs border border-border/80"
+                    : "text-muted hover:text-fg"
+                }`}
+              >
+                🕒 Newest Posted
+              </button>
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none bg-soft/60 hover:bg-soft px-2.5 py-1 rounded-lg border border-border/60 transition-colors">
+            <input
+              type="checkbox"
+              checked={onlyHighAtsMatch}
+              onChange={(e) => setOnlyHighAtsMatch(e.target.checked)}
+              className="rounded border-border accent-emerald-600 size-3.5"
+            />
+            <span className={`text-[11px] font-semibold ${onlyHighAtsMatch ? "text-emerald-600 dark:text-emerald-400" : "text-muted"}`}>
+              🎯 Only High Match (70%+)
+            </span>
+          </label>
+        </div>
       </div>
 
       {/* 5. Main Application Cards Grid */}
@@ -1360,6 +1479,37 @@ export default function JobsScreen() {
                         <span className="inline-flex items-center gap-1 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400" title="International Relocation & Visa Sponsorship Provided">
                           <Plane size={11} /> Relocation / Visa
                         </span>
+                      )}
+
+                      {/* ATS Shortlist Match Badge */}
+                      {app.atsMatchScore !== null && app.atsMatchScore !== undefined ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAtsApp(app)}
+                          className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[10px] font-bold shadow-xs transition-colors cursor-pointer border ${
+                            app.atsMatchScore >= 75
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                              : app.atsMatchScore >= 50
+                              ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20"
+                              : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20"
+                          }`}
+                          title="Click to view ATS skill breakdown and run Deep AI Gap Analysis"
+                        >
+                          <Target size={11} className="shrink-0" />
+                          <span>
+                            {app.atsMatchScore}% Match · {app.atsMatchScore >= 75 ? "High" : app.atsMatchScore >= 50 ? "Moderate" : "Stretch"}
+                          </span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setShowResumeModal(true)}
+                          className="inline-flex items-center gap-1 rounded-md bg-soft/90 border border-border px-2 py-0.5 text-[10px] font-medium text-muted hover:text-fg hover:bg-soft transition-colors cursor-pointer"
+                          title="Upload resume for ATS score"
+                        >
+                          <Target size={11} className="shrink-0 text-muted" />
+                          <span>Upload resume for ATS score</span>
+                        </button>
                       )}
                     </div>
 
@@ -1537,6 +1687,227 @@ export default function JobsScreen() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* ATS Breakdown & Deep AI Gap Analysis Modal */}
+      {selectedAtsApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <Card className="w-full max-w-xl border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto space-y-4">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-border/60 pb-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-brand/10 px-2 py-0.5 text-xs font-bold text-brand">
+                    <Target size={13} /> ATS Shortlist Predictor
+                  </span>
+                  <span className="text-xs text-muted">· {selectedAtsApp.company.name}</span>
+                </div>
+                <h2 className="text-base sm:text-lg font-bold text-fg truncate mt-1">
+                  {selectedAtsApp.jobTitle}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedAtsApp(null)}
+                className="rounded-lg p-1.5 text-muted hover:bg-soft cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Score & Experience Fit Gauge */}
+            {(() => {
+              const breakdown = selectedAtsApp.atsBreakdownJson
+                ? (() => {
+                    try {
+                      return JSON.parse(selectedAtsApp.atsBreakdownJson);
+                    } catch {
+                      return null;
+                    }
+                  })()
+                : null;
+
+              const score = selectedAtsApp.atsMatchScore ?? 50;
+              const isHigh = score >= 75;
+              const isModerate = score >= 50 && score < 75;
+
+              return (
+                <div className="space-y-4">
+                  {/* Gauge Display */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 rounded-xl border border-border/80 bg-soft/40">
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`size-16 rounded-2xl flex flex-col items-center justify-center font-black text-xl shadow-xs border ${
+                          isHigh
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                            : isModerate
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                            : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                        }`}
+                      >
+                        <span>{score}%</span>
+                        <span className="text-[9px] font-bold uppercase tracking-wider -mt-0.5">Match</span>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-fg">
+                            {isHigh ? "High Shortlist Probability" : isModerate ? "Moderate Match Probability" : "Stretch Opportunity"}
+                          </span>
+                          <span
+                            className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                              breakdown?.experienceFit === "STRONG"
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                : breakdown?.experienceFit === "PARTIAL"
+                                ? "bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20"
+                                : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20"
+                            }`}
+                          >
+                            Exp: {breakdown?.experienceFit || "STRONG"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted mt-1 leading-relaxed">
+                          {breakdown?.summary || "Deterministic keyword, experience tier, and role alignment scoring."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Skills Breakdown Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Matched Skills */}
+                    <div className="space-y-2 p-3.5 rounded-xl border border-border/70 bg-card">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                        <Check size={14} />
+                        <span>Matched Skills ({breakdown?.matchedSkills?.length || 0})</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pt-1">
+                        {breakdown?.matchedSkills && breakdown.matchedSkills.length > 0 ? (
+                          breakdown.matchedSkills.map((s: string) => (
+                            <span
+                              key={s}
+                              className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 px-2 py-0.5 text-[11px] font-semibold"
+                            >
+                              <Check size={10} /> {s}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-muted italic">No direct keyword overlap found</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Missing Skills */}
+                    <div className="space-y-2 p-3.5 rounded-xl border border-border/70 bg-card">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
+                        <AlertCircle size={14} />
+                        <span>JD Gaps ({breakdown?.missingSkills?.length || 0})</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pt-1">
+                        {breakdown?.missingSkills && breakdown.missingSkills.length > 0 ? (
+                          breakdown.missingSkills.map((s: string) => (
+                            <span
+                              key={s}
+                              className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/25 px-2 py-0.5 text-[11px] font-semibold"
+                            >
+                              <span className="text-amber-500">•</span> {s}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">100% core skills matched!</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Deep AI Gap Analysis Section */}
+                  <div className="space-y-3 pt-3 border-t border-border/70">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sparkles size={16} className="text-brand" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-fg">
+                          Gemini 3.5 Deep ATS Gap Analysis
+                        </span>
+                      </div>
+                      {breakdown?.deepAnalysis && (
+                        <span className="text-[10px] text-muted">
+                          Cached: {new Date(breakdown.deepAnalysis.analyzedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+
+                    {breakdown?.deepAnalysis ? (
+                      <div className="space-y-3 bg-soft/40 p-3.5 rounded-xl border border-border/70">
+                        {/* Recruiter Verdict */}
+                        <div className="p-2.5 rounded-lg bg-card border border-border/80">
+                          <div className="text-[11px] font-bold text-muted uppercase tracking-wider">Recruiter Verdict</div>
+                          <p className="text-xs text-fg leading-relaxed mt-1 font-medium">
+                            {breakdown.deepAnalysis.verdict}
+                          </p>
+                        </div>
+
+                        {/* Resume Tweaks */}
+                        {breakdown.deepAnalysis.resumeTweaks?.length > 0 && (
+                          <div className="space-y-1.5">
+                            <div className="text-[11px] font-bold text-muted uppercase tracking-wider flex items-center gap-1">
+                              <Sparkles size={11} className="text-brand" /> Actionable Resume Tweaks for this JD
+                            </div>
+                            <ul className="space-y-1 text-xs text-muted pl-4 list-disc">
+                              {breakdown.deepAnalysis.resumeTweaks.map((tweak: string, i: number) => (
+                                <li key={i} className="leading-relaxed">
+                                  <span className="text-fg font-medium">{tweak}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Interview Focus Topics */}
+                        {breakdown.deepAnalysis.interviewFocusTopics?.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            <div className="text-[11px] font-bold text-muted uppercase tracking-wider flex items-center gap-1">
+                              <Zap size={11} className="text-amber-500" /> Likely Interview & System Design Topics
+                            </div>
+                            <ul className="space-y-1 text-xs text-muted pl-4 list-disc">
+                              {breakdown.deepAnalysis.interviewFocusTopics.map((topic: string, i: number) => (
+                                <li key={i} className="leading-relaxed">
+                                  <span className="text-fg font-medium">{topic}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <Button
+                          variant="outline"
+                          onClick={() => handleRunDeepAtsAnalysis(selectedAtsApp.id)}
+                          disabled={runningAtsAnalysis}
+                          className="w-full flex items-center justify-center gap-2 h-8 text-xs font-semibold mt-2"
+                        >
+                          {runningAtsAnalysis ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                          <span>Re-Run Deep AI Analysis</span>
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="p-4 rounded-xl border border-dashed border-border bg-soft/30 text-center space-y-2.5">
+                        <p className="text-xs text-muted max-w-md mx-auto">
+                          Perform an on-demand deep recruiter simulation with Gemini 3.5 to uncover tailored resume tweaks, keyword positioning, and likely interview questions for this specific role.
+                        </p>
+                        <Button
+                          onClick={() => handleRunDeepAtsAnalysis(selectedAtsApp.id)}
+                          disabled={runningAtsAnalysis}
+                          className="flex items-center justify-center gap-2 h-9 px-4 text-xs font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-sm mx-auto"
+                        >
+                          {runningAtsAnalysis ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                          <span>Run Deep AI Gap Analysis</span>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+          </Card>
         </div>
       )}
 

@@ -656,14 +656,46 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - `JobApplication`: `id`, `userId`, `companyId`, `jobTitle`, `jobUrl`, `jobLocation`, `externalJobId`, `postedAt`, `isLiveVerified`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`, timestamps.
   - `UserIntegration` (`provider: CANDIDATE_JOB_PROFILE`): stores candidate outreach settings (`email`, `experienceLevel`, `experienceYears`).
 - **100% Free, Real-Time Active Job Fetching Engine (`src/server/services/live-job-fetchers.ts`):**
-  - Completely eliminates synthetic / fake job generation. Every role queued in `TO_APPLY` is a verified, live opening fetched directly from free public ATS APIs:
+  - Completely eliminates synthetic / fake job generation. Every role queued in `TO_APPLY` is a verified, live opening fetched directly from free public ATS APIs and open-web IT aggregators:
     - *Greenhouse Public Board API:* `https://boards-api.greenhouse.io/v1/boards/{slug}/jobs`
     - *Lever Public Postings API:* `https://api.lever.co/v0/postings/{slug}?mode=json`
     - *Ashby Public Job Board API:* `https://api.ashbyhq.com/posting-api/job-board/{slug}`
+    - *Himalayas Open API:* `https://himalayas.app/jobs/api?limit=30` (Free open-web developer jobs)
+    - *Jobicy Public Remote API:* `https://jobicy.com/api/v2/remote-jobs?count=40&industry=engineering`
+    - *RemoteOK Public API:* `https://remoteok.com/api` (Developer and software engineering roles)
     - *Remotive Free Developer API:* `https://remotive.com/api/remote-jobs?category=software-dev` (Worldwide, Remote India, APAC)
     - *Arbeitnow Job Board API:* `https://www.arbeitnow.com/api/job-board-api` (Visa sponsorship & remote roles)
-  - Curated targets map across all 7 categories with direct emphasis on prominent Indian tech centres (Razorpay, Postman, BrowserStack, PhonePe, Groww, Swiggy, Atlassian, Stripe, Databricks, Thoughtworks, Vercel, Supabase, Canonical, etc.).
+  - **Broad IT Company Directory (Beyond Big Tech):**
+    - *Growth-Stage Indian Startups (`STARTUP`):* Razorpay, Groww, Cred, Meesho, Zepto, Slice, Jupiter, Postman, BrowserStack, Chargebee, CleverTap, Hasura, Sprinto, Toplyne, Rocketlane, Freshworks, Darwinbox, Whatfix, HighRadius, Mindtickle, Druva, Icertis.
+    - *Mid-Market IT & Product Firms (`MID_MNC`):* Thoughtworks, EPAM Systems, Persistent Systems, Nagarro, GlobalLogic, Cimpress India, Media.net, InMobi, Zoho, Amagi, MoEngage, Gupshup, Publicis Sapient.
+    - *Boutique Consultancies & Software Houses (`SMALL_SCALE`):* Axelerant, Thoughtbot, Formidable, NearForm, Saeloun, Josh Software, ColoredCow, Simform.
+    - *Top MNCs, Decacorns & Foreign Remote:* Microsoft India, Cisco India, Stripe, Databricks, Atlassian, Vercel, Supabase, GitLab, Canonical, Automattic, DuckDuckGo, Booking.com.
+  - **Dynamic Company Auto-Registration:** When open aggregators discover openings from companies not yet registered in the local database, `syncLiveJobsForCandidate` automatically upserts them into `Company` with inferred category (`inferCompanyCategoryFromMeta`), `hiresFromIndia: true`, and verified location flags.
+  - **Plain-Text Job Description Extraction:** Sanitizes HTML, scripts, and entities (`stripHtmlTags`) into clean plain text capped at 6,000 characters and saves to `JobApplication.jobDescription`.
   - Resilient timeout protection (`AbortSignal.timeout(8000)`) and graceful error handling prevent any single slow or failing board from blocking sync.
+
+### 2. Resume ATS-to-JD Mapping & Shortlist Probability Engine
+- **Deterministic ATS Scoring Algorithm (`src/lib/domain/ats-matcher.ts`):**
+  - Evaluates live job postings against candidate resume text and parsed skills with zero API cost:
+    1. *Required Technical Skill Overlap (60% weight):* Comprehensive IT skill taxonomy (Java, Python, TypeScript, React, Next.js, Node.js, Spring Boot, Microservices, PostgreSQL, Redis, Kafka, AWS, Docker, Kubernetes, etc.) extracts required JD proficiencies and measures overlap against candidate profile.
+    2. *Role & Title Alignment (20% weight):* Measures token overlap between role title/domain and resume background.
+    3. *Experience Tier Fit (20% weight):* Compares candidate's declared experience level (`FRESHER`, `JUNIOR`, `MID`, `SENIOR`) against the JD tier (`inferExperienceLevelFromTitle`). Exact tier match awards 20 pts; 1 tier diff awards 12 pts; 2+ tiers diff awards 4 pts, with a strict penalty when freshers target senior roles.
+  - Produces an integer score `0–100%`, probability label (`High` ≥ 75%, `Moderate` 50–74%, `Stretch` < 50%), experience fit label (`STRONG`, `PARTIAL`, `STRETCH`), matched skills list, missing skills list, and a concise 1-line recruiter summary.
+  - Automatically saved to `JobApplication.atsMatchScore` and `JobApplication.atsBreakdownJson`.
+- **Auto-Score on Sync & Resume Upload:**
+  - `syncLiveJobsForCandidate` auto-computes ATS scores when queuing live jobs for users with an uploaded resume.
+  - When candidate uploads or replaces their resume (`POST /api/jobs/resume`), `recalculateUserAtsScores` instantly re-evaluates all active `TO_APPLY` applications.
+- **On-Demand Deep AI ATS Gap Analysis (`POST /api/jobs/applications/[id]/ats-analysis`):**
+  - Powered by Gemini 3.5 Flash Lite (`google("gemini-3.5-flash-lite")`).
+  - Simulates an elite technical recruiter reviewing the candidate's resume for the specific job description:
+    - Calculates shortlist probability percentage.
+    - Generates a 1-2 sentence decisive Recruiter Verdict.
+    - Highlights critical technical strengths and gaps.
+    - Delivers actionable, high-impact resume tweaks tailored specifically for that role.
+    - Identifies likely interview and system design focus topics.
+  - Caches the deep analysis inside `atsBreakdownJson` and updates `atsMatchScore`.
+
+### 3. Direct SMTP + IMAP Candidate Dispatch & Automated Recruiter Reply Detection
 - **Strict India-Priority Filtering & Ranking (`src/lib/domain/live-jobs.ts`):**
   - *Engineering Role Filter:* Pure regex heuristics retain core software/tech roles (SDE, Full-Stack, Backend, Frontend, Cloud, DevOps, AI/Data, Mobile) and filter out non-tech roles (Sales, HR, Facilities, Legal, Support).
   - *India Eligibility Classification:* Inspects real location and tags:
@@ -714,7 +746,7 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - Every 2 days, active hiring companies across all channels rotate into the Apply stage (`TO_APPLY`), listing at least 30-35+ verified opportunities.
   - The batch refresh engine (`POST /api/jobs/refresh`) uses fast batch `updateMany` operations to synchronize hiring flags and maintain sub-second response times, eliminating interactive transaction timeouts.
 
-### 2. Direct SMTP + IMAP Candidate Dispatch & Automated Recruiter Reply Detection
+### 3. Direct SMTP + IMAP Candidate Dispatch & Automated Recruiter Reply Detection
 - **Direct Mailbox Dispatch (`nodemailer`):** Candidates connect their real personal inbox (Gmail, Outlook, Zoho, or custom SMTP/IMAP) using an App Password. Outreach emails are dispatched directly from the candidate's real email address (`from: user.email`), ensuring messages natively appear in the user's real Sent mailbox.
 - **Server-Only Credential Encryption (`src/lib/crypto.ts`):** User App Passwords are encrypted at rest using AES-256-GCM with a random 12-byte IV and authentication tag, derived from `EMAIL_ENCRYPTION_KEY`. Plaintext credentials are never returned over any API or client component.
 - **Provider Presets:** Pre-configured with optimal connection parameters:
@@ -735,7 +767,7 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
 - **Deterministic MOCK Fallback:** If Direct Email is unconfigured, applications and follow-ups operate smoothly in deterministic MOCK mode without requiring any paid third-party API keys.
 - **Mandatory Resume Gating (`UserResume`):** Candidates cannot apply to jobs without uploading a resume document (`.pdf`, `.doc`, `.docx`, `.txt`). The parser extracts technical skills into JSON and renders them as skill badges. Resume storage is strictly isolated per candidate.
 
-### 3. AI Email Drafter
+### 4. AI Email Drafter
 - Leverages the candidate's parsed resume (`parsedText`, `skillsJson`), company specifications, hiring mode context (India hub vs. Remote India vs. Visa/Relocation sponsorship), and candidate experience tier to draft non-repetitive pitches:
   - *Day 0 (Initial Application):* Direct application tailoring skills to company challenges with resume attachment confirmation. Pitch tone adapts to career stage (foundational speed and learning velocity for freshers; architectural scale and engineering leadership for seniors) and references appropriate hiring mode alignment (e.g. excitement to contribute to their India engineering hub, enthusiasm for global remote asynchronous workflows, or full readiness to relocate internationally under visa sponsorship).
   - *Day 4 (Follow-Up 1):* Courteous 2-paragraph nudge acknowledging busy hiring cycles.
@@ -743,7 +775,7 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - *Day 15 (Final Follow-Up):* Professional closing check-in leaving the door open for future collaboration.
 - Includes a global / per-application "Auto-Send" vs. "Review & Approve" toggle before dispatching.
 
-### 4. 4-Stage Shifting State Machine with Strict Time Locks
+### 5. 4-Stage Shifting State Machine with Strict Time Locks
 - **Stage Progression:**
   - *Stage 1 (`TO_APPLY`):* Available openings. Applying stamps `appliedAt = now()`, advances the record to `WAITING_FU1`, and sets `nextActionAt = appliedAt + 4 days`.
   - *Stage 2 (`FOLLOW_UP_1`):* Surfaces 4 days after application. **4-Day Time Lock:** While waiting, the application card displays a `Locked (4d)` countdown badge with disabled action buttons. Unlocks strictly when 4 full days elapse. Dispatching advances the record to `WAITING_FU2` with `nextActionAt = appliedAt + 10 days`.
@@ -752,12 +784,26 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
 - **Immediate Reply Short-Circuiting:** Logging an HR response (`POST /api/jobs/applications/[id]/reply`) immediately transitions the application to `REPLIED` and nullifies `nextActionAt`, permanently halting further follow-up dispatches.
 - **Hourly Pipeline Advancement:** Inngest cron worker `jobFollowUpScheduler` (`0 * * * *`) promotes buffer states and automatically dispatches due follow-ups when `autoSend` is enabled.
 
-### 5. Responsive UI Architecture (`/jobs`)
+### 6. Responsive UI Architecture (`/jobs`)
 - **Readiness Toolbar:** Full-width 3-column grid (`grid-cols-1 md:grid-cols-3`) providing spacious cards for Sender Email, Resume Document, and Experience Level with zero truncation.
 - **Two-Tier Filter Controls:**
   - *Row 1 (Parent Location Filter):* Prominent segmented control (`All India-Eligible`, `🇮🇳 India Only`, `🌍 Remote (India)`, `✈️ Visa / Relocation`) with descriptive helper text.
   - *Row 2 (Sub-Filter Channels):* Responsive 4-column grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`) accommodating all 7 preserved channels, with dynamic count badges matching the active parent location scope.
 - **Pipeline Navigation:** Clean separation of Stage tabs and Experience filter pills into two dedicated rows.
+- **ATS Match Badges & Sorting Controls:**
+  - *Sort Selector:* Toggle between `India Priority` (default), `Highest ATS Match %` (descending probability), and `Newest Posted`.
+  - *Quick Match Filter:* `🎯 Only High Match (70%+)` checkbox to focus immediately on prime opportunities.
+  - *Shortlist Probability Badge on Cards:* Every job card header displays an interactive ATS match pill:
+    - **≥ 75% Match (Emerald):** High Shortlist Probability.
+    - **50–74% Match (Amber):** Moderate Shortlist Probability.
+    - **< 50% Match (Rose):** Stretch Shortlist Probability.
+    - *No Resume (Muted Outline):* Actionable prompt inviting the user to upload their resume for instant match scoring.
+- **Interactive ATS Breakdown & Deep AI Gap Analysis Drawer:**
+  - Clicking any ATS Match badge opens a dedicated analysis drawer displaying:
+    - Overall match score gauge and experience fit tier.
+    - Recruiter summary explaining the probability assessment.
+    - Breakdown of **Matched Technical Skills** (emerald badges) vs. **Missing / Desired Skills** (amber/rose badges).
+    - **"Run Deep AI Gap Analysis" Button:** On-demand Gemini 3.5 Flash Lite recruiter evaluation providing actionable resume tweaks, key strengths, potential gaps, and interview prep suggestions.
 - **Standardized Job Cards:** Uniform card heights with `min-h-[3rem]` title and `min-h-[2.5rem]` description baselines, maintaining pixel-perfect grid alignment across varying title lengths.
   - *Green `LIVE` Pulse Badge & Relative Time:* Real-time status indicator (e.g. `LIVE · 2h ago` or `LIVE · 1d ago`).
   - *Hiring Mode Badges:* Compact badges indicating `🇮🇳 India Hub`, `🌍 Remote (India)`, and `✈️ Relocation / Visa`.

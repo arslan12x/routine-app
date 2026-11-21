@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
-import { extractSkillsFromText, getUserResume, saveUserResume } from "@/server/services/jobs";
+import { extractSkillsFromText, getUserResume, saveUserResume, recalculateUserAtsScores } from "@/server/services/jobs";
 import { ApiError } from "@/lib/api";
 
 export const runtime = "nodejs";
@@ -108,6 +108,11 @@ export async function POST(request: Request) {
         mimeType,
       });
 
+      // Recalculate ATS scores for all candidate TO_APPLY jobs against the new resume
+      await recalculateUserAtsScores(user.id).catch((err) =>
+        console.warn("[Resume API] Recalculate ATS scores failed:", err)
+      );
+
       const { fileData: _fd, ...safeResume } = saved;
       return Response.json({ resume: safeResume }, {
         status: 201,
@@ -120,6 +125,9 @@ export async function POST(request: Request) {
     const validated = resumeSchema.parse(json);
 
     const saved = await saveUserResume(user.id, validated);
+    await recalculateUserAtsScores(user.id).catch((err) =>
+      console.warn("[Resume API] Recalculate ATS scores failed:", err)
+    );
     const { fileData: _fd, ...safeResume } = saved;
     return Response.json({ resume: safeResume }, {
       status: 201,

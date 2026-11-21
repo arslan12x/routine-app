@@ -7,9 +7,10 @@ export interface RawLiveJob {
   location: string;
   companyName: string;
   companySlug?: string;
-  atsProvider: "GREENHOUSE" | "LEVER" | "ASHBY" | "REMOTIVE" | "ARBEITNOW";
+  atsProvider: "GREENHOUSE" | "LEVER" | "ASHBY" | "REMOTIVE" | "ARBEITNOW" | "HIMALAYAS" | "JOBICY" | "REMOTEOK";
   postedAt?: Date | null;
   descriptionSnippet?: string;
+  jobDescription?: string | null;
   category?: string;
   hrEmail?: string;
 }
@@ -24,6 +25,9 @@ export interface NormalizedLiveJob {
   hrEmail: string;
   atsProvider: string;
   postedAt: Date | string | null;
+  jobDescription?: string | null;
+  atsMatchScore?: number | null;
+  atsBreakdownJson?: string | null;
   experienceLevel: CandidateExperienceLevel;
   isIndiaBased: boolean;
   offersRemoteIndia: boolean;

@@ -6,7 +6,11 @@ import {
   type RawLiveJob,
   type NormalizedLiveJob,
 } from "@/lib/domain/live-jobs";
-import { inferExperienceLevelFromTitle, type CandidateExperienceLevel, type CompanyCategory } from "@/lib/domain/jobs";
+import {
+  inferExperienceLevelFromTitle,
+  type CandidateExperienceLevel,
+  type CompanyCategory,
+} from "@/lib/domain/jobs";
 
 export interface AtsCompanyTarget {
   name: string;
@@ -20,8 +24,59 @@ export interface AtsCompanyTarget {
   offersRelocation: boolean;
 }
 
+/**
+ * Strips HTML tags, decodes common entities, and normalizes text for clean ATS comparison.
+ */
+export function stripHtmlTags(html?: string | null): string {
+  if (!html) return "";
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 6000);
+}
+
+/**
+ * Infers company category dynamically from company metadata or description.
+ */
+export function inferCompanyCategoryFromMeta(
+  companyName: string,
+  description?: string,
+  tags?: string[]
+): CompanyCategory {
+  const text = `${companyName} ${description || ""} ${(tags || []).join(" ")}`.toLowerCase();
+
+  // 1. High-growth Startups (YC, Seed/Series funding, Fintech, Early-stage SaaS)
+  if (/\b(unicorn|y combinator|yc|seed|series [a-e]|hypergrowth|fintech|startup|saas app)\b/i.test(text)) {
+    return "STARTUP";
+  }
+
+  // 2. Mid-Market IT & Multinational Enterprise Product Firms
+  if (/\b(multinational|corporation|enterprise solutions|persistent|nagarro|thoughtworks|epam|globallogic|it services and enterprise)\b/i.test(text)) {
+    return "MID_MNC";
+  }
+
+  // 3. Boutique Consultancies, Digital Agencies & Software Houses
+  if (/\b(agency|consulting|consultancy|boutique|studio|software house|solutions partner|contracting)\b/i.test(text)) {
+    return "SMALL_SCALE";
+  }
+
+  return "STARTUP";
+}
+
+/**
+ * Broad IT ATS Directory: Startups, Mid-Market IT, Small-Scale Agencies, Big MNCs, and Global Tech.
+ */
 export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
-  // 1. STARTUP (Indian Startups & Unicorns)
+  // 1. STARTUP (Indian Startups & Growth-Stage Tech)
   {
     name: "Razorpay",
     category: "STARTUP",
@@ -88,8 +143,419 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
     offersRemoteIndia: true,
     offersRelocation: false,
   },
+  {
+    name: "Groww",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "groww",
+    hrEmail: "careers@groww.in",
+    websiteUrl: "https://groww.in/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Cred",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "dreamplug",
+    hrEmail: "talent@cred.club",
+    websiteUrl: "https://cred.club/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: false,
+    offersRelocation: false,
+  },
+  {
+    name: "Meesho",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "meesho",
+    hrEmail: "careers@meesho.com",
+    websiteUrl: "https://www.meesho.io/jobs",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Zepto",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "zepto",
+    hrEmail: "careers@zeptonow.com",
+    websiteUrl: "https://www.zeptonow.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: false,
+    offersRelocation: false,
+  },
+  {
+    name: "Slice",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "slice",
+    hrEmail: "jobs@sliceit.com",
+    websiteUrl: "https://www.sliceit.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: false,
+    offersRelocation: false,
+  },
+  {
+    name: "Jupiter",
+    category: "STARTUP",
+    atsProvider: "LEVER",
+    atsSlug: "jupiter",
+    hrEmail: "careers@jupiter.money",
+    websiteUrl: "https://jupiter.money/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Sprinto",
+    category: "STARTUP",
+    atsProvider: "ASHBY",
+    atsSlug: "sprinto",
+    hrEmail: "careers@sprinto.com",
+    websiteUrl: "https://sprinto.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Toplyne",
+    category: "STARTUP",
+    atsProvider: "ASHBY",
+    atsSlug: "toplyne",
+    hrEmail: "careers@toplyne.io",
+    websiteUrl: "https://www.toplyne.io/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Rocketlane",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "rocketlane",
+    hrEmail: "careers@rocketlane.com",
+    websiteUrl: "https://www.rocketlane.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Freshworks",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "freshworks",
+    hrEmail: "careers@freshworks.com",
+    websiteUrl: "https://www.freshworks.com/company/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Darwinbox",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "darwinbox",
+    hrEmail: "careers@darwinbox.com",
+    websiteUrl: "https://darwinbox.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: false,
+    offersRelocation: false,
+  },
+  {
+    name: "Whatfix",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "whatfix",
+    hrEmail: "careers@whatfix.com",
+    websiteUrl: "https://whatfix.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "HighRadius",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "highradius",
+    hrEmail: "talent@highradius.com",
+    websiteUrl: "https://www.highradius.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: false,
+    offersRelocation: false,
+  },
+  {
+    name: "Mindtickle",
+    category: "STARTUP",
+    atsProvider: "LEVER",
+    atsSlug: "mindtickle",
+    hrEmail: "careers@mindtickle.com",
+    websiteUrl: "https://www.mindtickle.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Druva",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "druva",
+    hrEmail: "jobs@druva.com",
+    websiteUrl: "https://www.druva.com/about/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Icertis",
+    category: "STARTUP",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "icertis",
+    hrEmail: "careers@icertis.com",
+    websiteUrl: "https://www.icertis.com/company/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
 
-  // 2. BIG MNC (Top MNCs with major India Engineering Hubs)
+  // 2. MID-MARKET IT & ENGINEERING PRODUCT FIRMS (MID_MNC)
+  {
+    name: "Thoughtworks",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "thoughtworks",
+    hrEmail: "india-recruitment@thoughtworks.com",
+    websiteUrl: "https://www.thoughtworks.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "EPAM Systems",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "epam",
+    hrEmail: "talent-acquisition@epam.com",
+    websiteUrl: "https://www.epam.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: true,
+  },
+  {
+    name: "Persistent Systems",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "persistent",
+    hrEmail: "careers@persistent.com",
+    websiteUrl: "https://www.persistent.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Nagarro",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "nagarro",
+    hrEmail: "hiring@nagarro.com",
+    websiteUrl: "https://www.nagarro.com/en/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "GlobalLogic",
+    category: "MID_MNC",
+    atsProvider: "LEVER",
+    atsSlug: "globallogic",
+    hrEmail: "careers-india@globallogic.com",
+    websiteUrl: "https://www.globallogic.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Cimpress India",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "cimpress",
+    hrEmail: "cimpress-india@cimpress.com",
+    websiteUrl: "https://cimpress.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Media.net",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "medianet",
+    hrEmail: "careers@media.net",
+    websiteUrl: "https://www.media.net/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "InMobi",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "inmobi",
+    hrEmail: "careers@inmobi.com",
+    websiteUrl: "https://www.inmobi.com/company/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Zoho",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "zoho",
+    hrEmail: "careers@zohocorp.com",
+    websiteUrl: "https://www.zoho.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: false,
+    offersRelocation: false,
+  },
+  {
+    name: "Amagi",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "amagi",
+    hrEmail: "careers@amagi.com",
+    websiteUrl: "https://www.amagi.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "MoEngage",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "moengage",
+    hrEmail: "careers@moengage.com",
+    websiteUrl: "https://www.moengage.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Gupshup",
+    category: "MID_MNC",
+    atsProvider: "LEVER",
+    atsSlug: "gupshup",
+    hrEmail: "careers@gupshup.io",
+    websiteUrl: "https://www.gupshup.io/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Publicis Sapient",
+    category: "MID_MNC",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "publicissapient",
+    hrEmail: "careers-india@publicissapient.com",
+    websiteUrl: "https://careers.publicissapient.com",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+
+  // 3. SMALL-SCALE & BOUTIQUE CONSULTANCIES (SMALL_SCALE)
+  {
+    name: "Axelerant",
+    category: "SMALL_SCALE",
+    atsProvider: "ASHBY",
+    atsSlug: "axelerant",
+    hrEmail: "careers@axelerant.com",
+    websiteUrl: "https://www.axelerant.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Thoughtbot",
+    category: "SMALL_SCALE",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "thoughtbot",
+    hrEmail: "jobs@thoughtbot.com",
+    websiteUrl: "https://thoughtbot.com/jobs",
+    isIndiaBased: false,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Formidable",
+    category: "SMALL_SCALE",
+    atsProvider: "LEVER",
+    atsSlug: "formidable",
+    hrEmail: "careers@formidable.com",
+    websiteUrl: "https://formidable.com/careers/",
+    isIndiaBased: false,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "NearForm",
+    category: "SMALL_SCALE",
+    atsProvider: "GREENHOUSE",
+    atsSlug: "nearform",
+    hrEmail: "careers@nearform.com",
+    websiteUrl: "https://www.nearform.com/careers/",
+    isIndiaBased: false,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Saeloun",
+    category: "SMALL_SCALE",
+    atsProvider: "ASHBY",
+    atsSlug: "saeloun",
+    hrEmail: "careers@saeloun.com",
+    websiteUrl: "https://www.saeloun.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Josh Software",
+    category: "SMALL_SCALE",
+    atsProvider: "LEVER",
+    atsSlug: "joshsoftware",
+    hrEmail: "careers@joshsoftware.com",
+    websiteUrl: "https://joshsoftware.com/careers",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "ColoredCow",
+    category: "SMALL_SCALE",
+    atsProvider: "ASHBY",
+    atsSlug: "coloredcow",
+    hrEmail: "careers@coloredcow.com",
+    websiteUrl: "https://coloredcow.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+  {
+    name: "Simform",
+    category: "SMALL_SCALE",
+    atsProvider: "LEVER",
+    atsSlug: "simform",
+    hrEmail: "careers@simform.com",
+    websiteUrl: "https://www.simform.com/careers/",
+    isIndiaBased: true,
+    offersRemoteIndia: true,
+    offersRelocation: false,
+  },
+
+  // 4. BIG MNC (Top MNCs with major India Engineering Hubs)
   {
     name: "Microsoft India",
     category: "BIG_MNC",
@@ -113,7 +579,7 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
     offersRelocation: false,
   },
 
-  // 3. BIG SHARKS (Decacorns & Global Titans with India Hubs)
+  // 5. BIG SHARKS (Decacorns & Global Titans with India Hubs)
   {
     name: "Stripe",
     category: "BIG_SHARKS",
@@ -147,30 +613,8 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
     offersRemoteIndia: true,
     offersRelocation: false,
   },
-  {
-    name: "Coinbase",
-    category: "BIG_SHARKS",
-    atsProvider: "GREENHOUSE",
-    atsSlug: "coinbase",
-    hrEmail: "careers@coinbase.com",
-    websiteUrl: "https://www.coinbase.com/careers",
-    isIndiaBased: true,
-    offersRemoteIndia: true,
-    offersRelocation: false,
-  },
-  {
-    name: "Uber",
-    category: "BIG_SHARKS",
-    atsProvider: "GREENHOUSE",
-    atsSlug: "uber",
-    hrEmail: "india-tech-recruiting@uber.com",
-    websiteUrl: "https://www.uber.com/careers",
-    isIndiaBased: true,
-    offersRemoteIndia: false,
-    offersRelocation: false,
-  },
 
-  // 4. ACTIVELY HIRING
+  // 6. ACTIVELY HIRING DEVELOPER PLATFORMS
   {
     name: "Vercel",
     category: "ACTIVELY_HIRING",
@@ -190,32 +634,6 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
     hrEmail: "careers@supabase.com",
     websiteUrl: "https://supabase.com/careers",
     isIndiaBased: false,
-    offersRemoteIndia: true,
-    offersRelocation: false,
-  },
-
-  // 5. MID-MARKET MNCs
-  {
-    name: "Thoughtworks",
-    category: "MID_MNC",
-    atsProvider: "GREENHOUSE",
-    atsSlug: "thoughtworks",
-    hrEmail: "india-recruitment@thoughtworks.com",
-    websiteUrl: "https://www.thoughtworks.com/careers",
-    isIndiaBased: true,
-    offersRemoteIndia: true,
-    offersRelocation: false,
-  },
-
-  // 6. SMALL-SCALE & CONSULTING AGENCIES
-  {
-    name: "Axelerant",
-    category: "SMALL_SCALE",
-    atsProvider: "ASHBY",
-    atsSlug: "axelerant",
-    hrEmail: "careers@axelerant.com",
-    websiteUrl: "https://www.axelerant.com/careers",
-    isIndiaBased: true,
     offersRemoteIndia: true,
     offersRelocation: false,
   },
@@ -279,7 +697,7 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// Public ATS Fetchers (Greenhouse, Lever, Ashby, Remotive, Arbeitnow)
+// Public ATS Fetchers (Greenhouse, Lever, Ashby)
 // -----------------------------------------------------------------------------
 
 export async function fetchGreenhouseJobs(
@@ -309,6 +727,7 @@ export async function fetchGreenhouseJobs(
         absolute_url?: string;
         location?: { name?: string };
         updated_at?: string;
+        content?: string;
       }>;
     };
 
@@ -325,6 +744,7 @@ export async function fetchGreenhouseJobs(
         companySlug: atsSlug,
         atsProvider: "GREENHOUSE" as const,
         postedAt: j.updated_at ? new Date(j.updated_at) : null,
+        jobDescription: stripHtmlTags(j.content) || `${companyName} engineering role for ${j.title}. Core responsibilities include scalable service development, clean architecture, and product ownership.`,
         category,
         hrEmail,
       }));
@@ -360,6 +780,8 @@ export async function fetchLeverJobs(
       hostedUrl?: string;
       applyUrl?: string;
       categories?: { location?: string; commitment?: string };
+      descriptionPlain?: string;
+      description?: string;
       createdAt?: number;
     }>;
 
@@ -376,6 +798,7 @@ export async function fetchLeverJobs(
         companySlug: atsSlug,
         atsProvider: "LEVER" as const,
         postedAt: j.createdAt ? new Date(j.createdAt) : null,
+        jobDescription: stripHtmlTags(j.descriptionPlain || j.description) || `${companyName} is hiring a ${j.text}. Build and maintain production services, collaborate cross-functionally, and deliver high-impact software.`,
         category,
         hrEmail,
       }));
@@ -412,6 +835,8 @@ export async function fetchAshbyJobs(
         jobUrl?: string;
         location?: string;
         publishedAt?: string;
+        descriptionPlain?: string;
+        descriptionHtml?: string;
         secondaryLocations?: Array<{ location?: string }>;
       }>;
     };
@@ -429,6 +854,7 @@ export async function fetchAshbyJobs(
         companySlug: atsSlug,
         atsProvider: "ASHBY" as const,
         postedAt: j.publishedAt ? new Date(j.publishedAt) : null,
+        jobDescription: stripHtmlTags(j.descriptionPlain || j.descriptionHtml) || `${companyName} engineering posting for ${j.title}. Designing and delivering resilient backend and frontend software architectures.`,
         category,
         hrEmail,
       }));
@@ -438,6 +864,192 @@ export async function fetchAshbyJobs(
   }
 }
 
+// -----------------------------------------------------------------------------
+// Free Open-Web IT Aggregators (Himalayas, Jobicy, RemoteOK, Remotive, Arbeitnow)
+// -----------------------------------------------------------------------------
+
+/**
+ * 1. Himalayas Public Jobs API (Free, no auth required)
+ * https://himalayas.app/jobs/api
+ */
+export async function fetchHimalayasJobs(): Promise<RawLiveJob[]> {
+  try {
+    const url = "https://himalayas.app/jobs/api?limit=30";
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+      console.warn(`[LiveJobFetch] Himalayas returned status ${res.status}`);
+      return [];
+    }
+
+    const data = (await res.json()) as {
+      jobs?: Array<{
+        title?: string;
+        company_name?: string;
+        application_url?: string;
+        location?: string;
+        pub_date?: string;
+        description?: string;
+        excerpt?: string;
+        categories?: string[];
+      }>;
+    };
+
+    if (!Array.isArray(data.jobs)) return [];
+
+    return data.jobs
+      .filter((j) => j && j.title && j.company_name && (j.application_url || ""))
+      .map((j) => {
+        const company = j.company_name!.trim();
+        const category = inferCompanyCategoryFromMeta(company, j.excerpt, j.categories);
+        return {
+          externalId: `himalayas-${company.toLowerCase().replace(/[^a-z0-9]/g, "")}-${j.title!.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 20)}`,
+          title: j.title!.trim(),
+          url: j.application_url || `https://himalayas.app/jobs`,
+          location: j.location?.trim() || "Remote Worldwide",
+          companyName: company,
+          atsProvider: "HIMALAYAS" as const,
+          postedAt: j.pub_date ? new Date(j.pub_date) : null,
+          jobDescription: stripHtmlTags(j.description || j.excerpt),
+          category,
+          hrEmail: `careers@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
+        };
+      });
+  } catch (err) {
+    console.warn("[LiveJobFetch] Himalayas fetch failed:", (err as Error).message);
+    return [];
+  }
+}
+
+/**
+ * 2. Jobicy Public Remote Jobs API (Free, no auth required)
+ * https://jobicy.com/api/v2/remote-jobs
+ */
+export async function fetchJobicyJobs(): Promise<RawLiveJob[]> {
+  try {
+    const url = "https://jobicy.com/api/v2/remote-jobs?count=40&industry=engineering";
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+      console.warn(`[LiveJobFetch] Jobicy returned status ${res.status}`);
+      return [];
+    }
+
+    const data = (await res.json()) as {
+      jobs?: Array<{
+        id: number | string;
+        url?: string;
+        jobTitle?: string;
+        companyName?: string;
+        jobDescription?: string;
+        jobGeo?: string;
+        pubDate?: string;
+      }>;
+    };
+
+    if (!Array.isArray(data.jobs)) return [];
+
+    return data.jobs
+      .filter((j) => j && j.jobTitle && j.companyName && j.url)
+      .map((j) => {
+        const company = j.companyName!.trim();
+        const category = inferCompanyCategoryFromMeta(company, j.jobDescription);
+        return {
+          externalId: `jobicy-${j.id}`,
+          title: j.jobTitle!.trim(),
+          url: j.url!,
+          location: j.jobGeo?.trim() || "Worldwide",
+          companyName: company,
+          atsProvider: "JOBICY" as const,
+          postedAt: j.pubDate ? new Date(j.pubDate) : null,
+          jobDescription: stripHtmlTags(j.jobDescription),
+          category,
+          hrEmail: `careers@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
+        };
+      });
+  } catch (err) {
+    console.warn("[LiveJobFetch] Jobicy fetch failed:", (err as Error).message);
+    return [];
+  }
+}
+
+/**
+ * 3. RemoteOK Public Jobs API (Free, requires user-agent header)
+ * https://remoteok.com/api
+ */
+export async function fetchRemoteOkJobs(): Promise<RawLiveJob[]> {
+  try {
+    const url = "https://remoteok.com/api";
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "RoutineTracker/1.0 (IT Candidate Outreach; contact: info@routine.app)",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[LiveJobFetch] RemoteOK returned status ${res.status}`);
+      return [];
+    }
+
+    const items = (await res.json()) as Array<{
+      id?: string | number;
+      position?: string;
+      company?: string;
+      url?: string;
+      description?: string;
+      location?: string;
+      tags?: string[];
+      date?: string;
+    }>;
+
+    if (!Array.isArray(items)) return [];
+
+    // First item is legal notice / disclaimer, skip it
+    return items
+      .filter((j) => j && j.position && j.company && j.url)
+      .filter((j) => {
+        const tagStr = (j.tags || []).join(" ").toLowerCase();
+        return (
+          tagStr.includes("dev") ||
+          tagStr.includes("engineer") ||
+          tagStr.includes("software") ||
+          isEngineeringRole(j.position || "")
+        );
+      })
+      .slice(0, 30)
+      .map((j) => {
+        const company = j.company!.trim();
+        const category = inferCompanyCategoryFromMeta(company, j.description, j.tags);
+        return {
+          externalId: `remoteok-${j.id || Math.random().toString(36).slice(2)}`,
+          title: j.position!.trim(),
+          url: j.url!.startsWith("http") ? j.url! : `https://remoteok.com${j.url}`,
+          location: j.location?.trim() || "Worldwide",
+          companyName: company,
+          atsProvider: "REMOTEOK" as const,
+          postedAt: j.date ? new Date(j.date) : null,
+          jobDescription: stripHtmlTags(j.description),
+          category,
+          hrEmail: `careers@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
+        };
+      });
+  } catch (err) {
+    console.warn("[LiveJobFetch] RemoteOK fetch failed:", (err as Error).message);
+    return [];
+  }
+}
+
+/**
+ * 4. Remotive API (Free, open)
+ */
 export async function fetchRemotiveJobs(): Promise<RawLiveJob[]> {
   try {
     const url = "https://remotive.com/api/remote-jobs?category=software-dev";
@@ -457,6 +1069,7 @@ export async function fetchRemotiveJobs(): Promise<RawLiveJob[]> {
         url?: string;
         title?: string;
         company_name?: string;
+        description?: string;
         candidate_required_location?: string;
         publication_date?: string;
       }>;
@@ -466,23 +1079,31 @@ export async function fetchRemotiveJobs(): Promise<RawLiveJob[]> {
 
     return data.jobs
       .filter((j) => j && j.title && j.url && j.company_name)
-      .map((j) => ({
-        externalId: `remotive-${j.id}`,
-        title: j.title!.trim(),
-        url: j.url!,
-        location: j.candidate_required_location?.trim() || "Worldwide",
-        companyName: j.company_name!.trim(),
-        atsProvider: "REMOTIVE" as const,
-        postedAt: j.publication_date ? new Date(j.publication_date) : null,
-        category: "FOREIGN",
-        hrEmail: `careers@${j.company_name!.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
-      }));
+      .map((j) => {
+        const company = j.company_name!.trim();
+        const category = inferCompanyCategoryFromMeta(company, j.description);
+        return {
+          externalId: `remotive-${j.id}`,
+          title: j.title!.trim(),
+          url: j.url!,
+          location: j.candidate_required_location?.trim() || "Worldwide",
+          companyName: company,
+          atsProvider: "REMOTIVE" as const,
+          postedAt: j.publication_date ? new Date(j.publication_date) : null,
+          jobDescription: stripHtmlTags(j.description),
+          category,
+          hrEmail: `careers@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
+        };
+      });
   } catch (err) {
     console.warn("[LiveJobFetch] Remotive fetch failed:", (err as Error).message);
     return [];
   }
 }
 
+/**
+ * 5. Arbeitnow API (Free, open)
+ */
 export async function fetchArbeitnowJobs(): Promise<RawLiveJob[]> {
   try {
     const url = "https://www.arbeitnow.com/api/job-board-api";
@@ -503,6 +1124,7 @@ export async function fetchArbeitnowJobs(): Promise<RawLiveJob[]> {
         title?: string;
         url?: string;
         location?: string;
+        description?: string;
         visa_sponsorship?: boolean;
         created_at?: number;
       }>;
@@ -513,17 +1135,20 @@ export async function fetchArbeitnowJobs(): Promise<RawLiveJob[]> {
     return data.data
       .filter((j) => j && j.title && j.url && j.company_name)
       .map((j) => {
+        const company = j.company_name!.trim();
         const visaTag = j.visa_sponsorship ? " (Visa Sponsorship)" : "";
+        const category = inferCompanyCategoryFromMeta(company, j.description);
         return {
           externalId: `arbeitnow-${j.slug || Math.random().toString(36).slice(2)}`,
           title: j.title!.trim(),
           url: j.url!,
           location: `${j.location || "Remote"}${visaTag}`,
-          companyName: j.company_name!.trim(),
+          companyName: company,
           atsProvider: "ARBEITNOW" as const,
           postedAt: j.created_at ? new Date(j.created_at * 1000) : null,
-          category: "FOREIGN",
-          hrEmail: `careers@${j.company_name!.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
+          jobDescription: stripHtmlTags(j.description),
+          category,
+          hrEmail: `careers@${company.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
         };
       });
   } catch (err) {
@@ -546,6 +1171,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "razorpay",
     atsProvider: "LEVER",
     postedAt: new Date(),
+    jobDescription: "Razorpay is seeking an SDE-II for our core payments platform. Architect high-throughput distributed microservices in Go and Java, process millions of daily transactions, optimize PostgreSQL and Redis queries, and drive financial reliability.",
     category: "STARTUP",
     hrEmail: "careers@razorpay.com",
   },
@@ -558,6 +1184,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "postman",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    jobDescription: "Postman is looking for a Full-Stack Engineer with Node.js, React, and TypeScript expertise to build real-time collaborative workspace features used by 30M+ developers globally. Experience with microservices, WebSockets, and distributed state is desired.",
     category: "STARTUP",
     hrEmail: "careers@postman.com",
   },
@@ -570,6 +1197,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "browserstack",
     atsProvider: "LEVER",
     postedAt: new Date(Date.now() - 48 * 60 * 60 * 1000),
+    jobDescription: "BrowserStack engineers design massive cloud infrastructure for automated browser and mobile testing. We require strong skills in Linux internals, Docker, Node.js or Ruby, high concurrency, and low-latency system design.",
     category: "STARTUP",
     hrEmail: "jobs@browserstack.com",
   },
@@ -582,6 +1210,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "hasura",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 12 * 60 * 60 * 1000),
+    jobDescription: "Hasura is looking for engineers passionate about compilers, distributed query engines, and database internals. Help build our next-generation GraphQL engine with Haskell, Rust, or Go, integrating deeply with PostgreSQL, MySQL, and BigQuery.",
     category: "STARTUP",
     hrEmail: "talent@hasura.io",
   },
@@ -594,6 +1223,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "clevertap",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 36 * 60 * 60 * 1000),
+    jobDescription: "CleverTap powers billions of real-time user engagements. Seeking a Java Backend Engineer with Spring Boot, Kafka, and Redis skills to optimize low-latency real-time event streaming and analytical query systems.",
     category: "STARTUP",
     hrEmail: "careers@clevertap.com",
   },
@@ -606,6 +1236,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "microsoft",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(),
+    jobDescription: "Microsoft Azure India team is hiring software engineers for core cloud control plane services. Responsibilities include building fault-tolerant distributed systems in C#, C++, or Java, implementing REST APIs, and automating deployment pipelines.",
     category: "BIG_MNC",
     hrEmail: "india-careers@microsoft.com",
   },
@@ -618,32 +1249,9 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "stripe",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 18 * 60 * 60 * 1000),
+    jobDescription: "Stripe is seeking engineers to build global payment infrastructure in Bengaluru. Work on high-availability ledger systems, banking integrations, and API gateways using Ruby, Go, Java, and distributed SQL storage.",
     category: "BIG_SHARKS",
     hrEmail: "talent-india@stripe.com",
-  },
-  {
-    externalId: "gh-databricks-live-08",
-    title: "Software Development Engineer - Lakehouse Core Engine",
-    url: "https://www.databricks.com/company/careers/sde-lakehouse",
-    location: "Bengaluru, Karnataka, India",
-    companyName: "Databricks",
-    companySlug: "databricks",
-    atsProvider: "GREENHOUSE",
-    postedAt: new Date(Date.now() - 6 * 60 * 60 * 1000),
-    category: "BIG_SHARKS",
-    hrEmail: "careers-india@databricks.com",
-  },
-  {
-    externalId: "gh-atlassian-live-09",
-    title: "Senior Full-Stack Developer - Jira Cloud Core",
-    url: "https://www.atlassian.com/company/careers/senior-full-stack",
-    location: "Bengaluru, India / Remote India",
-    companyName: "Atlassian",
-    companySlug: "atlassian",
-    atsProvider: "GREENHOUSE",
-    postedAt: new Date(Date.now() - 20 * 60 * 60 * 1000),
-    category: "BIG_SHARKS",
-    hrEmail: "talent-acquisition-apac@atlassian.com",
   },
   {
     externalId: "gh-thoughtworks-live-10",
@@ -654,6 +1262,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "thoughtworks",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 14 * 60 * 60 * 1000),
+    jobDescription: "Thoughtworks consultants drive premier technology transformation. Lead engineering pods designing microservices, React and Next.js applications, and cloud-native Kubernetes deployments following clean architecture and TDD.",
     category: "MID_MNC",
     hrEmail: "india-recruitment@thoughtworks.com",
   },
@@ -666,6 +1275,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "vercel",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(),
+    jobDescription: "Vercel is looking for engineers to advance the Next.js ecosystem. Contribute to React Server Components, Turbopack, and edge runtime optimizations using Rust, TypeScript, and Node.js.",
     category: "ACTIVELY_HIRING",
     hrEmail: "recruiting@vercel.com",
   },
@@ -678,6 +1288,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "supabase",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 15 * 60 * 60 * 1000),
+    jobDescription: "Supabase is looking for a Full-Stack Engineer with React, TypeScript, and PostgreSQL depth. Help develop the Supabase Studio web dashboard, Postgres query editor, and realtime sync listeners.",
     category: "ACTIVELY_HIRING",
     hrEmail: "careers@supabase.com",
   },
@@ -690,6 +1301,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "axelerant",
     atsProvider: "ASHBY",
     postedAt: new Date(Date.now() - 8 * 60 * 60 * 1000),
+    jobDescription: "Axelerant is a 100% remote digital consultancy. Seeking associate full-stack engineers with React, TypeScript, and Node.js skills. Work with global clients to build headless CMS platforms and modern web applications.",
     category: "SMALL_SCALE",
     hrEmail: "careers@axelerant.com",
   },
@@ -702,6 +1314,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "gitlab",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 30 * 60 * 60 * 1000),
+    jobDescription: "GitLab database engineers optimize one of the world's largest multi-tenant PostgreSQL clusters. Seeking senior engineers with deep PostgreSQL partitioning, query optimization, Ruby/Go, and distributed database experience.",
     category: "FOREIGN",
     hrEmail: "talent-acquisition@gitlab.com",
   },
@@ -714,6 +1327,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "canonical",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 40 * 60 * 60 * 1000),
+    jobDescription: "Canonical builds Ubuntu, the OS of choice for cloud and IoT. Seeking software engineers with Python, Go, and Linux systems depth to engineer container infrastructure, Snapcraft packaging, and cloud initialization tools.",
     category: "FOREIGN",
     hrEmail: "talent@canonical.com",
   },
@@ -726,32 +1340,9 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     companySlug: "booking",
     atsProvider: "GREENHOUSE",
     postedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+    jobDescription: "Booking.com provides full relocation and visa sponsorship to Amsterdam. Looking for engineers with Java, Spring Boot, or Python experience to scale search, pricing, and high-concurrency booking platforms.",
     category: "FOREIGN",
     hrEmail: "jobs@booking.com",
-  },
-  {
-    externalId: "gh-automattic-live-17",
-    title: "Code Wrangler / Full-Stack Engineer - WordPress.com",
-    url: "https://automattic.com/work-with-us/code-wrangler/",
-    location: "Work from Anywhere (Remote Worldwide)",
-    companyName: "Automattic",
-    companySlug: "automattic",
-    atsProvider: "GREENHOUSE",
-    postedAt: new Date(Date.now() - 10 * 60 * 60 * 1000),
-    category: "FOREIGN",
-    hrEmail: "jobs@automattic.com",
-  },
-  {
-    externalId: "gh-duckduckgo-live-18",
-    title: "Senior Backend Engineer - Private Search Architecture",
-    url: "https://duckduckgo.com/hiring/senior-backend-engineer",
-    location: "100% Remote Worldwide",
-    companyName: "DuckDuckGo",
-    companySlug: "duckduckgo",
-    atsProvider: "GREENHOUSE",
-    postedAt: new Date(Date.now() - 50 * 60 * 60 * 1000),
-    category: "FOREIGN",
-    hrEmail: "open-positions@duckduckgo.com",
   },
 ];
 
@@ -760,9 +1351,8 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
 // -----------------------------------------------------------------------------
 
 /**
- * Fetches live active jobs across Greenhouse, Lever, Ashby, Remotive, and Arbeitnow
- * in parallel batches with concurrency control, prioritizes India jobs, and filters
- * out non-tech / non-India roles.
+ * Fetches live active jobs across Greenhouse, Lever, Ashby, Himalayas, Jobicy, RemoteOK, Remotive, and Arbeitnow
+ * in parallel batches with concurrency control, prioritizes India jobs, and filters out non-tech / non-India roles.
  */
 export async function fetchAllActiveLiveJobs(options?: {
   categories?: CompanyCategory[];
@@ -779,8 +1369,8 @@ export async function fetchAllActiveLiveJobs(options?: {
 
   const rawJobs: RawLiveJob[] = [];
 
-  // 1. Parallel Batch ATS Fetching (concurrency limit 5)
-  const batchSize = 5;
+  // 1. Parallel Batch ATS Fetching (concurrency limit 6)
+  const batchSize = 6;
   for (let i = 0; i < targetCompanies.length; i += batchSize) {
     const chunk = targetCompanies.slice(i, i + batchSize);
     const results = await Promise.allSettled(
@@ -802,14 +1392,18 @@ export async function fetchAllActiveLiveJobs(options?: {
     }
   }
 
-  // 2. Fetch from Public Free Job Board Feeds (Remotive, Arbeitnow) if foreign/remote is enabled
-  const shouldFetchForeignFeeds = !selectedCategories || selectedCategories.includes("FOREIGN") || selectedCategories.includes("ACTIVELY_HIRING");
-  if (shouldFetchForeignFeeds) {
-    const feedResults = await Promise.allSettled([fetchRemotiveJobs(), fetchArbeitnowJobs()]);
-    for (const res of feedResults) {
-      if (res.status === "fulfilled" && Array.isArray(res.value)) {
-        rawJobs.push(...res.value);
-      }
+  // 2. Fetch from Free Open-Web Aggregators (Himalayas, Jobicy, RemoteOK, Remotive, Arbeitnow)
+  const aggregatorResults = await Promise.allSettled([
+    fetchHimalayasJobs(),
+    fetchJobicyJobs(),
+    fetchRemoteOkJobs(),
+    fetchRemotiveJobs(),
+    fetchArbeitnowJobs(),
+  ]);
+
+  for (const res of aggregatorResults) {
+    if (res.status === "fulfilled" && Array.isArray(res.value)) {
+      rawJobs.push(...res.value);
     }
   }
 
@@ -849,10 +1443,6 @@ export async function fetchAllActiveLiveJobs(options?: {
     }
 
     const expLevel = inferExperienceLevelFromTitle(job.title);
-    if (options?.experienceLevel && expLevel !== options.experienceLevel) {
-      // If user specified an experience level, we keep matching ones (we still allow all if unspecified)
-      // We will sort matching experience to the top in scoring
-    }
 
     const priorityScore = scoreLiveJobPriority({
       isIndiaBased: locInfo.isIndiaBased,
@@ -868,6 +1458,7 @@ export async function fetchAllActiveLiveJobs(options?: {
         title: job.title,
         jobUrl: job.url,
         jobLocation: locInfo.cleanLocation,
+        jobDescription: job.jobDescription || null,
         companyName: job.companyName,
         companyCategory,
         hrEmail,

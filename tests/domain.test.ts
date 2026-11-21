@@ -44,6 +44,8 @@ import {
   extractEmailAddress,
 } from "../src/lib/domain/email-config.ts";
 import { generatePdfFromText } from "../src/lib/pdf-generator.ts";
+import { calculateAtsMatch, extractTaxonomySkills } from "../src/lib/domain/ats-matcher.ts";
+import { inferCompanyCategoryFromMeta, stripHtmlTags } from "../src/server/services/live-job-fetchers.ts";
 import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
 import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
@@ -1376,5 +1378,117 @@ Special symbols: • Bullet 1 — Em dash – En dash … Ellipsis \\ Backslash`
       expect(latinStr.trimEnd().endsWith("%%EOF")).toBe(true);
       // Ensure parentheses were escaped
       expect(latinStr).toContain("\\(Jack\\)");
+    });
+  });
+
+  describe("Resume ATS-to-JD Matcher & Dynamic IT Categorization", () => {
+    const javaBackendResume = `
+      Senior Backend Engineer with 4 years of experience building high-throughput microservices.
+      Primary stack: Java 17, Spring Boot, PostgreSQL, Kafka, Redis, Docker, REST APIs, Microservices.
+      Architected scalable distributed payment services and optimized database queries.
+    `;
+    const javaSkills = ["Java", "Spring Boot", "PostgreSQL", "Kafka", "Redis", "Docker", "REST APIs", "Microservices"];
+
+    it("evaluates a High Match scenario for closely aligned technical JD and experience", () => {
+      const jd = `
+        We are hiring an SDE II - Java Backend Engineer (3-5 Years).
+        Requirements: Core Java, Spring Boot, PostgreSQL, Redis, REST APIs, and microservices architecture.
+      `;
+      const result = calculateAtsMatch(
+        javaBackendResume,
+        javaSkills,
+        "Software Development Engineer II - Java Backend (3-5 Yrs)",
+        jd,
+        "MID"
+      );
+
+      expect(result.score).toBeGreaterThanOrEqual(75);
+      expect(result.probabilityLabel).toBe("High");
+      expect(result.experienceFit).toBe("STRONG");
+      expect(result.matchedSkills).toContain("Java");
+      expect(result.matchedSkills).toContain("Spring Boot");
+      expect(result.matchedSkills).toContain("PostgreSQL");
+      expect(result.summary).toContain("Strong match");
+    });
+
+    it("evaluates a Moderate Match scenario when core skills partially overlap or experience is adjacent", () => {
+      const jd = `
+        Full-Stack Engineer (1-3 Years).
+        Must have: Java, TypeScript, React, PostgreSQL, and AWS.
+      `;
+      const result = calculateAtsMatch(
+        javaBackendResume,
+        javaSkills,
+        "Full-Stack Software Engineer (1-3 Yrs)",
+        jd,
+        "MID" // Candidate is MID, role is JUNIOR (1 tier diff)
+      );
+
+      expect(result.score).toBeGreaterThanOrEqual(50);
+      expect(result.score).toBeLessThan(80);
+      expect(result.probabilityLabel).toBe("Moderate");
+      expect(result.experienceFit).toBe("PARTIAL");
+      expect(result.matchedSkills).toContain("Java");
+      expect(result.missingSkills).toContain("React");
+    });
+
+    it("evaluates a Stretch scenario with low skill overlap and large experience gap", () => {
+      const jd = `
+        Principal Staff iOS Engineer (8+ years).
+        Must have: Swift, Objective-C, CoreData, Metal, and high-performance mobile architectures.
+      `;
+      const result = calculateAtsMatch(
+        javaBackendResume,
+        javaSkills,
+        "Staff Principal iOS Mobile Architect (5+ Years Senior)",
+        jd,
+        "FRESHER" // Candidate is FRESHER applying to SENIOR
+      );
+
+      expect(result.score).toBeLessThan(50);
+      expect(result.probabilityLabel).toBe("Stretch");
+      expect(result.experienceFit).toBe("STRETCH");
+      expect(result.experienceScore).toBeLessThanOrEqual(4);
+    });
+
+    it("penalizes FRESHER candidates applying for SENIOR roles heavily", () => {
+      const fresherResult = calculateAtsMatch(
+        "Fresher Graduate with Java knowledge",
+        ["Java"],
+        "Senior Lead Software Engineer (5+ Years)",
+        "Senior role needing 5+ years Java and leadership",
+        "FRESHER"
+      );
+      const seniorResult = calculateAtsMatch(
+        "Senior Staff Engineer with 8 years Java",
+        ["Java"],
+        "Senior Lead Software Engineer (5+ Years)",
+        "Senior role needing 5+ years Java and leadership",
+        "SENIOR"
+      );
+
+      expect(fresherResult.experienceScore).toBeLessThan(seniorResult.experienceScore);
+      expect(fresherResult.experienceFit).toBe("STRETCH");
+      expect(seniorResult.experienceFit).toBe("STRONG");
+    });
+
+    it("infers dynamic company categories for open-aggregator IT listings correctly", () => {
+      expect(inferCompanyCategoryFromMeta("PixelCraft Studio", "Digital agency and consulting services for web clients")).toBe("SMALL_SCALE");
+      expect(inferCompanyCategoryFromMeta("Acme Consulting", "IT services and software contracting")).toBe("SMALL_SCALE");
+      expect(inferCompanyCategoryFromMeta("Persistent Technologies", "Global multinational IT services and enterprise solutions")).toBe("MID_MNC");
+      expect(inferCompanyCategoryFromMeta("PayZap Technologies", "YC backed fintech startup scaling rapid consumer payments")).toBe("STARTUP");
+      expect(inferCompanyCategoryFromMeta("CloudScale App", "B2B SaaS product for developers")).toBe("STARTUP");
+    });
+
+    it("strips HTML tags and decodes entities cleanly from job descriptions", () => {
+      const html = `<div class="job-desc"><p>We are hiring a <strong>Senior Engineer</strong> &amp; architect.</p><script>alert('xss')</script><span>Requirements: Java &lt; 21 &gt; 11</span></div>`;
+      const stripped = stripHtmlTags(html);
+
+      expect(stripped).not.toContain("<p>");
+      expect(stripped).not.toContain("<script>");
+      expect(stripped).not.toContain("alert");
+      expect(stripped).toContain("Senior Engineer");
+      expect(stripped).toContain("&");
+      expect(stripped).toContain("Java < 21 > 11");
     });
   });

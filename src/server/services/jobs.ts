@@ -25,6 +25,7 @@ import {
   getRoleForExperience,
 } from "@/server/services/job-scraper";
 import { COMPANY_CATEGORIES } from "@/lib/domain/jobs";
+import { calculateAtsMatch } from "@/lib/domain/ats-matcher";
 
 const COMMON_SKILLS_LIST = [
   "TypeScript", "JavaScript", "Python", "Java", "Go", "Rust", "C++", "C#", "PHP", "Ruby",
@@ -305,20 +306,50 @@ export async function syncLiveJobsForCandidate(
       });
     }
 
-    // 3. User's existing applications (prevent re-queuing already applied/active roles)
+    // 3. User's resume & profile for ATS shortlist scoring
+    const resume = await tx.userResume.findUnique({ where: { userId } });
+    const candidateProfile = await getCandidateProfile(userId);
+    const resumeSkills = (resume?.skillsJson as string[]) || [];
+
+    // 4. User's existing applications (prevent re-queuing already applied/active roles)
     const userExistingApps = await tx.jobApplication.findMany({
       where: { userId },
-      select: { companyId: true, jobTitle: true },
+      select: { id: true, companyId: true, jobTitle: true, jobDescription: true, atsMatchScore: true },
     });
     const appliedSet = new Set(userExistingApps.map((a) => `${a.companyId}|${a.jobTitle}`));
 
-    // 4. Filter live jobs by category, locationFilter, and limit
+    // If candidate has a resume, backfill any active TO_APPLY apps that are missing ATS scores
+    if (resume) {
+      for (const existingApp of userExistingApps) {
+        if (existingApp.atsMatchScore === null) {
+          const ats = calculateAtsMatch(
+            resume.parsedText,
+            resumeSkills,
+            existingApp.jobTitle,
+            existingApp.jobDescription,
+            candidateProfile.experienceLevel
+          );
+          await tx.jobApplication.update({
+            where: { id: existingApp.id },
+            data: {
+              atsMatchScore: ats.score,
+              atsBreakdownJson: JSON.stringify(ats),
+            },
+          });
+        }
+      }
+    }
+
+    // 5. Filter live jobs by category, locationFilter, and limit
     const newApplicationsData: Array<{
       userId: string;
       companyId: string;
       jobTitle: string;
       jobUrl: string | null;
       jobLocation: string | null;
+      jobDescription: string | null;
+      atsMatchScore: number | null;
+      atsBreakdownJson: string | null;
       externalJobId: string | null;
       postedAt: Date | null;
       isLiveVerified: boolean;
@@ -344,12 +375,30 @@ export async function syncLiveJobsForCandidate(
 
       const appKey = `${comp.id}|${liveJob.title}`;
       if (!appliedSet.has(appKey)) {
+        let atsScore: number | null = null;
+        let atsBreakdown: string | null = null;
+
+        if (resume) {
+          const match = calculateAtsMatch(
+            resume.parsedText,
+            resumeSkills,
+            liveJob.title,
+            liveJob.jobDescription,
+            candidateProfile.experienceLevel
+          );
+          atsScore = match.score;
+          atsBreakdown = JSON.stringify(match);
+        }
+
         newApplicationsData.push({
           userId,
           companyId: comp.id,
           jobTitle: liveJob.title,
           jobUrl: liveJob.jobUrl,
           jobLocation: liveJob.jobLocation,
+          jobDescription: liveJob.jobDescription || null,
+          atsMatchScore: atsScore,
+          atsBreakdownJson: atsBreakdown,
           externalJobId: liveJob.externalJobId,
           postedAt: liveJob.postedAt ? new Date(liveJob.postedAt) : null,
           isLiveVerified: true,
@@ -372,6 +421,42 @@ export async function syncLiveJobsForCandidate(
       include: { company: true },
       orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
     });
+  });
+}
+
+/**
+ * Re-scores all active TO_APPLY job applications against candidate's current resume.
+ */
+export async function recalculateUserAtsScores(userId: string): Promise<number> {
+  return withUserDb(userId, async (tx) => {
+    const resume = await tx.userResume.findUnique({ where: { userId } });
+    if (!resume) return 0;
+
+    const candidateProfile = await getCandidateProfile(userId);
+    const resumeSkills = (resume.skillsJson as string[]) || [];
+
+    const toApplyApps = await tx.jobApplication.findMany({
+      where: { userId, stage: "TO_APPLY" },
+    });
+
+    for (const app of toApplyApps) {
+      const match = calculateAtsMatch(
+        resume.parsedText,
+        resumeSkills,
+        app.jobTitle,
+        app.jobDescription,
+        candidateProfile.experienceLevel
+      );
+      await tx.jobApplication.update({
+        where: { id: app.id },
+        data: {
+          atsMatchScore: match.score,
+          atsBreakdownJson: JSON.stringify(match),
+        },
+      });
+    }
+
+    return toApplyApps.length;
   });
 }
 
