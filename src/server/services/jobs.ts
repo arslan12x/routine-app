@@ -13,7 +13,7 @@ import {
   inferExperienceLevelFromTitle,
 } from "@/lib/domain/jobs";
 import { generateJobEmailDraft, type EmailDraft } from "@/server/ai/jobs";
-import { dispatchJobEmail } from "@/server/services/email-dispatcher";
+import { sendDirectEmail } from "@/server/services/email-transport";
 import {
   CURATED_COMPANIES,
   ensureCompanyDirectorySeeded,
@@ -488,18 +488,16 @@ export async function applyToJob(
 
   const resumeFileName = resume.fileUrl ? resume.fileUrl.split("/").pop() || "Resume.pdf" : "Resume.pdf";
 
-  // Dispatch email with candidate's replyTo address and resume attachment
-  const dispatchResult = await dispatchJobEmail({
+  // Dispatch email directly via user's SMTP credentials (or fallback to MOCK mode)
+  const dispatchResult = await sendDirectEmail({
+    userId: user.id,
     to: application.hrEmail,
     subject: emailDraft.subject,
     body: emailDraft.body,
-    replyTo: senderEmail,
-    attachments: [
-      {
-        filename: resumeFileName,
-        url: resume.fileUrl,
-      },
-    ],
+    resume: {
+      fileUrl: resume.fileUrl,
+      parsedText: resume.parsedText,
+    },
   });
 
   const now = new Date();
@@ -514,8 +512,8 @@ export async function applyToJob(
       stage: "APPLY",
       subject: emailDraft.subject,
       body: emailDraft.body,
-      candidateEmail: senderEmail,
-      replyTo: senderEmail,
+      candidateEmail: dispatchResult.fromEmail || senderEmail,
+      replyTo: dispatchResult.fromEmail || senderEmail,
       resumeAttached: resumeFileName,
       dispatchedAt: dispatchResult.dispatchedAt,
       messageId: dispatchResult.messageId,
@@ -592,12 +590,13 @@ export async function sendJobFollowUp(
     ? { subject: customSubject, body: customBody, stage: targetStage }
     : await getJobEmailDraftForApp(user, applicationId);
 
-  const dispatchResult = await dispatchJobEmail({
+  const dispatchResult = await sendDirectEmail({
+    userId: user.id,
     to: application.hrEmail,
     subject: emailDraft.subject,
     body: emailDraft.body,
     threadId: application.emailThreadId,
-    replyTo: senderEmail,
+    isFollowUp: true,
   });
 
   // Calculate next stage transition:
@@ -627,8 +626,8 @@ export async function sendJobFollowUp(
       stage: targetStage,
       subject: emailDraft.subject,
       body: emailDraft.body,
-      candidateEmail: senderEmail,
-      replyTo: senderEmail,
+      candidateEmail: dispatchResult.fromEmail || senderEmail,
+      replyTo: dispatchResult.fromEmail || senderEmail,
       dispatchedAt: dispatchResult.dispatchedAt,
       messageId: dispatchResult.messageId,
       provider: dispatchResult.provider,
@@ -738,11 +737,14 @@ export async function advanceJobPipeline(): Promise<{ promotedCount: number; aut
           skills,
         });
 
-        const dispatchResult = await dispatchJobEmail({
+        const dispatchResult = await sendDirectEmail({
+          userId: app.userId,
           to: app.hrEmail,
           subject: draft.subject,
           body: draft.body,
           threadId: app.emailThreadId,
+          isFollowUp: true,
+          useSystemDb: true,
         });
 
         const nextTransition = calculateNextStageTransition(promotedStage, app.appliedAt);
@@ -754,8 +756,10 @@ export async function advanceJobPipeline(): Promise<{ promotedCount: number; aut
             stage: promotedStage,
             subject: draft.subject,
             body: draft.body,
+            candidateEmail: dispatchResult.fromEmail,
             dispatchedAt: dispatchResult.dispatchedAt,
             messageId: dispatchResult.messageId,
+            provider: dispatchResult.provider,
           },
         ];
 

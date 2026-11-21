@@ -579,8 +579,12 @@ export const ROTATING_ALL_CATEGORY_BATCHES: CompanySeedData[][] = [
 
 export const ROTATING_STARTUP_BATCHES = ROTATING_ALL_CATEGORY_BATCHES;
 
+let isCompanyDirectorySeededCache = false;
+
 /** Ensures company directory has seeded records across all 7 categories with valid HR emails */
 export async function ensureCompanyDirectorySeeded(): Promise<number> {
+  if (isCompanyDirectorySeededCache) return 0;
+
   const existingCompanies = await systemDb.company.findMany({
     select: { name: true, category: true },
   });
@@ -605,6 +609,7 @@ export async function ensureCompanyDirectorySeeded(): Promise<number> {
     });
   }
 
+  isCompanyDirectorySeededCache = true;
   return toCreate.length;
 }
 
@@ -633,26 +638,10 @@ export async function rotateAllHiringCompanies(): Promise<{ rotatedCount: number
     lastRefreshedAt: Date;
   }> = [];
 
-  const updatePromises: Promise<unknown>[] = [];
-
   for (const companyData of currentBatch) {
     if (!isValidHrEmail(companyData.hrEmail)) continue;
     const existingId = existingMap.get(companyData.name);
-    if (existingId) {
-      updatePromises.push(
-        systemDb.company.update({
-          where: { id: existingId },
-          data: {
-            category: companyData.category,
-            hrEmail: companyData.hrEmail,
-            websiteUrl: companyData.websiteUrl,
-            location: companyData.location,
-            lastRefreshedAt: now,
-            description: companyData.description,
-          },
-        })
-      );
-    } else {
+    if (!existingId) {
       toCreate.push({
         name: companyData.name,
         category: companyData.category,
@@ -672,12 +661,10 @@ export async function rotateAllHiringCompanies(): Promise<{ rotatedCount: number
     });
   }
 
-  if (updatePromises.length > 0) {
-    await Promise.all(updatePromises);
-  }
-
-  // Touch lastRefreshedAt across all 7 categories
+  // Touch lastRefreshedAt across current batch companies in a single batch query
+  const batchNames = currentBatch.map((c) => c.name);
   await systemDb.company.updateMany({
+    where: { name: { in: batchNames } },
     data: { lastRefreshedAt: now },
   });
 

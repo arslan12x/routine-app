@@ -26,6 +26,12 @@ import {
   EXPERIENCE_LEVEL_LABELS,
   EXPERIENCE_LEVEL_SHORT_LABELS,
 } from "../src/lib/domain/jobs.ts";
+import { encryptSecret, decryptSecret } from "../src/lib/crypto.ts";
+import {
+  getEmailProviderPreset,
+  matchRecruiterReply,
+  extractEmailAddress,
+} from "../src/lib/domain/email-config.ts";
 import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
 import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
@@ -819,5 +825,186 @@ Date,Description,Amount
       });
       expect(experiencedEmail.body).toContain("deep hands-on expertise");
       expect(experiencedEmail.body).toContain("consistently built resilient");
+    });
+  });
+
+  describe("Direct SMTP & IMAP email integration and recruiter reply matching", () => {
+    const originalKey = process.env.EMAIL_ENCRYPTION_KEY;
+
+    it("encryptSecret and decryptSecret perform round-trip encryption and catch tampering", () => {
+      process.env.EMAIL_ENCRYPTION_KEY = "test-secret-encryption-key-for-unit-testing!";
+      const plainSecret = "abcd efgh ijkl mnop";
+
+      const encrypted = encryptSecret(plainSecret);
+      expect(encrypted).not.toBe(plainSecret);
+      expect(encrypted.split(":")).toHaveLength(3);
+
+      const decrypted = decryptSecret(encrypted);
+      expect(decrypted).toBe(plainSecret);
+
+      // Tampering test: alter the ciphertext
+      const parts = encrypted.split(":");
+      const tampered = `${parts[0]}:${parts[1]}:${parts[2].slice(0, -2)}aa`;
+      expect(() => decryptSecret(tampered)).toThrow();
+
+      // Missing encryption key error handling
+      delete process.env.EMAIL_ENCRYPTION_KEY;
+      expect(() => encryptSecret("fail")).toThrow(/EMAIL_ENCRYPTION_KEY/);
+
+      // Restore key
+      process.env.EMAIL_ENCRYPTION_KEY = originalKey;
+    });
+
+    it("getEmailProviderPreset returns correct SMTP and IMAP configs for all presets", () => {
+      const gmail = getEmailProviderPreset("GMAIL");
+      expect(gmail.smtpHost).toBe("smtp.gmail.com");
+      expect(gmail.smtpPort).toBe(465);
+      expect(gmail.smtpSecure).toBe(true);
+      expect(gmail.imapHost).toBe("imap.gmail.com");
+      expect(gmail.imapPort).toBe(993);
+      expect(gmail.imapSecure).toBe(true);
+
+      const outlook = getEmailProviderPreset("OUTLOOK");
+      expect(outlook.smtpHost).toBe("smtp.office365.com");
+      expect(outlook.smtpPort).toBe(587);
+      expect(outlook.smtpSecure).toBe(false);
+      expect(outlook.imapHost).toBe("outlook.office365.com");
+      expect(outlook.imapPort).toBe(993);
+      expect(outlook.imapSecure).toBe(true);
+
+      const zoho = getEmailProviderPreset("ZOHO");
+      expect(zoho.smtpHost).toBe("smtp.zoho.com");
+      expect(zoho.smtpPort).toBe(465);
+      expect(zoho.smtpSecure).toBe(true);
+      expect(zoho.imapHost).toBe("imap.zoho.com");
+      expect(zoho.imapPort).toBe(993);
+
+      const custom = getEmailProviderPreset("CUSTOM");
+      expect(custom.smtpPort).toBe(587);
+      expect(custom.imapPort).toBe(993);
+    });
+
+    it("extractEmailAddress extracts clean addresses from raw strings with names", () => {
+      expect(extractEmailAddress("John Doe <john.doe@company.com>")).toBe("john.doe@company.com");
+      expect(extractEmailAddress("  recruiting@stripe.com  ")).toBe("recruiting@stripe.com");
+      expect(extractEmailAddress("HR Team <HR@COMPANY.IO>")).toBe("hr@company.io");
+    });
+
+    it("matchRecruiterReply matches incoming emails by In-Reply-To thread ID", () => {
+      const app = {
+        id: "app-1",
+        hrEmail: "jobs@stripe.com",
+        emailThreadId: "msg-stripe-12345@routine.local",
+        companyName: "Stripe",
+      };
+      const candidateEmail = "candidate@gmail.com";
+
+      const incoming = {
+        from: "Recruiter Alice <alice.recruiter@stripe.com>",
+        inReplyTo: "<msg-stripe-12345@routine.local>",
+        subject: "Re: Application for Software Engineer",
+      };
+
+      expect(matchRecruiterReply(incoming, app, candidateEmail)).toBe(true);
+    });
+
+    it("matchRecruiterReply matches incoming emails by References header (array or string)", () => {
+      const app = {
+        id: "app-2",
+        hrEmail: "careers@databricks.com",
+        emailThreadId: "msg-databricks-7788@routine.local",
+        companyName: "Databricks",
+      };
+      const candidateEmail = "candidate@gmail.com";
+
+      // Array references
+      expect(
+        matchRecruiterReply(
+          {
+            from: "Databricks Talent <talent@databricks.com>",
+            references: ["<parent-id@mail.com>", "<msg-databricks-7788@routine.local>"],
+          },
+          app,
+          candidateEmail
+        )
+      ).toBe(true);
+
+      // String references
+      expect(
+        matchRecruiterReply(
+          {
+            from: "talent@databricks.com",
+            references: "<parent-id@mail.com> <msg-databricks-7788@routine.local>",
+          },
+          app,
+          candidateEmail
+        )
+      ).toBe(true);
+    });
+
+    it("matchRecruiterReply matches incoming emails by hrEmail address even without thread headers", () => {
+      const app = {
+        id: "app-3",
+        hrEmail: "talent-acquisition@epam.com",
+        emailThreadId: "msg-epam-5566@routine.local",
+        companyName: "EPAM",
+      };
+      const candidateEmail = "candidate@gmail.com";
+
+      // Direct email from HR email address
+      expect(
+        matchRecruiterReply(
+          {
+            from: "EPAM Recruitment Team <talent-acquisition@epam.com>",
+            subject: "Interview Invitation: Lead Full-Stack Developer",
+          },
+          app,
+          candidateEmail
+        )
+      ).toBe(true);
+    });
+
+    it("matchRecruiterReply ignores candidate's own sent emails or self-tests", () => {
+      const app = {
+        id: "app-4",
+        hrEmail: "candidate@gmail.com", // in case user tested with their own email
+        emailThreadId: "msg-self-9999",
+        companyName: "Test Company",
+      };
+      const candidateEmail = "candidate@gmail.com";
+
+      // Email sent from candidate's own address must NOT trigger a false recruiter reply
+      expect(
+        matchRecruiterReply(
+          {
+            from: "Candidate Name <candidate@gmail.com>",
+            inReplyTo: "msg-self-9999",
+            subject: "Re: Job Application",
+          },
+          app,
+          candidateEmail
+        )
+      ).toBe(false);
+    });
+
+    it("matchRecruiterReply rejects unrelated stranger emails", () => {
+      const app = {
+        id: "app-5",
+        hrEmail: "hr@uber.com",
+        emailThreadId: "msg-uber-3322",
+        companyName: "Uber",
+      };
+      const candidateEmail = "candidate@gmail.com";
+
+      expect(
+        matchRecruiterReply(
+          {
+            from: "newsletter@medium.com",
+            subject: "Daily digest for you",
+          },
+          app,
+          candidateEmail
+        )
+      ).toBe(false);
     });
   });

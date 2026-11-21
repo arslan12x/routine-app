@@ -72,7 +72,7 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
   const unit = item.unit ?? "";
 
   const handleDuolingoSync = async (overrideUsername?: string) => {
-    const targetUsername = overrideUsername ?? duoAccount?.username;
+    const targetUsername = (overrideUsername || duoAccount?.username || "").trim();
     if (!targetUsername) {
       setShowDuoModal(true);
       return;

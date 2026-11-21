@@ -84,9 +84,10 @@ export async function syncDuolingo(
 
   try {
     const duolingoUrl = `https://www.duolingo.com/2017-06-30/users?username=${encodeURIComponent(username)}`;
+    const browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
     const response = await fetch(duolingoUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (RoutineTracker/1.0)",
+        "User-Agent": browserUA,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(6000),
@@ -105,7 +106,7 @@ export async function syncDuolingo(
       if (!userObj) {
         // Fallback to legacy v1 endpoint
         const legacyRes = await fetch(`https://www.duolingo.com/users/${encodeURIComponent(username)}`, {
-          headers: { "User-Agent": "Mozilla/5.0 (RoutineTracker/1.0)", Accept: "application/json" },
+          headers: { "User-Agent": browserUA, Accept: "application/json" },
           signal: AbortSignal.timeout(5000),
         }).catch(() => null);
 
@@ -151,7 +152,7 @@ export async function syncDuolingo(
     } else if (response.status === 404) {
       // Fallback to legacy v1 endpoint
       const legacyRes = await fetch(`https://www.duolingo.com/users/${encodeURIComponent(username)}`, {
-        headers: { "User-Agent": "Mozilla/5.0 (RoutineTracker/1.0)", Accept: "application/json" },
+        headers: { "User-Agent": browserUA, Accept: "application/json" },
         signal: AbortSignal.timeout(5000),
       }).catch(() => null);
 

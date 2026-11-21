@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { getCandidateProfile, saveCandidateProfile } from "@/server/services/jobs";
-import { isLiveEmailConfigured } from "@/server/services/email-dispatcher";
+import { isDirectEmailConfigured } from "@/server/services/email-transport";
 import { CANDIDATE_EXPERIENCE_LEVELS, type CandidateExperienceLevel } from "@/lib/domain/jobs";
 import { ApiError } from "@/lib/api";
 
@@ -37,8 +37,13 @@ export async function GET() {
   try {
     const user = await requireUser();
     const profile = await getCandidateProfile(user.id);
+    const directEmail = await isDirectEmailConfigured(user.id);
     return Response.json(
-      { profile, isLiveEmail: isLiveEmailConfigured() },
+      {
+        profile,
+        isLiveEmail: directEmail.configured,
+        directEmail,
+      },
       {
         headers: { "Cache-Control": "private, no-store" },
       }
@@ -60,11 +65,13 @@ export async function POST(request: Request) {
       experienceYears: validated.experienceYears,
     });
 
+    const directEmail = await isDirectEmailConfigured(user.id);
+
     return Response.json(
       {
         profile: savedProfile,
         email: savedProfile.email,
-        isLiveEmail: isLiveEmailConfigured(),
+        isLiveEmail: directEmail.configured,
         success: true,
       },
       {

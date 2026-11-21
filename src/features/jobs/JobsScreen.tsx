@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   AlertCircle,
   Briefcase,
   Calendar,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Clock,
   ExternalLink,
   Eye,
@@ -15,6 +18,7 @@ import {
   Globe,
   GraduationCap,
   Inbox,
+  Key,
   Loader2,
   Lock,
   Mail,
@@ -41,6 +45,10 @@ import {
   type CompanyCategory,
   type CandidateExperienceLevel,
 } from "@/lib/domain/jobs";
+import {
+  getEmailProviderPreset,
+  type EmailProviderPreset,
+} from "@/lib/domain/email-config";
 
 interface Company {
   id: string;
@@ -134,12 +142,52 @@ export default function JobsScreen() {
   const [globalAutoSend, setGlobalAutoSend] = useState(false);
   const [queueing, setQueueing] = useState(false);
 
-  // Modals / Drawers
+  // Direct Email (SMTP + IMAP) & Modals
   const [candidateEmail, setCandidateEmail] = useState("");
   const [candidateEmailInput, setCandidateEmailInput] = useState("");
   const [isLiveEmail, setIsLiveEmail] = useState(false);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [disconnectingEmail, setDisconnectingEmail] = useState(false);
+  const [checkingInbox, setCheckingInbox] = useState(false);
+  const [showAdvancedEmail, setShowAdvancedEmail] = useState(false);
+
+  const [emailConfig, setEmailConfig] = useState<{
+    connected: boolean;
+    preset: EmailProviderPreset;
+    email: string;
+    smtpHost: string;
+    smtpPort: number;
+    smtpSecure: boolean;
+    imapHost: string;
+    imapPort: number;
+    imapSecure: boolean;
+    lastVerifiedAt?: string | null;
+    lastSyncedAt?: string | null;
+    lastStatus?: string;
+  }>({
+    connected: false,
+    preset: "GMAIL",
+    email: "",
+    smtpHost: "smtp.gmail.com",
+    smtpPort: 465,
+    smtpSecure: true,
+    imapHost: "imap.gmail.com",
+    imapPort: 993,
+    imapSecure: true,
+  });
+
+  const [emailForm, setEmailForm] = useState({
+    preset: "GMAIL" as EmailProviderPreset,
+    email: "",
+    password: "",
+    smtpHost: "smtp.gmail.com",
+    smtpPort: 465,
+    smtpSecure: true,
+    imapHost: "imap.gmail.com",
+    imapPort: 993,
+    imapSecure: true,
+  });
 
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [uploadTab, setUploadTab] = useState<"file" | "text">("file");
@@ -161,9 +209,131 @@ export default function JobsScreen() {
 
   useEffect(() => {
     loadCandidateProfile();
+    loadEmailConfig();
     loadResume();
     loadApplications();
   }, []);
+
+  async function loadEmailConfig() {
+    try {
+      const res = await fetch("/api/jobs/email-config");
+      if (res.ok) {
+        const json = await res.json();
+        const conf = json.data || json;
+        setEmailConfig({
+          connected: Boolean(conf.connected),
+          preset: conf.preset || "GMAIL",
+          email: conf.email || "",
+          smtpHost: conf.smtpHost || "smtp.gmail.com",
+          smtpPort: conf.smtpPort ?? 465,
+          smtpSecure: conf.smtpSecure ?? true,
+          imapHost: conf.imapHost || "imap.gmail.com",
+          imapPort: conf.imapPort ?? 993,
+          imapSecure: conf.imapSecure ?? true,
+          lastVerifiedAt: conf.lastVerifiedAt,
+          lastSyncedAt: conf.lastSyncedAt,
+          lastStatus: conf.lastStatus,
+        });
+        if (conf.email) {
+          setCandidateEmail(conf.email);
+          setCandidateEmailInput(conf.email);
+        }
+        setIsLiveEmail(Boolean(conf.connected));
+      }
+    } catch (err) {
+      console.warn("Failed to load direct email config", err);
+    }
+  }
+
+  function handlePresetChange(preset: EmailProviderPreset) {
+    const defaults = getEmailProviderPreset(preset);
+    setEmailForm((prev) => ({
+      ...prev,
+      preset,
+      smtpHost: defaults.smtpHost || (preset === "CUSTOM" ? prev.smtpHost : ""),
+      smtpPort: defaults.smtpPort,
+      smtpSecure: defaults.smtpSecure,
+      imapHost: defaults.imapHost || (preset === "CUSTOM" ? prev.imapHost : ""),
+      imapPort: defaults.imapPort,
+      imapSecure: defaults.imapSecure,
+    }));
+  }
+
+  async function handleSaveDirectEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!emailForm.email.trim() || !emailForm.password.trim()) {
+      toast.error("Please enter your email and app password");
+      return;
+    }
+    setSavingEmail(true);
+    try {
+      const res = await fetch("/api/jobs/email-config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(emailForm),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success("Direct email credentials verified and connected successfully!");
+        setShowEmailModal(false);
+        await loadEmailConfig();
+      } else {
+        toast.error(data.error?.message || "Failed to verify email credentials");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to connect email");
+    } finally {
+      setSavingEmail(false);
+    }
+  }
+
+  async function handleDisconnectEmail() {
+    setDisconnectingEmail(true);
+    try {
+      const res = await fetch("/api/jobs/email-config", { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Email disconnected. Reverted to Mock mode.");
+        setShowEmailModal(false);
+        await loadEmailConfig();
+      } else {
+        const data = await res.json();
+        toast.error(data.error?.message || "Failed to disconnect email");
+      }
+    } catch {
+      toast.error("Failed to disconnect email");
+    } finally {
+      setDisconnectingEmail(false);
+    }
+  }
+
+  async function handleCheckInbox() {
+    setCheckingInbox(true);
+    try {
+      const res = await fetch("/api/jobs/email-sync", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        const payload = data.data || data;
+        const repliesFound = payload.repliesFound || 0;
+        const checkedCount = payload.checkedCount || 0;
+        if (repliesFound > 0) {
+          toast.success(
+            `Inbox scanned (${checkedCount} messages) — detected ${repliesFound} recruiter reply! Moved to Replied & Closed.`,
+            { duration: 6000 }
+          );
+        } else {
+          toast.info(`Inbox scanned (${checkedCount} messages). No new recruiter replies detected.`);
+        }
+        await loadApplications();
+        await loadEmailConfig();
+      } else {
+        toast.error(data.error?.message || "Failed to check email inbox");
+      }
+    } catch {
+      toast.error("Failed to connect to email inbox");
+    } finally {
+      setCheckingInbox(false);
+    }
+  }
 
   async function loadCandidateProfile() {
     try {
@@ -435,14 +605,14 @@ export default function JobsScreen() {
         const resData = await res.json().catch(() => ({}));
         setSelectedAppForEmail(null);
         await loadApplications();
-        if (resData.provider === "RESEND") {
-          alert(`Application dispatched to recruiter! A copy has also been sent to ${candidateEmail || "your email"}.`);
+        if (resData.provider === "DIRECT_SMTP") {
+          toast.success(`Application dispatched directly from ${resData.fromEmail || candidateEmail} to recruiter!`);
         } else {
-          alert("Application marked as applied and moved to Follow-Up 1!\n\n(Note: Running in Simulated Delivery mode. To dispatch real emails over the internet, add RESEND_API_KEY in Vercel).");
+          toast.info("Application marked as applied and moved to Follow-Up 1! (Simulated MOCK mode — connect email to send live)");
         }
       } else {
         const err = await res.json();
-        alert(err.error?.message || "Failed to dispatch email");
+        toast.error(err.error?.message || "Failed to dispatch email");
       }
     } catch (err) {
       console.error("Failed to send email", err);
@@ -553,6 +723,21 @@ export default function JobsScreen() {
 
         {/* Global Action Controls */}
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <Button
+            variant="outline"
+            disabled={checkingInbox}
+            onClick={handleCheckInbox}
+            className="flex items-center gap-2 py-2 px-3 text-xs font-semibold shadow-sm"
+            title="Scan your IMAP inbox for new recruiter replies"
+          >
+            {checkingInbox ? (
+              <Loader2 size={14} className="animate-spin text-brand" />
+            ) : (
+              <Inbox size={14} className="text-brand" />
+            )}
+            <span>Check Inbox</span>
+          </Button>
+
           <button
             type="button"
             onClick={() => setGlobalAutoSend(!globalAutoSend)}
@@ -585,44 +770,77 @@ export default function JobsScreen() {
             <span>Candidate Readiness & Dispatch Profile</span>
           </div>
           <span className="text-[11px] font-medium text-muted">
-            {candidateEmail && resume ? (
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Ready to Dispatch</span>
+            {emailConfig.connected && resume ? (
+              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">✓ Ready for Live Direct Dispatch</span>
+            ) : resume ? (
+              <span className="text-amber-600 dark:text-amber-400 font-semibold">Mock Mode (Connect Email for Live Dispatch)</span>
             ) : (
-              <span className="text-amber-600 dark:text-amber-400 font-semibold">Setup Required Before Dispatch</span>
+              <span className="text-amber-600 dark:text-amber-400 font-semibold">Resume Required Before Dispatch</span>
             )}
           </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Sender Email Card */}
+          {/* Direct Email (SMTP + IMAP) Card */}
           <div
             className={`flex items-center justify-between gap-3 rounded-xl border p-3.5 transition-colors ${
-              candidateEmail
-                ? "border-border bg-soft/50"
+              emailConfig.connected
+                ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-900 dark:text-emerald-200"
                 : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"
             }`}
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
               <div
                 className={`grid size-10 shrink-0 place-items-center rounded-xl ${
-                  candidateEmail ? "bg-brand/10 text-brand" : "bg-amber-500/10 text-amber-500"
+                  emailConfig.connected
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    : "bg-amber-500/10 text-amber-500"
                 }`}
               >
                 <Mail size={18} />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-medium text-muted">Sender Email (Reply-To)</div>
-                <div className="font-semibold text-xs sm:text-sm truncate text-fg mt-0.5" title={candidateEmail || "Not Configured"}>
-                  {candidateEmail || "Not Configured"}
+                <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted">
+                  <span>Direct Email (SMTP + IMAP)</span>
+                  {emailConfig.connected ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">
+                      <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      {emailConfig.preset}
+                    </span>
+                  ) : (
+                    <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+                      Mock Mode
+                    </span>
+                  )}
+                </div>
+                <div
+                  className="font-semibold text-xs sm:text-sm truncate text-fg mt-0.5"
+                  title={emailConfig.connected ? emailConfig.email : "Not Connected — Mock Mode"}
+                >
+                  {emailConfig.connected ? emailConfig.email : "Not Connected — Mock Mode"}
                 </div>
               </div>
             </div>
             <Button
               variant="outline"
-              onClick={() => setShowEmailModal(true)}
+              onClick={() => {
+                setEmailForm((prev) => ({
+                  ...prev,
+                  preset: emailConfig.preset || "GMAIL",
+                  email: emailConfig.email || candidateEmail,
+                  smtpHost: emailConfig.smtpHost || "smtp.gmail.com",
+                  smtpPort: emailConfig.smtpPort || 465,
+                  smtpSecure: emailConfig.smtpSecure ?? true,
+                  imapHost: emailConfig.imapHost || "imap.gmail.com",
+                  imapPort: emailConfig.imapPort ?? 993,
+                  imapSecure: emailConfig.imapSecure ?? true,
+                  password: "",
+                }));
+                setShowEmailModal(true);
+              }}
               className="h-8 text-xs px-3 shrink-0"
             >
-              {candidateEmail ? "Edit" : "Set Email"}
+              {emailConfig.connected ? "Configure" : "Connect"}
             </Button>
           </div>
 
@@ -1311,15 +1529,18 @@ export default function JobsScreen() {
         </div>
       )}
 
-      {/* Candidate Contact Email Modal */}
+      {/* Direct Email (SMTP + IMAP) Configuration Modal */}
       {showEmailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-md border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <Card className="w-full max-w-lg border border-border bg-card p-5 sm:p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border/60 pb-3">
               <div>
-                <h2 className="text-lg font-bold">Candidate Contact Email</h2>
-                <p className="text-xs text-muted">
-                  Companies and HR recruiters will reply directly to this email address.
+                <div className="flex items-center gap-2">
+                  <Mail size={20} className="text-brand" />
+                  <h2 className="text-lg font-bold">Direct Email Setup (SMTP + IMAP)</h2>
+                </div>
+                <p className="text-xs text-muted mt-0.5">
+                  Send applications directly from your real inbox and auto-detect recruiter replies.
                 </p>
               </div>
               <button
@@ -1330,41 +1551,176 @@ export default function JobsScreen() {
               </button>
             </div>
 
-            <form onSubmit={handleSaveCandidateEmail} className="mt-4 space-y-4">
+            <form onSubmit={handleSaveDirectEmail} className="mt-4 space-y-4">
+              {/* Provider Preset Selector */}
               <div>
                 <label className="block text-xs font-semibold text-muted mb-1.5">
-                  Your Professional Email Address
+                  Email Provider Preset
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(["GMAIL", "OUTLOOK", "ZOHO", "CUSTOM"] as const).map((presetKey) => (
+                    <button
+                      key={presetKey}
+                      type="button"
+                      onClick={() => handlePresetChange(presetKey)}
+                      className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-xs font-semibold transition-all ${
+                        emailForm.preset === presetKey
+                          ? "border-brand bg-brand/10 text-brand shadow-sm"
+                          : "border-border bg-soft/40 hover:bg-soft text-muted hover:text-fg"
+                      }`}
+                    >
+                      <span>{presetKey === "GMAIL" ? "Gmail" : presetKey === "OUTLOOK" ? "Outlook" : presetKey === "ZOHO" ? "Zoho" : "Custom SMTP"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Gmail Guide Box */}
+              {emailForm.preset === "GMAIL" && (
+                <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-900 dark:text-blue-200 space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <ShieldCheck size={16} className="text-blue-600 dark:text-blue-400" />
+                    <span>How to generate a Gmail App Password:</span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-0.5 text-[11px] text-muted leading-relaxed">
+                    <li>Enable 2-Step Verification in Google Account &gt; Security.</li>
+                    <li>Search &quot;App passwords&quot; and create an app password named &quot;Routine&quot;.</li>
+                    <li>Copy the generated 16-character code and paste it below.</li>
+                  </ol>
+                </div>
+              )}
+
+              {/* Email Address */}
+              <div>
+                <label className="block text-xs font-semibold text-muted mb-1.5">
+                  Your Email Address
                 </label>
                 <input
                   type="email"
                   required
-                  placeholder="e.g. yourname.engineer@gmail.com"
-                  value={candidateEmailInput}
-                  onChange={(e) => setCandidateEmailInput(e.target.value)}
+                  placeholder="e.g. yourname@gmail.com"
+                  value={emailForm.email}
+                  onChange={(e) => setEmailForm({ ...emailForm, email: e.target.value })}
                   className={inputCls}
                 />
-                <p className="mt-1.5 text-[11px] text-muted leading-relaxed">
-                  Every application email dispatched to HR recruiters will include this address in the <strong>Reply-To</strong> header. When the company responds, the email lands directly in your private personal inbox.
+              </div>
+
+              {/* App Password */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-muted flex items-center gap-1">
+                    <Key size={13} className="text-brand" />
+                    <span>App Password</span>
+                  </label>
+                  <span className="text-[10px] text-muted">Never shared or exposed</span>
+                </div>
+                <input
+                  type="password"
+                  required
+                  placeholder="16-character App Password"
+                  value={emailForm.password}
+                  onChange={(e) => setEmailForm({ ...emailForm, password: e.target.value })}
+                  className={inputCls}
+                  autoComplete="new-password"
+                />
+                <p className="mt-1 text-[11px] text-muted">
+                  Encrypted at rest with AES-256-GCM. Used strictly for dispatching applications and scanning for recruiter responses.
                 </p>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <Button
+              {/* Collapsible Advanced Host/Port Settings */}
+              <div className="border-t border-border/60 pt-2">
+                <button
                   type="button"
-                  variant="outline"
-                  onClick={() => setShowEmailModal(false)}
-                  className="py-1.5 px-3 text-xs"
+                  onClick={() => setShowAdvancedEmail(!showAdvancedEmail)}
+                  className="flex items-center justify-between w-full py-1.5 text-xs font-semibold text-muted hover:text-fg"
                 >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={savingEmail || !candidateEmailInput.trim()}
-                  className="flex items-center gap-2 py-1.5 px-3 text-xs font-semibold"
-                >
-                  {savingEmail && <Loader2 size={14} className="animate-spin" />}
-                  <span>Save Contact Email</span>
-                </Button>
+                  <span>Advanced Server Host & Port Settings</span>
+                  {showAdvancedEmail ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+
+                {showAdvancedEmail && (
+                  <div className="mt-3 space-y-3 rounded-xl border border-border/80 bg-soft/30 p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-medium text-muted mb-1">SMTP Host</label>
+                        <input
+                          type="text"
+                          value={emailForm.smtpHost}
+                          onChange={(e) => setEmailForm({ ...emailForm, smtpHost: e.target.value })}
+                          className="h-8 text-xs w-full rounded-lg border border-border bg-card px-2.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-muted mb-1">SMTP Port</label>
+                        <input
+                          type="number"
+                          value={emailForm.smtpPort}
+                          onChange={(e) => setEmailForm({ ...emailForm, smtpPort: parseInt(e.target.value, 10) || 465 })}
+                          className="h-8 text-xs w-full rounded-lg border border-border bg-card px-2.5"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-medium text-muted mb-1">IMAP Host</label>
+                        <input
+                          type="text"
+                          value={emailForm.imapHost}
+                          onChange={(e) => setEmailForm({ ...emailForm, imapHost: e.target.value })}
+                          className="h-8 text-xs w-full rounded-lg border border-border bg-card px-2.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-muted mb-1">IMAP Port</label>
+                        <input
+                          type="number"
+                          value={emailForm.imapPort}
+                          onChange={(e) => setEmailForm({ ...emailForm, imapPort: parseInt(e.target.value, 10) || 993 })}
+                          className="h-8 text-xs w-full rounded-lg border border-border bg-card px-2.5"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/60">
+                {emailConfig.connected ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={disconnectingEmail}
+                    onClick={handleDisconnectEmail}
+                    className="py-1.5 px-3 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 border-rose-500/30"
+                  >
+                    {disconnectingEmail ? <Loader2 size={13} className="animate-spin mr-1" /> : null}
+                    <span>Disconnect Email</span>
+                  </Button>
+                ) : (
+                  <div />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setShowEmailModal(false)}
+                    className="py-1.5 px-3 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={savingEmail || !emailForm.email.trim() || !emailForm.password.trim()}
+                    className="flex items-center gap-2 py-1.5 px-4 text-xs font-semibold"
+                  >
+                    {savingEmail && <Loader2 size={14} className="animate-spin" />}
+                    <span>{savingEmail ? "Verifying Credentials..." : "Verify & Connect"}</span>
+                  </Button>
+                </div>
               </div>
             </form>
           </Card>
@@ -1643,20 +1999,26 @@ export default function JobsScreen() {
 
                 {/* Delivery Mode Banner */}
                 {isLiveEmail ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-300">
-                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
-                    <div>
-                      <span className="font-semibold block">Live Resend Dispatch Enabled</span>
-                      <span className="text-[11px] text-muted">Recruiter receives email + an instant copy is BCC'd to {candidateEmail || "your email"}.</span>
+                  <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-800 dark:text-emerald-200">
+                    <CheckCircle2 size={16} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
+                    <div className="min-w-0">
+                      <span className="font-semibold block truncate">
+                        LIVE DIRECT SMTP (sending as {emailConfig.email || candidateEmail})
+                      </span>
+                      <span className="text-[11px] text-muted block leading-snug">
+                        Outreach is sent directly from your email inbox. Recruiter replies will be automatically detected via IMAP.
+                      </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200">
                     <div className="flex items-center gap-2 min-w-0">
                       <AlertCircle size={16} className="text-amber-500 shrink-0" />
                       <div className="min-w-0">
-                        <span className="font-semibold block">Simulated Delivery (MOCK Mode)</span>
-                        <span className="text-[11px] text-muted">To send real emails over the internet to recruiters, add <code>RESEND_API_KEY</code> in Vercel.</span>
+                        <span className="font-semibold block">MOCK MODE (connect your email to send live)</span>
+                        <span className="text-[11px] text-muted block leading-snug">
+                          Connect your real email account (Gmail, Outlook, Zoho) via the readiness bar to dispatch live emails.
+                        </span>
                       </div>
                     </div>
                     <span className="shrink-0 rounded bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold">MOCK</span>

@@ -7,7 +7,7 @@ const csp = [
   // Next injects inline bootstrap scripts; a nonce-based CSP is a possible hardening step.
   `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: https://*.googleusercontent.com https://covers.openlibrary.org https://upload.wikimedia.org",
+  "img-src 'self' data: blob: https://*.googleusercontent.com https://*.openlibrary.org https://openlibrary.org https://covers.openlibrary.org https://*.archive.org https://archive.org https://*.standardebooks.org https://standardebooks.org https://upload.wikimedia.org",
   "font-src 'self' data:",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.ingest.sentry.io https://*.sentry.io https://vercel.live https://*.vercel.app https://vercel.com",
   "manifest-src 'self' https://vercel.com https://*.vercel.com",

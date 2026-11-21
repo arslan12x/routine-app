@@ -141,8 +141,6 @@ export default function NovelsScreen({
                     <img
                       src={s.novel.coverUrl}
                       alt={s.novel.title}
-                      referrerPolicy="no-referrer"
-                      crossOrigin="anonymous"
                       onError={() => setFailedCovers((prev) => ({ ...prev, [s.id]: true }))}
                       className="h-full w-full object-cover"
                     />
@@ -245,8 +243,6 @@ export default function NovelsScreen({
                     <img
                       src={novel.coverUrl}
                       alt={novel.title}
-                      referrerPolicy="no-referrer"
-                      crossOrigin="anonymous"
                       onError={() => setFailedCovers((prev) => ({ ...prev, [novel.id]: true }))}
                       className="h-full w-full object-cover transition duration-300 hover:scale-105"
                       loading="lazy"

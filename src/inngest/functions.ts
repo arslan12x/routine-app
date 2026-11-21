@@ -6,6 +6,7 @@ import { generateWeeklyCoachReview } from "@/server/ai/coach";
 import { syncDuolingo } from "@/server/services/duolingo";
 import { rotateStartupCompanies } from "@/server/services/job-scraper";
 import { advanceJobPipeline } from "@/server/services/jobs";
+import { syncRecruiterRepliesForUser } from "@/server/services/email-inbox";
 import { dispatchUserTaskReminder } from "@/server/services/reminders";
 import type { AppUser } from "@/lib/auth/session";
 
@@ -166,6 +167,26 @@ export const jobFollowUpScheduler = inngest.createFunction(
     },
   },
   async ({ step }) => {
+    // 1. First, check recruiter replies via IMAP for all users who configured DIRECT_EMAIL
+    const emailIntegrations = await step.run("load-direct-email-users", async () => {
+      return systemDb.userIntegration.findMany({
+        where: { provider: "DIRECT_EMAIL" },
+        select: { userId: true },
+      });
+    });
+
+    for (const item of emailIntegrations) {
+      await step.run(`sync-imap-${item.userId}`, async () => {
+        try {
+          return await syncRecruiterRepliesForUser(item.userId, true);
+        } catch (err) {
+          console.warn(`[Inngest] IMAP sync failed for user ${item.userId}`, err);
+          return { error: String(err) };
+        }
+      });
+    }
+
+    // 2. Now promote waiting stages and auto-send due follow-ups
     return step.run("advance-pipeline", () => advanceJobPipeline());
   },
 );

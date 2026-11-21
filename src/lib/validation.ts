@@ -106,5 +106,18 @@ export const friendRequestActionBody = z.object({
   action: z.enum(["accept", "decline"]),
 });
 
+export const emailConfigPut = z.object({
+  preset: z.enum(["GMAIL", "OUTLOOK", "ZOHO", "CUSTOM"]).default("GMAIL"),
+  email: z.string().trim().email("Please provide a valid email address").max(255),
+  password: z.string().min(1, "Password is required").max(256),
+  smtpHost: z.string().trim().min(1, "SMTP host is required").max(255).optional(),
+  smtpPort: z.number().int().min(1).max(65535).optional(),
+  smtpSecure: z.boolean().optional(),
+  imapHost: z.string().trim().min(1, "IMAP host is required").max(255).optional(),
+  imapPort: z.number().int().min(1).max(65535).optional(),
+  imapSecure: z.boolean().optional(),
+});
+export type EmailConfigPut = z.infer<typeof emailConfigPut>;
+
 export type TaskCreate = z.infer<typeof taskCreate>;
 export type TaskPatch = z.infer<typeof taskPatch>;

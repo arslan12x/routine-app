@@ -65,10 +65,10 @@ The app is not a public self-registration service. It uses username/password cre
 - Vercel hosts the Next.js app and Vercel Analytics is mounted in the root layout.
 - Sentry (`@sentry/nextjs`) captures React Suspense crashes, 500 API errors, and failed background retries.
 - Google Generative AI (`@ai-sdk/google`) powers AI study tutoring, blog series curriculum, smart push reminders, and candidate job application email drafting via `gemini-3.5-flash-lite`. Stderr deprecation warnings are silenced with `process.env.AI_SDK_LOG_WARNINGS = "false"` to keep Vercel runtime logs clean.
-- Resend API HTTP transport delivers candidate job application emails to recruiters with automatic candidate BCC copies; falls back gracefully to deterministic simulation (MOCK mode) when API keys are absent.
+- Direct SMTP + IMAP integration (`nodemailer`, `imapflow`) delivers candidate job application emails directly from the user's personal mailbox (Gmail, Outlook, Zoho, or custom SMTP/IMAP) and automatically scans incoming IMAP messages to detect recruiter responses and short-circuit follow-ups. Credentials are encrypted at rest with AES-256-GCM (`EMAIL_ENCRYPTION_KEY`). Falls back gracefully to deterministic MOCK mode when credentials are unconfigured.
 - Web Push (`web-push`) and a service worker (`public/sw.js`, `routine-static-v3`) deliver optional reminders and enforce a **Network-First** strategy for Next.js static assets (`/_next/static/`), preventing stale client-side chunk caching on redeployment.
 - Hardened Content Security Policy (`next.config.ts`) explicitly whitelists Vercel manifests (`manifest-src 'self' https://vercel.com https://*.vercel.com`), live connections (`connect-src ... https://vercel.live https://*.vercel.app https://vercel.com`), and verified novel cover domains (`img-src ... https://covers.openlibrary.org https://upload.wikimedia.org`).
-- Vitest tests pure domain rules in `tests/domain.test.ts` (67 unit tests covering scheduling, streaks, analytics, ranking, achievements, novels, learning memory, skipped day penalties, finance, and the 4-stage job pipeline).
+- Vitest tests pure domain rules in `tests/domain.test.ts` (75 unit tests covering scheduling, streaks, analytics, ranking, achievements, novels, learning memory, skipped day penalties, finance, direct email AES-256-GCM encryption, IMAP recruiter reply matching, and the 4-stage job pipeline).
 - Playwright runs foundational E2E authentication and dashboard tests in `tests/e2e/`.
 
 ### Request/data flow
@@ -388,6 +388,10 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `POST /api/finance/expenses` | Signed-in user | Log a new personal expenditure. |
 | `DELETE /api/finance/expenses/:id` | Signed-in user | Delete an expense entry owned by the signed-in user. |
 | `POST /api/finance/import` | Signed-in user | Import CSV bank/credit statements with automatic keyword-based category inference. |
+| `GET /api/jobs/email-config` | Signed-in user | Retrieve safe Direct Email connection status (preset, email, host/port, verification and sync timestamps, lastStatus). Never exposes credentials. |
+| `PUT /api/jobs/email-config` | Signed-in user | Connect or update Direct Email credentials (Gmail, Outlook, Zoho, or Custom). Verifies SMTP transport and IMAP login with 10s timeout, then stores AES-256-GCM encrypted credentials in `UserIntegration` (`DIRECT_EMAIL`). |
+| `DELETE /api/jobs/email-config` | Signed-in user | Disconnect Direct Email integration, reverting application dispatch to deterministic MOCK mode. |
+| `POST /api/jobs/email-sync` | Signed-in user | Trigger immediate IMAP inbox scan to detect recruiter replies and auto-update applications to `REPLIED`. |
 | `GET /api/jobs/profile` | Signed-in user | Retrieve candidate job outreach profile (sender email, experience level, experience years). |
 | `PUT /api/jobs/profile` | Signed-in user | Update candidate job outreach profile (sender email, experience tier). |
 | `GET /api/jobs/resume` | Signed-in user | Retrieve parsed resume metadata and detected skill badges. |
@@ -464,7 +468,8 @@ Configure actual values in a local ignored `.env` or the hosting provider's secr
 - **Required for cross-device Realtime task updates:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
 - RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
 - **AI-guided study, coaching & blogs:** `GOOGLE_GENERATIVE_AI_API_KEY` (server-only Gemini API key). AI SDK deprecation notices are silenced globally with `AI_SDK_LOG_WARNINGS=false` to prevent cluttering server logs.
-- **Job outreach email dispatch:** `RESEND_API_KEY` (server-only Resend API key for live recruiter email dispatch with candidate BCC copies). `JOB_DISPATCH_FROM_EMAIL` (verified sender address, e.g. `onboarding@resend.dev` or custom domain). When `RESEND_API_KEY` is omitted, the application operates in deterministic simulated MOCK mode.
+- **Job outreach email dispatch & IMAP inbox sync:** `EMAIL_ENCRYPTION_KEY` (server-only secret key, e.g. 32-byte hex or any strong passkey used to derive a 32-byte key via SHA-256 for AES-256-GCM encryption of user SMTP/IMAP App Passwords at rest in `UserIntegration`). Users connect their real Gmail, Outlook, Zoho, or Custom SMTP/IMAP inbox directly from `/jobs`. When unconfigured, the job application engine falls back gracefully to deterministic MOCK simulation (no external API keys required).
+- **Legacy Resend fallback (optional):** `RESEND_API_KEY` (optional Resend key) and `JOB_DISPATCH_FROM_EMAIL`. Not required when users use Direct Email integration.
 - **Web Push reminders:** `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`. Generate VAPID keys with `npx web-push generate-vapid-keys`. Inngest keys are needed only when registering/running scheduled reminders.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
 - **GitHub keepalive/backup workflow only:** `APP_URL` and `BACKUP_DB_URL`.
@@ -671,14 +676,26 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - Every 2 days, active hiring companies across all channels rotate into the Apply stage (`TO_APPLY`), listing at least 30-35+ verified opportunities.
   - The batch refresh engine (`POST /api/jobs/refresh`) utilizes a 10-second interactive Prisma transaction timeout with parallel processing to prevent database transaction timeout errors (P2028).
 
-### 2. Candidate Outreach Gating, Sender Email & Live Resend Delivery
-- **Candidate Sender Email (`Reply-To`):** Candidates configure their contact email. All outreach emails carry this address in the `Reply-To` header, ensuring recruiter responses route directly to the candidate's personal inbox.
+### 2. Direct SMTP + IMAP Candidate Dispatch & Automated Recruiter Reply Detection
+- **Direct Mailbox Dispatch (`nodemailer`):** Candidates connect their real personal inbox (Gmail, Outlook, Zoho, or custom SMTP/IMAP) using an App Password. Outreach emails are dispatched directly from the candidate's real email address (`from: user.email`), ensuring messages natively appear in the user's real Sent mailbox.
+- **Server-Only Credential Encryption (`src/lib/crypto.ts`):** User App Passwords are encrypted at rest using AES-256-GCM with a random 12-byte IV and authentication tag, derived from `EMAIL_ENCRYPTION_KEY`. Plaintext credentials are never returned over any API or client component.
+- **Provider Presets:** Pre-configured with optimal connection parameters:
+  - *Gmail:* SMTP `smtp.gmail.com:465` (SSL/TLS), IMAP `imap.gmail.com:993` (SSL/TLS). Includes step-by-step guidance for generating a 16-character Google App Password.
+  - *Outlook:* SMTP `smtp.office365.com:587` (STARTTLS), IMAP `outlook.office365.com:993` (SSL/TLS).
+  - *Zoho:* SMTP `smtp.zoho.com:465` (SSL/TLS), IMAP `imap.zoho.com:993` (SSL/TLS).
+  - *Custom:* Configurable SMTP and IMAP host, port, and security toggles.
+- **Strict Email Threading:**
+  - On Day 0 (`apply`): Nodemailer captures the message ID and stores it in `JobApplication.emailThreadId`.
+  - On Follow-Ups (Days 4, 10, 15): If `emailThreadId` exists, the transport attaches `inReplyTo: emailThreadId`, `references: [emailThreadId]`, and prefixes subject with `Re: ` (if not already present), ensuring all follow-ups stay in the exact same email conversation thread for the recruiter.
+- **Resume Attachment:** Candidate's uploaded resume document is attached directly to initial application emails.
+- **Automated IMAP Recruiter Reply Detection (`imapflow`):**
+  - Connects to user's IMAP mailbox (`INBOX`) and searches messages received since `lastSyncedAt`.
+  - Pure domain matcher `matchRecruiterReply()` matches incoming replies if sender is not the user AND either the message headers reference `emailThreadId` or sender matches `application.hrEmail`.
+  - Matched applications automatically transition to `REPLIED`, clearing `nextActionAt` and appending a recruiter snippet to application logs.
+- **Hourly Inngest Cron (`jobFollowUpScheduler`):**
+  - Runs every hour (`0 * * * *`). Iterates over all users with active `DIRECT_EMAIL` integrations in isolated `step.run()` blocks, scanning their IMAP inboxes before advancing pipeline stages.
+- **Deterministic MOCK Fallback:** If Direct Email is unconfigured, applications and follow-ups operate smoothly in deterministic MOCK mode without requiring any paid third-party API keys.
 - **Mandatory Resume Gating (`UserResume`):** Candidates cannot apply to jobs without uploading a resume document (`.pdf`, `.doc`, `.docx`, `.txt`). The parser extracts technical skills into JSON and renders them as skill badges. Resume storage is strictly isolated per candidate.
-- **Live Resend Dispatch & Candidate BCC Copy:**
-  - When `RESEND_API_KEY` is configured, outgoing outreach is delivered via Resend's HTTP API.
-  - The dispatcher automatically includes the candidate's sender email as a **BCC recipient**, guaranteeing the candidate receives an exact copy in their personal email inbox for record-keeping.
-  - When `RESEND_API_KEY` is omitted, the system falls back gracefully to deterministic MOCK simulation.
-  - The interactive drawer displays a live Delivery Mode banner (`LIVE RESEND DISPATCH` vs. `MOCK MODE`).
 
 ### 3. AI Email Drafter
 - Leverages the candidate's parsed resume (`parsedText`, `skillsJson`), company specifications, and candidate experience tier to draft non-repetitive pitches:
