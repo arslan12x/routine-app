@@ -255,6 +255,7 @@ model Task {
   title          String
   description    String?
   category       Category      @default(OTHER)
+  personalDevType String?       // "JOB_APPLY" | "DUOLINGO" | "NOVEL_READING" | "BLOG_WRITING" | "CUSTOM"
   isAiGated      Boolean       @default(false)
   aiSubject      StudySubject?
   aiCourseName   String?
@@ -268,6 +269,7 @@ model Task {
   logs           TaskLog[]
 
   @@index([userId, archivedOn])
+  @@index([userId, personalDevType])
 }
 
 model TaskVersion {
@@ -390,15 +392,18 @@ model NovelCatalog {
 }
 
 model UserReadingSession {
-  id          String               @id @default(cuid())
-  userId      String
-  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  novelId     String
-  novel       NovelCatalog         @relation(fields: [novelId], references: [id], onDelete: Cascade)
-  status      ReadingSessionStatus @default(READING)
-  startedAt   DateTime             @default(now())
-  lastReadAt  DateTime             @default(now())
-  completedAt DateTime?
+  id                 String               @id @default(cuid())
+  userId             String
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  novelId            String
+  novel              NovelCatalog         @relation(fields: [novelId], references: [id], onDelete: Cascade)
+  status             ReadingSessionStatus @default(READING)
+  currentChapter     Int                  @default(1)
+  currentHalf        Int                  @default(1) // 1 = first half of chapter, 2 = second half of chapter
+  lastQuizPassedDate String?              // YYYY-MM-DD local date when the daily 3/5 quiz was passed
+  startedAt          DateTime             @default(now())
+  lastReadAt         DateTime             @default(now())
+  completedAt        DateTime?
 
   @@unique([userId, novelId])
   @@index([userId, status])

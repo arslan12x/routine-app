@@ -39,6 +39,7 @@ import {
   Zap,
 } from "lucide-react";
 import { Button, Card, inputCls } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import {
   CATEGORY_LABELS,
   COMPANY_CATEGORIES,
@@ -112,6 +113,7 @@ interface ApplicationCounts {
   followUp3: number;
   replied: number;
   closed: number;
+  todayApplied?: number;
 }
 
 interface UserResume {
@@ -836,6 +838,16 @@ export default function JobsScreen() {
             </span>
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
               ⚡ 2-Day Auto-Rotation
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors",
+                (counts.todayApplied ?? 0) >= 10
+                  ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                  : "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400"
+              )}
+            >
+              🎯 Today&apos;s Goal: {counts.todayApplied ?? 0} / 10 Applied
             </span>
           </div>
           <p className="text-xs sm:text-sm text-muted max-w-3xl leading-relaxed">

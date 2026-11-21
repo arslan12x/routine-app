@@ -1,6 +1,7 @@
 "use client";
 import { Check, Flame, Globe, Loader2, Pencil, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button, Card, Empty, inputCls } from "@/components/ui";
 import { cn, fmtNum } from "@/lib/cn";
 import { triggerLightImpact, triggerSuccessNotification } from "@/lib/haptics";
@@ -34,9 +35,10 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
   onStudy?: (i: DayItem) => void;
   onEdit?: (t: TaskView) => void;
 }) {
+  const router = useRouter();
   const measurable = item.completionType === "MEASURABLE";
   const weekly = item.recurrence === "WEEKLY_TOTAL";
-  const isDuolingo = item.title.toLowerCase().includes("duolingo") || (item.description?.toLowerCase().includes("duolingo") ?? false);
+  const isDuolingo = item.personalDevType === "DUOLINGO" || (!item.personalDevType && (item.title.toLowerCase().includes("duolingo") || (item.description?.toLowerCase().includes("duolingo") ?? false)));
   const [syncing, setSyncing] = useState(false);
   const [duoWarning, setDuoWarning] = useState<string | null>(null);
   const [duoAccount, setDuoAccount] = useState<{ username: string; streak?: number; xpGainedToday?: number } | null>(null);
@@ -134,10 +136,34 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
         aria-pressed={item.done}
         aria-label={item.isAiGated
           ? `${item.done ? "Review" : "Start"} AI study: ${item.title}`
+          : item.personalDevType === "JOB_APPLY"
+          ? `Go to Jobs module: ${item.title}`
+          : item.personalDevType === "DUOLINGO"
+          ? `Sync Duolingo: ${item.title}`
+          : item.personalDevType === "NOVEL_READING"
+          ? `Go to Novels module: ${item.title}`
+          : item.personalDevType === "BLOG_WRITING"
+          ? `Go to Blogs module: ${item.title}`
           : `${item.done ? "Mark incomplete" : "Mark complete"}: ${item.title}`}
         onClick={() => {
           if (item.isAiGated) {
             onStudy?.(item);
+            return;
+          }
+          if (item.personalDevType === "JOB_APPLY") {
+            router.push("/jobs");
+            return;
+          }
+          if (item.personalDevType === "DUOLINGO") {
+            handleDuolingoSync();
+            return;
+          }
+          if (item.personalDevType === "NOVEL_READING") {
+            router.push("/novels");
+            return;
+          }
+          if (item.personalDevType === "BLOG_WRITING") {
+            router.push("/blogs");
             return;
           }
           triggerLightImpact();
@@ -152,10 +178,30 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
           <div className={cn("font-medium leading-snug", item.done && "text-muted line-through")}>{item.title}</div>
           {onEdit && <button onClick={() => onEdit(item)} aria-label={`Edit ${item.title}`} className="grid size-8 shrink-0 place-items-center rounded-full text-muted hover:bg-soft"><Pencil size={15} /></button>}
         </div>
-        <div className="text-xs text-muted">
-          {catLabel(item.category)}
-          {weekly && ` · Week: ${fmtNum(item.weekSum ?? 0)} / ${fmtNum(item.target)} ${unit}`.trimEnd()}
-          {item.description && ` · ${item.description}`}
+        <div className="text-xs text-muted flex flex-wrap items-center gap-1.5 mt-0.5">
+          <span>{catLabel(item.category)}</span>
+          {item.personalDevType === "JOB_APPLY" && (
+            <span className="inline-flex items-center rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+              🎯 10 Jobs/Day Gate
+            </span>
+          )}
+          {item.personalDevType === "DUOLINGO" && (
+            <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+              🦉 Duolingo Streak
+            </span>
+          )}
+          {item.personalDevType === "NOVEL_READING" && (
+            <span className="inline-flex items-center rounded-md bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+              📖 Novel 1/2 Ch + Quiz
+            </span>
+          )}
+          {item.personalDevType === "BLOG_WRITING" && (
+            <span className="inline-flex items-center rounded-md bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400">
+              ✍️ Blog Post Gate
+            </span>
+          )}
+          {weekly && <span>· Week: {fmtNum(item.weekSum ?? 0)} / {fmtNum(item.target)} {unit}</span>}
+          {item.description && <span>· {item.description}</span>}
         </div>
         {isDuolingo && (
           <div className="mt-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-2.5 space-y-2">

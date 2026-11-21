@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { withUserDb } from "@/lib/db";
 import { logKey } from "@/lib/domain/schedule";
-import type { Category, CompletionType, LogMap, Recurrence, TaskDef } from "@/lib/domain/types";
+import type { Category, CompletionType, LogMap, PersonalDevType, Recurrence, TaskDef } from "@/lib/domain/types";
 
 export const d2s = (d: Date) => d.toISOString().slice(0, 10);
 export const s2d = (s: string) => new Date(`${s}T00:00:00.000Z`);
@@ -12,6 +12,7 @@ function mapTaskRows(rows: Awaited<ReturnType<typeof queryTasks>>): TaskDef[] {
     title: t.title,
     description: t.description,
     category: t.category as Category,
+    personalDevType: (t.personalDevType as PersonalDevType) ?? null,
     isAiGated: t.isAiGated,
     aiSubject: t.aiSubject,
     aiCourseName: t.aiCourseName,
@@ -39,6 +40,7 @@ function queryTasks(tx: Prisma.TransactionClient, userId: string) {
       title: true,
       description: true,
       category: true,
+      personalDevType: true,
       isAiGated: true,
       aiSubject: true,
       aiCourseName: true,

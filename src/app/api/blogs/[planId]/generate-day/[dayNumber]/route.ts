@@ -1,6 +1,9 @@
 import { requireUser } from "@/lib/auth/session";
 import { generateDayContent } from "@/server/services/blogs";
 import { ApiError } from "@/lib/api";
+import { todayIn } from "@/lib/domain/dates";
+import { withUserDb } from "@/lib/db";
+import { syncFeatureTaskCompletion } from "@/server/services/tasks";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -32,6 +35,14 @@ export async function POST(
     }
 
     const updatedDay = await generateDayContent(user.id, planId, dayNumber);
+
+    const todayLocalDate = todayIn(user.timezone);
+    await withUserDb(user.id, (tx) =>
+      syncFeatureTaskCompletion(tx, user.id, "BLOG_WRITING", todayLocalDate, 1)
+    ).catch((err) =>
+      console.warn("[Blog Day Generate] Failed to sync BLOG_WRITING task", err)
+    );
+
     return Response.json({ day: updatedDay }, {
       headers: { "Cache-Control": "private, no-store" },
     });

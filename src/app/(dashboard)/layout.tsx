@@ -3,12 +3,26 @@ import Link from "next/link";
 import Nav from "@/components/Nav";
 import TimezoneSync from "@/components/TimezoneSync";
 import { pageUser } from "@/lib/auth/session";
+import { withUserDb } from "@/lib/db";
+import { computeEnabledModules } from "@/lib/domain/types";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await pageUser();
+  const activeDevTasks = await withUserDb(user.id, (tx) =>
+    tx.task.findMany({
+      where: {
+        userId: user.id,
+        archivedOn: null,
+        personalDevType: { not: null },
+      },
+      select: { personalDevType: true, archivedOn: true },
+    })
+  );
+  const enabledModules = computeEnabledModules(activeDevTasks);
+
   return (
     <div className="min-h-dvh md:pl-56">
-      <Nav />
+      <Nav enabledModules={enabledModules} />
       <TimezoneSync isSet={user.timezoneSet} />
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 sm:px-6 pt-[calc(0.75rem+env(safe-area-inset-top))]">
         <span className="display text-lg font-semibold md:invisible">Routine</span>

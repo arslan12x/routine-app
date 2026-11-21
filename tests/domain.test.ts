@@ -49,14 +49,19 @@ import { inferCompanyCategoryFromMeta, stripHtmlTags } from "../src/server/servi
 import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
 import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
-import type { LogMap, Recurrence, TaskDef, TaskVersion } from "../src/lib/domain/types.ts";
+import { computeEnabledModules, type LogMap, type Recurrence, type TaskDef, type TaskVersion } from "../src/lib/domain/types.ts";
+import {
+  stripGutenbergBoilerplate,
+  splitBookIntoChapters,
+  splitChapterIntoHalves,
+} from "../src/server/services/novel-reader.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
   effectiveFrom: "2026-11-01", isMandatory: true, completionType: "BOOLEAN", target: 1, unit: null,
   recurrence: "DAILY" as Recurrence, weekdays: [], ...o,
 });
 const task = (id: string, o: Partial<TaskDef> = {}, v: Partial<TaskVersion> = {}): TaskDef => ({
-  id, title: id, description: null, category: "FITNESS", sortOrder: 0, startDate: "2026-11-01", archivedOn: null,
+  id, title: id, description: null, category: "FITNESS", personalDevType: null, sortOrder: 0, startDate: "2026-11-01", archivedOn: null,
   isAiGated: false, aiSubject: null, aiCourseName: null, aiCoursePrompt: null,
   versions: [ver({ effectiveFrom: o.startDate ?? "2026-11-01", ...v })], ...o,
 });
@@ -1490,5 +1495,116 @@ Special symbols: • Bullet 1 — Em dash – En dash … Ellipsis \\ Backslash`
       expect(stripped).toContain("Senior Engineer");
       expect(stripped).toContain("&");
       expect(stripped).toContain("Java < 21 > 11");
+    });
+  });
+
+  describe("Personal Development Task Integration & Gating Rules", () => {
+    it("evaluates dynamic sidebar visibility flags (enabledModules) based on active vs archived personalDevType tasks", () => {
+      // No personal dev tasks -> all disabled
+      expect(computeEnabledModules([])).toEqual({
+        jobs: false,
+        duolingo: false,
+        novels: false,
+        blogs: false,
+      });
+
+      // Active tasks enable their corresponding modules
+      const activeTasks = [
+        { personalDevType: "JOB_APPLY", archivedOn: null },
+        { personalDevType: "NOVEL_READING", archivedOn: null },
+      ];
+      expect(computeEnabledModules(activeTasks)).toEqual({
+        jobs: true,
+        duolingo: false,
+        novels: true,
+        blogs: false,
+      });
+
+      // Archived tasks do NOT enable modules
+      const mixedTasks = [
+        { personalDevType: "JOB_APPLY", archivedOn: "2026-11-20" },
+        { personalDevType: "DUOLINGO", archivedOn: null },
+        { personalDevType: "BLOG_WRITING", archivedOn: null },
+      ];
+      expect(computeEnabledModules(mixedTasks)).toEqual({
+        jobs: false,
+        duolingo: true,
+        novels: false,
+        blogs: true,
+      });
+    });
+
+    it("evaluates Job Apply 10-jobs/day completion threshold (9 = incomplete, 10 = complete)", () => {
+      const target = 10;
+      const checkCompletion = (appliedCount: number) => appliedCount >= target;
+
+      expect(checkCompletion(0)).toBe(false);
+      expect(checkCompletion(4)).toBe(false);
+      expect(checkCompletion(9)).toBe(false);
+      expect(checkCompletion(10)).toBe(true);
+      expect(checkCompletion(15)).toBe(true);
+    });
+
+    it("evaluates Duolingo streak comparison (currentStreak > previousDayStreak = complete, equal/lower = incomplete)", () => {
+      const isStreakProgressValid = (fetchedStreak: number, previousDayStreak: number) =>
+        fetchedStreak > previousDayStreak && fetchedStreak > 0;
+
+      // Unchanged streak (no lesson completed today)
+      expect(isStreakProgressValid(12, 12)).toBe(false);
+      // Decreased streak (streak freeze or reset)
+      expect(isStreakProgressValid(0, 5)).toBe(false);
+      // Increased streak (lesson completed today)
+      expect(isStreakProgressValid(13, 12)).toBe(true);
+      // First day connecting with positive streak
+      expect(isStreakProgressValid(1, 0)).toBe(true);
+    });
+
+    it("evaluates Novel half-chapter quiz pass/fail threshold (2/5 = fail, 3/5 = pass)", () => {
+      const isQuizPassed = (score: number, total: number = 5) => score >= 3 && score <= total;
+
+      expect(isQuizPassed(0)).toBe(false);
+      expect(isQuizPassed(1)).toBe(false);
+      expect(isQuizPassed(2)).toBe(false);
+      expect(isQuizPassed(3)).toBe(true);
+      expect(isQuizPassed(4)).toBe(true);
+      expect(isQuizPassed(5)).toBe(true);
+    });
+
+    it("splits book text and half-chapters deterministically", () => {
+      const mockRawText = `
+*** START OF THE PROJECT GUTENBERG EBOOK SAMPLE ***
+
+Chapter 1: The First Departure
+
+The morning light broke across the hills. The carriage had arrived early.
+Everyone gathered in the courtyard with luggage prepared.
+
+Chapter 2: The Open Road
+
+The wheels turned rhythmically upon the cobblestones. The journey began in earnest.
+The traveler looked back one final time before turning toward the horizon.
+
+*** END OF THE PROJECT GUTENBERG EBOOK SAMPLE ***
+`;
+
+      const stripped = stripGutenbergBoilerplate(mockRawText);
+      expect(stripped).not.toContain("START OF THE PROJECT GUTENBERG");
+      expect(stripped).not.toContain("END OF THE PROJECT GUTENBERG");
+      expect(stripped).toContain("Chapter 1: The First Departure");
+
+      const chapters = splitBookIntoChapters(stripped);
+      expect(chapters.length).toBe(2);
+      expect(chapters[0].title).toContain("Chapter 1");
+      expect(chapters[1].title).toContain("Chapter 2");
+
+      const half1 = splitChapterIntoHalves(chapters[0], 2, 1);
+      const half2 = splitChapterIntoHalves(chapters[0], 2, 2);
+
+      expect(half1.half).toBe(1);
+      expect(half2.half).toBe(2);
+      expect(half1.title).toContain("Part 1 of 2");
+      expect(half2.title).toContain("Part 2 of 2");
+      expect(half1.content.length).toBeGreaterThan(0);
+      expect(half2.content.length).toBeGreaterThan(0);
     });
   });

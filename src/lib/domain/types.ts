@@ -1,5 +1,6 @@
 export type DateStr = string; // "YYYY-MM-DD" local calendar date
 export type Category = "FITNESS" | "LEARNING" | "HEALTH" | "PERSONAL_DEVELOPMENT" | "OTHER";
+export type PersonalDevType = "JOB_APPLY" | "DUOLINGO" | "NOVEL_READING" | "BLOG_WRITING" | "CUSTOM";
 export type CompletionType = "BOOLEAN" | "MEASURABLE";
 export type Recurrence = "DAILY" | "WEEKDAYS" | "WEEKLY_TOTAL";
 export type StudySubject = "DSA" | "FDA" | "JAVA" | "SYSTEM_DESIGN" | "CUSTOM";
@@ -19,6 +20,7 @@ export interface TaskDef {
   title: string;
   description: string | null;
   category: Category;
+  personalDevType?: PersonalDevType | null;
   isAiGated: boolean;
   aiSubject: StudySubject | null;
   aiCourseName: string | null;
@@ -39,4 +41,24 @@ export interface DayInfo {
   mandatoryDone: number;
   total: number; // daily-schedulable tasks (excludes weekly-total)
   done: number;
+}
+
+export interface EnabledPersonalDevModules {
+  jobs: boolean;
+  duolingo: boolean;
+  novels: boolean;
+  blogs: boolean;
+}
+
+export function computeEnabledModules(
+  tasks: Array<{ personalDevType?: string | null; archivedOn?: unknown | null }>
+): EnabledPersonalDevModules {
+  const active = tasks.filter((t) => !t.archivedOn && t.personalDevType);
+  const types = new Set(active.map((t) => t.personalDevType));
+  return {
+    jobs: types.has("JOB_APPLY"),
+    duolingo: types.has("DUOLINGO"),
+    novels: types.has("NOVEL_READING"),
+    blogs: types.has("BLOG_WRITING"),
+  };
 }

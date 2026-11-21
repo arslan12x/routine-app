@@ -1,3 +1,4 @@
+import type { Prisma } from "@/generated/prisma/client";
 import { withAiStudyDb, withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import type { AppUser } from "@/lib/auth/session";
@@ -6,13 +7,14 @@ import { addDays, hourIn, longDate, todayIn, weekStart } from "@/lib/domain/date
 import { shouldRejectStaleWrite } from "@/lib/domain/sync";
 import { isDone, logKey, progressOf, scheduledOn, versionOn, weekDays } from "@/lib/domain/schedule";
 import { computeStreaks } from "@/lib/domain/streaks";
-import type { Category, CompletionType, Recurrence, StudySubject, TaskDef } from "@/lib/domain/types";
+import type { Category, CompletionType, PersonalDevType, Recurrence, StudySubject, TaskDef } from "@/lib/domain/types";
 import { d2s, loadLogs, loadTasks, s2d } from "@/server/repositories/tasks";
 
 export const BACKDATE_DAYS = 7;
 
 export interface TaskView {
   id: string; title: string; description: string | null; category: Category;
+  personalDevType: PersonalDevType | null;
   isAiGated: boolean; aiSubject: StudySubject | null; aiCourseName: string | null; aiCoursePrompt: string | null;
   isMandatory: boolean; completionType: CompletionType; target: number; unit: string | null;
   recurrence: Recurrence; weekdays: number[];
@@ -26,7 +28,9 @@ export interface DayView {
 }
 
 const view = (t: TaskDef, v: NonNullable<ReturnType<typeof versionOn>>): TaskView => ({
-  id: t.id, title: t.title, description: t.description, category: t.category, isMandatory: v.isMandatory,
+  id: t.id, title: t.title, description: t.description, category: t.category,
+  personalDevType: t.personalDevType ?? null,
+  isMandatory: v.isMandatory,
   isAiGated: t.isAiGated, aiSubject: t.aiSubject, aiCourseName: t.aiCourseName, aiCoursePrompt: t.aiCoursePrompt,
   completionType: v.completionType, target: v.target, unit: v.unit, recurrence: v.recurrence, weekdays: v.weekdays,
 });
@@ -121,6 +125,7 @@ export async function createTask(user: AppUser, input: TaskCreate) {
     return tx.task.create({
       data: {
         userId: user.id, title: input.title, description: input.description ?? null, category: input.category,
+        personalDevType: input.personalDevType ?? null,
         isAiGated: input.isAiGated, aiSubject: input.aiSubject ?? null,
         aiCourseName: input.aiSubject === "CUSTOM" ? input.aiCourseName ?? null : null,
         aiCoursePrompt: input.aiSubject === "CUSTOM" ? input.aiCoursePrompt ?? null : null,
@@ -198,6 +203,7 @@ export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
       where: { id },
       data: {
         title: patch.title, description: patch.description, category: patch.category,
+        personalDevType: patch.personalDevType !== undefined ? patch.personalDevType : undefined,
         isAiGated: patch.isAiGated, aiSubject: patch.aiSubject, aiCourseName, aiCoursePrompt,
         archivedOn: patch.archived ? s2d(today) : undefined,
       },
@@ -286,6 +292,15 @@ async function writeProgress(user: AppUser, taskId: string, date: string, value:
       ? "Complete this task through its AI study session"
       : "This task does not use AI study completion");
   }
+  if (tasks[0].personalDevType === "JOB_APPLY") {
+    throw new ApiError(400, "GATED_PERSONAL_DEV_TASK", "Apply to 10 jobs today in /jobs to complete this task");
+  }
+  if (tasks[0].personalDevType === "DUOLINGO") {
+    throw new ApiError(400, "GATED_PERSONAL_DEV_TASK", "Sync your Duolingo streak progress to complete this task");
+  }
+  if (tasks[0].personalDevType === "NOVEL_READING") {
+    throw new ApiError(400, "GATED_PERSONAL_DEV_TASK", "Pass today's 5-question novel quiz (3/5) in /novels to complete this task");
+  }
   const v = scheduledOn(tasks[0], date);
   if (!v) throw new ApiError(400, "NOT_SCHEDULED", "This task is not scheduled on that date");
   const final = v.completionType === "BOOLEAN" ? (value > 0 ? 1 : 0) : value;
@@ -311,4 +326,47 @@ async function writeProgress(user: AppUser, taskId: string, date: string, value:
     }
   });
   return { taskId, date, value: final };
+}
+
+export async function syncFeatureTaskCompletion(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  personalDevType: PersonalDevType,
+  localDate: string,
+  value: number
+) {
+  const activeTasks = await tx.task.findMany({
+    where: {
+      userId,
+      personalDevType,
+      archivedOn: null,
+    },
+    select: {
+      id: true,
+      startDate: true,
+    },
+  });
+
+  const dateObj = s2d(localDate);
+  for (const t of activeTasks) {
+    if (d2s(t.startDate) > localDate) continue;
+    if (value === 0) {
+      await tx.taskLog.deleteMany({
+        where: { taskId: t.id, userId, localDate: dateObj },
+      });
+    } else {
+      await tx.taskLog.upsert({
+        where: { taskId_localDate: { taskId: t.id, localDate: dateObj } },
+        create: {
+          userId,
+          taskId: t.id,
+          localDate: dateObj,
+          value,
+        },
+        update: {
+          value,
+        },
+      });
+    }
+  }
 }

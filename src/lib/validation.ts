@@ -3,6 +3,7 @@ import { isValidDate, isValidTimezone } from "@/lib/domain/dates";
 
 export const dateStr = z.string().refine(isValidDate, "Use YYYY-MM-DD");
 export const categoryEnum = z.enum(["FITNESS", "LEARNING", "HEALTH", "PERSONAL_DEVELOPMENT", "OTHER"]);
+export const personalDevTypeEnum = z.enum(["JOB_APPLY", "DUOLINGO", "NOVEL_READING", "BLOG_WRITING", "CUSTOM"]);
 export const completionEnum = z.enum(["BOOLEAN", "MEASURABLE"]);
 export const recurrenceEnum = z.enum(["DAILY", "WEEKDAYS", "WEEKLY_TOTAL"]);
 export const studySubjectEnum = z.enum(["DSA", "FDA", "JAVA", "SYSTEM_DESIGN", "CUSTOM"]);
@@ -13,6 +14,7 @@ export const taskCreate = z
     title: z.string().trim().min(1, "Title is required").max(80),
     description: z.string().trim().max(300).nullable().optional(),
     category: categoryEnum.default("OTHER"),
+    personalDevType: personalDevTypeEnum.nullable().optional(),
     isMandatory: z.boolean().default(false),
     completionType: completionEnum.default("BOOLEAN"),
     target: z.number().positive().max(10_000_000).default(1),
@@ -40,6 +42,7 @@ export const taskPatch = z.object({
   title: z.string().trim().min(1).max(80).optional(),
   description: z.string().trim().max(300).nullable().optional(),
   category: categoryEnum.optional(),
+  personalDevType: personalDevTypeEnum.nullable().optional(),
   isMandatory: z.boolean().optional(),
   completionType: completionEnum.optional(),
   target: z.number().positive().max(10_000_000).optional(),

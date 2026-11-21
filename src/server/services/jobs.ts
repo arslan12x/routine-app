@@ -2,6 +2,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { withUserDb, systemDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import type { AppUser } from "@/lib/auth/session";
+import { todayIn } from "@/lib/domain/dates";
+import { syncFeatureTaskCompletion } from "@/server/services/tasks";
 import {
   calculateNextStageTransition,
   FOLLOWUP_DAY_OFFSETS,
@@ -624,6 +626,16 @@ export async function listUserApplications(
     const repliedCount = filteredApps.filter((a) => a.stage === "REPLIED").length;
     const closedCount = filteredApps.filter((a) => a.stage === "CLOSED").length;
 
+    const userSettings = await tx.userSettings.findUnique({
+      where: { userId },
+      select: { timezone: true },
+    });
+    const tz = userSettings?.timezone || "Asia/Kolkata";
+    const todayLocalDate = todayIn(tz);
+    const todayAppliedCount = allApps.filter(
+      (a) => a.appliedAt && todayIn(tz, a.appliedAt) === todayLocalDate
+    ).length;
+
     return {
       applications: filteredApps,
       counts: {
@@ -633,6 +645,7 @@ export async function listUserApplications(
         followUp3: fu3Count,
         replied: repliedCount,
         closed: closedCount,
+        todayApplied: todayAppliedCount,
       },
     };
   });
@@ -776,6 +789,27 @@ export async function applyToJob(
       },
       include: { company: true },
     })
+  );
+
+  // Sync today's applied count with user's active JOB_APPLY task
+  const todayLocalDate = todayIn(user.timezone);
+  const recentApplications = await withUserDb(user.id, (tx) =>
+    tx.jobApplication.findMany({
+      where: {
+        userId: user.id,
+        appliedAt: { not: null },
+      },
+      select: { appliedAt: true },
+    })
+  );
+  const todayAppliedCount = recentApplications.filter(
+    (app) => app.appliedAt && todayIn(user.timezone, app.appliedAt) === todayLocalDate
+  ).length;
+
+  await withUserDb(user.id, (tx) =>
+    syncFeatureTaskCompletion(tx, user.id, "JOB_APPLY", todayLocalDate, todayAppliedCount)
+  ).catch((err) =>
+    console.warn("[Job Engine] Failed to sync JOB_APPLY task completion", err)
   );
 
   // Immediately backfill fresh jobs into TO_APPLY

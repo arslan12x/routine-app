@@ -9,8 +9,31 @@ import type { TaskView } from "@/server/services/tasks";
 import { CATEGORIES, UNITS, WEEKDAY_LABELS } from "./constants";
 
 type Form = Omit<TaskView, "id" | "description"> & { description: string };
-const blank: Form = { title: "", description: "", category: "OTHER", isAiGated: false, aiSubject: null, aiCourseName: null, aiCoursePrompt: null, isMandatory: true, completionType: "BOOLEAN", target: 1, unit: "", recurrence: "DAILY", weekdays: [1, 2, 3, 4, 5] };
+const blank: Form = {
+  title: "",
+  description: "",
+  category: "OTHER",
+  personalDevType: null,
+  isAiGated: false,
+  aiSubject: null,
+  aiCourseName: null,
+  aiCoursePrompt: null,
+  isMandatory: true,
+  completionType: "BOOLEAN",
+  target: 1,
+  unit: "",
+  recurrence: "DAILY",
+  weekdays: [1, 2, 3, 4, 5],
+};
 const selectCls = `${inputCls} appearance-none pr-10 disabled:cursor-not-allowed disabled:opacity-60`;
+
+export const PERSONAL_DEV_MODULES = [
+  { value: "JOB_APPLY", label: "Job Apply (10 jobs/day target)" },
+  { value: "DUOLINGO", label: "Duolingo Practice (Streak verified)" },
+  { value: "NOVEL_READING", label: "Novel Reading (1/2 chapter + 5-question quiz)" },
+  { value: "BLOG_WRITING", label: "Blog Writing" },
+  { value: "CUSTOM", label: "Custom" },
+] as const;
 
 export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<Form>(task ? { ...task, description: task.description ?? "", unit: task.unit ?? "" } : blank);
@@ -21,12 +44,91 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
   const needsTarget = f.completionType === "MEASURABLE" || weekly;
   const canChangeAiGate = !task || !task.isAiGated;
 
+  const handleCategoryChange = (cat: Form["category"]) => {
+    if (cat === "PERSONAL_DEVELOPMENT") {
+      const devType = f.personalDevType || "JOB_APPLY";
+      setF((prev) => ({
+        ...prev,
+        category: cat,
+        personalDevType: devType,
+        ...(devType === "JOB_APPLY"
+          ? {
+              completionType: "MEASURABLE",
+              target: 10,
+              unit: "applications",
+              title: prev.title.trim() === "" ? "Apply to 10 Jobs" : prev.title,
+            }
+          : devType === "DUOLINGO"
+          ? {
+              completionType: "BOOLEAN",
+              target: 1,
+              unit: "",
+              title: prev.title.trim() === "" ? "Duolingo Practice" : prev.title,
+            }
+          : devType === "NOVEL_READING"
+          ? {
+              completionType: "BOOLEAN",
+              target: 1,
+              unit: "",
+              title: prev.title.trim() === "" ? "Read 1/2 Chapter Novel" : prev.title,
+            }
+          : devType === "BLOG_WRITING"
+          ? {
+              completionType: "BOOLEAN",
+              target: 1,
+              unit: "",
+              title: prev.title.trim() === "" ? "Write Daily Blog" : prev.title,
+            }
+          : {}),
+      }));
+    } else {
+      setF((prev) => ({ ...prev, category: cat, personalDevType: null }));
+    }
+  };
+
+  const handleDevTypeChange = (devType: NonNullable<Form["personalDevType"]>) => {
+    setF((prev) => ({
+      ...prev,
+      personalDevType: devType,
+      ...(devType === "JOB_APPLY"
+        ? {
+            completionType: "MEASURABLE",
+            target: 10,
+            unit: "applications",
+            title: prev.title.trim() === "" || prev.title.startsWith("Apply to") || prev.title.startsWith("Duolingo") || prev.title.startsWith("Read 1/2") || prev.title.startsWith("Write Daily") ? "Apply to 10 Jobs" : prev.title,
+          }
+        : devType === "DUOLINGO"
+        ? {
+            completionType: "BOOLEAN",
+            target: 1,
+            unit: "",
+            title: prev.title.trim() === "" || prev.title.startsWith("Apply to") || prev.title.startsWith("Duolingo") || prev.title.startsWith("Read 1/2") || prev.title.startsWith("Write Daily") ? "Duolingo Practice" : prev.title,
+          }
+        : devType === "NOVEL_READING"
+        ? {
+            completionType: "BOOLEAN",
+            target: 1,
+            unit: "",
+            title: prev.title.trim() === "" || prev.title.startsWith("Apply to") || prev.title.startsWith("Duolingo") || prev.title.startsWith("Read 1/2") || prev.title.startsWith("Write Daily") ? "Read 1/2 Chapter Novel" : prev.title,
+          }
+        : devType === "BLOG_WRITING"
+        ? {
+            completionType: "BOOLEAN",
+            target: 1,
+            unit: "",
+            title: prev.title.trim() === "" || prev.title.startsWith("Apply to") || prev.title.startsWith("Duolingo") || prev.title.startsWith("Read 1/2") || prev.title.startsWith("Write Daily") ? "Write Daily Blog" : prev.title,
+          }
+        : {}),
+    }));
+  };
+
   async function run(fn: () => Promise<unknown>) {
     setBusy(true); setErr(null);
     try { await fn(); onSaved(); onClose(); } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); } finally { setBusy(false); }
   }
   const payload = () => ({
     title: f.title, description: f.description || null, category: f.category,
+    personalDevType: f.category === "PERSONAL_DEVELOPMENT" ? f.personalDevType || "CUSTOM" : null,
     isAiGated: f.isAiGated, aiSubject: f.isAiGated ? f.aiSubject : null,
     aiCourseName: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCourseName : null,
     aiCoursePrompt: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCoursePrompt : null,
@@ -48,10 +150,38 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
         <div><label className={lbl} htmlFor="t-desc">Description (optional)</label><input id="t-desc" maxLength={300} className={inputCls} value={f.description} onChange={(e) => set("description", e.target.value)} /></div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div><label className={lbl} htmlFor="t-cat">Category</label>
-            <div className="relative min-w-0"><select id="t-cat" className={selectCls} value={f.category} onChange={(e) => set("category", e.target.value as Form["category"])}>{CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
+            <div className="relative min-w-0"><select id="t-cat" className={selectCls} value={f.category} onChange={(e) => handleCategoryChange(e.target.value as Form["category"])}>{CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
           <div><label className={lbl} htmlFor="t-type">Completion</label>
             <div className="relative min-w-0"><select id="t-type" className={selectCls} value={f.completionType} onChange={(e) => set("completionType", e.target.value as Form["completionType"])}><option value="BOOLEAN">Done / not done</option><option value="MEASURABLE">Measured amount</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         </div>
+        {f.category === "PERSONAL_DEVELOPMENT" && (
+          <div className="rounded-xl border border-brand/30 bg-brand/5 p-3 space-y-2">
+            <label className={lbl} htmlFor="t-pdev">Personal Development Module</label>
+            <div className="relative min-w-0">
+              <select
+                id="t-pdev"
+                required
+                className={selectCls}
+                value={f.personalDevType || "JOB_APPLY"}
+                onChange={(e) => handleDevTypeChange(e.target.value as NonNullable<Form["personalDevType"]>)}
+              >
+                {PERSONAL_DEV_MODULES.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden />
+            </div>
+            <p className="text-xs text-muted">
+              {f.personalDevType === "JOB_APPLY" && "Requires applying to 10 verified jobs/day in /jobs to complete."}
+              {f.personalDevType === "DUOLINGO" && "Automatically verifies your daily Duolingo lesson streak to complete."}
+              {f.personalDevType === "NOVEL_READING" && "Requires reading 1/2 novel chapter and scoring 3/5 on comprehension quiz."}
+              {f.personalDevType === "BLOG_WRITING" && "Enables the /blogs studio and auto-completes when daily post is written."}
+              {f.personalDevType === "CUSTOM" && "Custom personal development task configured to your own target."}
+            </p>
+          </div>
+        )}
         <div><label className={lbl} htmlFor="t-rec">Repeats</label>
           <div className="relative min-w-0"><select id="t-rec" className={selectCls} value={f.recurrence} onChange={(e) => set("recurrence", e.target.value as Form["recurrence"])}><option value="DAILY">Every day</option><option value="WEEKDAYS">Selected weekdays</option><option value="WEEKLY_TOTAL">Weekly total (extra only)</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         {f.recurrence === "WEEKDAYS" && (

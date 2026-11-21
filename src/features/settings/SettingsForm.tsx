@@ -11,7 +11,15 @@ import DuolingoIntegrationCard from "./DuolingoIntegrationCard";
 
 interface S { timezone: string; weekStartsOn: 1 | 7; displayName: string | null; showOnLeaderboard: boolean }
 
-export default function SettingsForm({ initial, username }: { initial: S; username: string }) {
+export default function SettingsForm({
+  initial,
+  username,
+  hasDuolingoTask = false,
+}: {
+  initial: S;
+  username: string;
+  hasDuolingoTask?: boolean;
+}) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [s, setS] = useState(initial);
@@ -50,7 +58,7 @@ export default function SettingsForm({ initial, username }: { initial: S; userna
         <p className="text-muted"><b>iPhone:</b> open in Safari, tap Share, then Add to Home Screen. <b>Android:</b> Chrome menu, then Install app.</p>
       </Card>
       <NativeHealthToggle />
-      <DuolingoIntegrationCard />
+      {hasDuolingoTask && <DuolingoIntegrationCard />}
       <PushReminderToggle />
       <div className="mt-6 flex gap-2"><Button variant="outline" onClick={exportData}>Export my data</Button><SignOutButton /></div>
     </>

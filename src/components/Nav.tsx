@@ -3,21 +3,27 @@ import { BookOpen, Briefcase, CalendarDays, ListChecks, Sparkles, TrendingUp, Tr
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
+import type { EnabledPersonalDevModules } from "@/lib/domain/types";
 
-const items = [
+const allItems = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
   { href: "/challenges", label: "Challenges", Icon: Trophy },
-  { href: "/novels", label: "Novels", Icon: BookOpen },
-  { href: "/blogs", label: "Blogs", Icon: Sparkles },
-  { href: "/jobs", label: "Jobs", Icon: Briefcase },
+  { href: "/novels", label: "Novels", Icon: BookOpen, moduleKey: "novels" as const },
+  { href: "/blogs", label: "Blogs", Icon: Sparkles, moduleKey: "blogs" as const },
+  { href: "/jobs", label: "Jobs", Icon: Briefcase, moduleKey: "jobs" as const },
   { href: "/finance", label: "Finance", Icon: Wallet },
   { href: "/calendar", label: "Calendar", Icon: CalendarDays },
   { href: "/insights", label: "Insights", Icon: TrendingUp },
   { href: "/friends", label: "Friends", Icon: Users },
 ];
 
-export default function Nav() {
+export default function Nav({ enabledModules }: { enabledModules?: EnabledPersonalDevModules }) {
   const path = usePathname();
+
+  const items = allItems.filter((item) => {
+    if (!item.moduleKey || !enabledModules) return true;
+    return enabledModules[item.moduleKey] === true;
+  });
   return (
     <>
       {/* Desktop sidebar */}

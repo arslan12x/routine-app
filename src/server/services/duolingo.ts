@@ -1,9 +1,6 @@
 import { withUserDb } from "@/lib/db";
 import { todayIn } from "@/lib/domain/dates";
-import { scheduledOn } from "@/lib/domain/schedule";
-import { loadTasks } from "@/server/repositories/tasks";
-import { setProgress } from "@/server/services/tasks";
-import type { AppUser } from "@/lib/auth/session";
+import { syncFeatureTaskCompletion } from "@/server/services/tasks";
 import { ApiError } from "@/lib/api";
 
 export interface DuolingoSyncResult {
@@ -180,7 +177,41 @@ export async function syncDuolingo(
   } catch (err: unknown) {
     console.warn("[Duolingo Sync] Network/fetch error", err);
     result.lastStatus = "NETWORK_ERROR";
-    result.warning = "Network timeout reaching Duolingo. You may mark this task complete manually.";
+    result.warning = "Network timeout reaching Duolingo. Please check connection and retry.";
+  }
+
+  const todayLocalDate = todayIn(user.timezone);
+  const rawMeta = (integration?.metadata as Record<string, unknown>) || {};
+  let previousDayStreak = typeof rawMeta.previousDayStreak === "number" ? rawMeta.previousDayStreak : (typeof rawMeta.streak === "number" ? rawMeta.streak : 0);
+  let previousDayDate = typeof rawMeta.previousDayDate === "string" ? rawMeta.previousDayDate : "";
+  const lastSyncedLocalDate = typeof rawMeta.lastSyncedLocalDate === "string" ? rawMeta.lastSyncedLocalDate : "";
+
+  if (lastSyncedLocalDate && lastSyncedLocalDate !== todayLocalDate) {
+    previousDayStreak = typeof rawMeta.currentStreak === "number" ? rawMeta.currentStreak : (typeof rawMeta.streak === "number" ? rawMeta.streak : previousDayStreak);
+    previousDayDate = lastSyncedLocalDate;
+  }
+
+  const fetchedStreak = result.streak;
+  // Completion Rule: If fetchedStreak > previousDayStreak (and fetchedStreak > 0), streak increased today!
+  const streakIncreased = fetchedStreak > previousDayStreak && fetchedStreak > 0;
+
+  if (streakIncreased) {
+    result.completedToday = true;
+    result.lastStatus = "COMPLETED_TODAY";
+    result.taskCompleted = true;
+    result.warning = undefined;
+
+    // Automatically mark active DUOLINGO task complete
+    await withUserDb(user.id, (tx) =>
+      syncFeatureTaskCompletion(tx, user.id, "DUOLINGO", todayLocalDate, 1)
+    ).catch((err) =>
+      console.warn("[Duolingo Sync] Failed to sync DUOLINGO task completion", err)
+    );
+  } else {
+    result.completedToday = false;
+    result.lastStatus = "NOT_COMPLETED_TODAY";
+    result.taskCompleted = false;
+    result.warning = `Streak: ${fetchedStreak} days (complete today's Duolingo lesson to reach ${previousDayStreak + 1} and mark task done)`;
   }
 
   // Update integration record in database
@@ -196,42 +227,17 @@ export async function syncDuolingo(
         lastSyncedAt: new Date(),
         lastStatus: result.lastStatus,
         metadata: {
+          previousDayStreak,
+          previousDayDate,
+          currentStreak: fetchedStreak,
+          lastSyncedLocalDate: todayLocalDate,
+          streak: fetchedStreak,
           xpGainedToday: result.xpGainedToday,
-          streak: result.streak,
           warning: result.warning,
         },
       },
     })
   );
-
-  // If completed today, auto-complete the corresponding task in TaskLog!
-  if (result.completedToday) {
-    const today = todayIn(user.timezone);
-    const tasks = await loadTasks(user.id);
-
-    // Find target task: either targetTaskId or task with Duolingo in title
-    let taskToComplete = targetTaskId ? tasks.find((t) => t.id === targetTaskId) : undefined;
-    if (!taskToComplete) {
-      taskToComplete = tasks.find(
-        (t) =>
-          !t.isAiGated &&
-          (t.title.toLowerCase().includes("duolingo") ||
-            t.description?.toLowerCase().includes("duolingo"))
-      );
-    }
-
-    if (taskToComplete) {
-      const scheduled = scheduledOn(taskToComplete, today);
-      if (scheduled) {
-        try {
-          await setProgress(user as AppUser, taskToComplete.id, today, scheduled.target);
-          result.taskCompleted = true;
-        } catch (err) {
-          console.warn("[Duolingo Sync] Failed to write progress to task log", err);
-        }
-      }
-    }
-  }
 
   return result;
 }

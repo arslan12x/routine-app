@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { BookOpen, Check, ExternalLink, Library, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Card, Empty, Skeleton, inputCls } from "@/components/ui";
@@ -69,26 +71,11 @@ export default function NovelsScreen({
     };
   }, [selectedGenre, searchQuery]);
 
-  async function handleReadFreeNow(novel: NovelView) {
-    // Open reading URL immediately in new tab with verified rel
-    window.open(novel.readUrl, "_blank", "noopener,noreferrer");
+  const router = useRouter();
 
-    // Log the user's reading session
-    try {
-      await api<{ session: unknown; readUrl: string }>(`/api/novels/${novel.id}/session`, {
-        method: "POST",
-        body: JSON.stringify({ status: "READING" }),
-      });
-      setNovels((prev) =>
-        prev.map((n) => (n.id === novel.id ? { ...n, sessionStatus: "READING" } : n)),
-      );
-      // Refresh sessions list
-      const res = await api<{ sessions: ReadingSessionItem[] }>("/api/novels/sessions");
-      setSessions(res.sessions);
-      toast.success(`Logged "${novel.title}" to your reading sessions!`);
-    } catch {
-      // Background logging error does not stop reading
-    }
+  async function handleReadFreeNow(novel: NovelView) {
+    // Navigate directly to in-app reader
+    router.push(`/novels/${novel.id}`);
   }
 
   async function handleToggleStatus(novelId: string, targetStatus: "READING" | "COMPLETED") {
@@ -166,15 +153,13 @@ export default function NovelsScreen({
                     </span>
                   </div>
                 </div>
-                <a
-                  href={s.novel.readUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <Link
+                  href={`/novels/${s.novel.id}`}
                   className="rounded-lg p-2 text-muted hover:bg-soft hover:text-brand transition"
-                  title="Open reading page"
+                  title="Continue reading in-app"
                 >
-                  <ExternalLink size={16} aria-hidden />
-                </a>
+                  <BookOpen size={16} aria-hidden />
+                </Link>
               </Card>
             ))}
           </div>
