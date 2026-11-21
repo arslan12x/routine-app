@@ -11,6 +11,8 @@ import {
   type CandidateExperienceLevel,
   CANDIDATE_EXPERIENCE_LEVELS,
   inferExperienceLevelFromTitle,
+  matchesLocationFilter,
+  type LocationEligibilityFilter,
 } from "@/lib/domain/jobs";
 import { generateJobEmailDraft, type EmailDraft } from "@/server/ai/jobs";
 import { sendDirectEmail } from "@/server/services/email-transport";
@@ -218,7 +220,8 @@ export async function queueApplications(
   userId: string,
   categories: CompanyCategory[],
   limit = 30,
-  experienceLevel?: CandidateExperienceLevel
+  experienceLevel?: CandidateExperienceLevel,
+  locationFilter?: LocationEligibilityFilter
 ) {
   await ensureCompanyDirectorySeeded().catch((err) =>
     console.warn("[Job Engine] ensureCompanyDirectorySeeded notice", err)
@@ -235,10 +238,11 @@ export async function queueApplications(
     });
     const appliedSet = new Set(existingApps.map((a) => `${a.companyId}|${a.jobTitle}`));
 
-    // Find available companies in the selected categories
+    // Find available companies in the selected categories that hire from India
     const availableCompanies = await tx.company.findMany({
       where: {
         category: { in: categories.length > 0 ? categories : undefined },
+        hiresFromIndia: true,
       },
       orderBy: { lastRefreshedAt: "desc" },
     });
@@ -254,6 +258,11 @@ export async function queueApplications(
 
     for (const company of availableCompanies) {
       if (newApplicationsData.length >= limit) break;
+
+      // Filter by Parent Location / Eligibility filter
+      if (!matchesLocationFilter(company, locationFilter)) {
+        continue;
+      }
 
       const seed = CURATED_COMPANIES.find((c) => c.name === company.name);
       const role = getRoleForExperience(seed, expLevel);
@@ -286,7 +295,11 @@ export async function queueApplications(
   });
 }
 
-export async function backfillApplications(userId: string, categories?: CompanyCategory[]) {
+export async function backfillApplications(
+  userId: string,
+  categories?: CompanyCategory[],
+  locationFilter?: LocationEligibilityFilter
+) {
   const currentToApply = await withUserDb(userId, (tx) =>
     tx.jobApplication.count({
       where: { userId, stage: "TO_APPLY" },
@@ -296,7 +309,7 @@ export async function backfillApplications(userId: string, categories?: CompanyC
   const needed = Math.max(0, 30 - currentToApply);
   if (needed > 0) {
     const cats = categories && categories.length > 0 ? categories : [...COMPANY_CATEGORIES];
-    await queueApplications(userId, cats, needed);
+    await queueApplications(userId, cats, needed, undefined, locationFilter);
   }
 }
 
@@ -304,7 +317,8 @@ export async function backfillApplications(userId: string, categories?: CompanyC
 export async function refreshAndRotateHiringBatch(
   userId: string,
   categories: CompanyCategory[] = [...COMPANY_CATEGORIES],
-  experienceLevel?: CandidateExperienceLevel
+  experienceLevel?: CandidateExperienceLevel,
+  locationFilter?: LocationEligibilityFilter
 ) {
   // 1. Rotate hiring listings across all 7 categories (outside transaction)
   await rotateAllHiringCompanies().catch((err) =>
@@ -333,8 +347,8 @@ export async function refreshAndRotateHiringBatch(
     });
   });
 
-  // 3. Queue at least 30 fresh currently hiring opportunities into TO_APPLY tailored to candidate experience
-  return queueApplications(userId, categories, 30, experienceLevel);
+  // 3. Queue at least 30 fresh currently hiring opportunities into TO_APPLY tailored to candidate experience and location filter
+  return queueApplications(userId, categories, 30, experienceLevel, locationFilter);
 }
 
 export async function listUserApplications(
@@ -343,6 +357,7 @@ export async function listUserApplications(
     stage?: string;
     categories?: CompanyCategory[];
     experienceLevel?: CandidateExperienceLevel;
+    locationFilter?: LocationEligibilityFilter;
   }
 ) {
   return withUserDb(userId, async (tx) => {
@@ -379,16 +394,20 @@ export async function listUserApplications(
       orderBy: [{ stage: "asc" }, { nextActionAt: "asc" }, { createdAt: "desc" }],
     });
 
-    // 3. Compute badge counts
-    const toApplyCount = allApps.filter((a) => a.stage === "TO_APPLY").length;
-    const fu1Count = allApps.filter((a) => a.stage === "FOLLOW_UP_1" || (a.stage === "WAITING_FU1" && a.nextActionAt && a.nextActionAt <= now)).length;
-    const fu2Count = allApps.filter((a) => a.stage === "FOLLOW_UP_2" || (a.stage === "WAITING_FU2" && a.nextActionAt && a.nextActionAt <= now)).length;
-    const fu3Count = allApps.filter((a) => a.stage === "FOLLOW_UP_3" || (a.stage === "WAITING_FU3" && a.nextActionAt && a.nextActionAt <= now)).length;
-    const repliedCount = allApps.filter((a) => a.stage === "REPLIED").length;
-    const closedCount = allApps.filter((a) => a.stage === "CLOSED").length;
+    // 3. Filter by Location & Eligibility Parent Filter
+    const locFilter = filters?.locationFilter || "ALL_INDIA_ELIGIBLE";
+    const filteredApps = allApps.filter((a) => matchesLocationFilter(a.company, locFilter));
+
+    // 4. Compute badge counts from filteredApps
+    const toApplyCount = filteredApps.filter((a) => a.stage === "TO_APPLY").length;
+    const fu1Count = filteredApps.filter((a) => a.stage === "FOLLOW_UP_1" || (a.stage === "WAITING_FU1" && a.nextActionAt && a.nextActionAt <= now)).length;
+    const fu2Count = filteredApps.filter((a) => a.stage === "FOLLOW_UP_2" || (a.stage === "WAITING_FU2" && a.nextActionAt && a.nextActionAt <= now)).length;
+    const fu3Count = filteredApps.filter((a) => a.stage === "FOLLOW_UP_3" || (a.stage === "WAITING_FU3" && a.nextActionAt && a.nextActionAt <= now)).length;
+    const repliedCount = filteredApps.filter((a) => a.stage === "REPLIED").length;
+    const closedCount = filteredApps.filter((a) => a.stage === "CLOSED").length;
 
     return {
-      applications: allApps,
+      applications: filteredApps,
       counts: {
         toApply: toApplyCount,
         followUp1: fu1Count,
@@ -440,6 +459,10 @@ export async function getJobEmailDraftForApp(
     parsedResume: resume?.parsedText,
     skills,
     experienceLevel: candidate.experienceLevel,
+    isIndiaBased: application.company.isIndiaBased,
+    offersRemoteIndia: application.company.offersRemoteIndia,
+    offersRelocation: application.company.offersRelocation,
+    companyCategory: application.company.category,
   });
 }
 

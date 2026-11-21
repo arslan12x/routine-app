@@ -3,8 +3,10 @@ import { requireUser } from "@/lib/auth/session";
 import {
   COMPANY_CATEGORIES,
   CANDIDATE_EXPERIENCE_LEVELS,
+  LOCATION_ELIGIBILITY_FILTERS,
   type CompanyCategory,
   type CandidateExperienceLevel,
+  type LocationEligibilityFilter,
 } from "@/lib/domain/jobs";
 import { listUserApplications, queueApplications } from "@/server/services/jobs";
 import { ApiError } from "@/lib/api";
@@ -15,6 +17,7 @@ const queueSchema = z.object({
   categories: z.array(z.enum([...COMPANY_CATEGORIES] as [string, ...string[]])).min(1, "Select at least one category"),
   limit: z.number().int().min(1).max(50).optional(),
   experienceLevel: z.enum([...CANDIDATE_EXPERIENCE_LEVELS] as [string, ...string[]]).optional(),
+  locationFilter: z.enum([...LOCATION_ELIGIBILITY_FILTERS] as [string, ...string[]]).optional(),
 });
 
 function errorResponse(error: unknown) {
@@ -44,11 +47,13 @@ export async function GET(request: Request) {
     const stage = url.searchParams.get("stage") || undefined;
     const catParams = url.searchParams.getAll("category") as CompanyCategory[];
     const expParam = url.searchParams.get("experienceLevel") as CandidateExperienceLevel | null;
+    const locParam = url.searchParams.get("locationFilter") as LocationEligibilityFilter | null;
 
     const result = await listUserApplications(user.id, {
       stage,
       categories: catParams.length > 0 ? catParams : undefined,
       experienceLevel: expParam && CANDIDATE_EXPERIENCE_LEVELS.includes(expParam) ? expParam : undefined,
+      locationFilter: locParam && LOCATION_ELIGIBILITY_FILTERS.includes(locParam) ? locParam : undefined,
     });
 
     return Response.json(result, {
@@ -69,7 +74,8 @@ export async function POST(request: Request) {
       user.id,
       validated.categories as CompanyCategory[],
       validated.limit || 30,
-      validated.experienceLevel as CandidateExperienceLevel | undefined
+      validated.experienceLevel as CandidateExperienceLevel | undefined,
+      validated.locationFilter as LocationEligibilityFilter | undefined
     );
 
     return Response.json({ applications: queued, success: true }, {

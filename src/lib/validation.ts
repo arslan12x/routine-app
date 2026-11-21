@@ -106,6 +106,12 @@ export const friendRequestActionBody = z.object({
   action: z.enum(["accept", "decline"]),
 });
 
+import {
+  COMPANY_CATEGORIES,
+  CANDIDATE_EXPERIENCE_LEVELS,
+  LOCATION_ELIGIBILITY_FILTERS,
+} from "@/lib/domain/jobs";
+
 export const emailConfigPut = z.object({
   preset: z.enum(["GMAIL", "OUTLOOK", "ZOHO", "CUSTOM"]).default("GMAIL"),
   email: z.string().trim().email("Please provide a valid email address").max(255),
@@ -118,6 +124,24 @@ export const emailConfigPut = z.object({
   imapSecure: z.boolean().optional(),
 });
 export type EmailConfigPut = z.infer<typeof emailConfigPut>;
+
+export const jobCompaniesQuery = z.object({
+  category: z.enum([...COMPANY_CATEGORIES] as [string, ...string[]]).optional(),
+  locationFilter: z.enum([...LOCATION_ELIGIBILITY_FILTERS] as [string, ...string[]]).optional(),
+});
+
+export const jobApplicationsQuery = z.object({
+  stage: z.string().optional(),
+  locationFilter: z.enum([...LOCATION_ELIGIBILITY_FILTERS] as [string, ...string[]]).optional(),
+  experienceLevel: z.enum([...CANDIDATE_EXPERIENCE_LEVELS] as [string, ...string[]]).optional(),
+});
+
+export const jobRefreshBody = z.object({
+  categories: z.array(z.enum([...COMPANY_CATEGORIES] as [string, ...string[]])).optional(),
+  experienceLevel: z.enum([...CANDIDATE_EXPERIENCE_LEVELS] as [string, ...string[]]).optional(),
+  locationFilter: z.enum([...LOCATION_ELIGIBILITY_FILTERS] as [string, ...string[]]).optional(),
+});
+export type JobRefreshBody = z.infer<typeof jobRefreshBody>;
 
 export type TaskCreate = z.infer<typeof taskCreate>;
 export type TaskPatch = z.infer<typeof taskPatch>;

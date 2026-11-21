@@ -502,9 +502,13 @@ model Company {
   category        String           // STARTUP, BIG_MNC, BIG_SHARKS, ACTIVELY_HIRING, MID_MNC, SMALL_SCALE, FOREIGN
   hrEmail         String
   websiteUrl      String?
-  description     String?
-  location        String?
-  lastRefreshedAt DateTime         @default(now())
+  description        String?
+  location           String?
+  hiresFromIndia     Boolean          @default(true)
+  isIndiaBased       Boolean          @default(false)
+  offersRemoteIndia  Boolean          @default(false)
+  offersRelocation   Boolean          @default(false)
+  lastRefreshedAt    DateTime         @default(now())
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   jobApplications JobApplication[]

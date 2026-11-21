@@ -17,8 +17,62 @@ export const CATEGORY_LABELS: Record<CompanyCategory, string> = {
   ACTIVELY_HIRING: "Actively Hiring",
   MID_MNC: "Mid-Market MNCs",
   SMALL_SCALE: "Small-Scale & Consulting Agencies",
-  FOREIGN: "Foreign & Remote International company",
+  FOREIGN: "Foreign & Remote International Companies",
 };
+
+export const LOCATION_ELIGIBILITY_FILTERS = [
+  "ALL_INDIA_ELIGIBLE",
+  "INDIA_ONLY",
+  "REMOTE_INDIA",
+  "RELOCATION",
+] as const;
+
+export type LocationEligibilityFilter = (typeof LOCATION_ELIGIBILITY_FILTERS)[number];
+
+export const LOCATION_ELIGIBILITY_LABELS: Record<LocationEligibilityFilter, string> = {
+  ALL_INDIA_ELIGIBLE: "All India-Eligible",
+  INDIA_ONLY: "🇮🇳 India Only",
+  REMOTE_INDIA: "🌍 Remote (India)",
+  RELOCATION: "✈️ Visa / Relocation",
+};
+
+export interface CompanyEligibilityInfo {
+  hiresFromIndia?: boolean | null;
+  isIndiaBased?: boolean | null;
+  offersRemoteIndia?: boolean | null;
+  offersRelocation?: boolean | null;
+  category?: string | null;
+}
+
+export function matchesLocationFilter(
+  company: CompanyEligibilityInfo | null | undefined,
+  filter: LocationEligibilityFilter = "ALL_INDIA_ELIGIBLE"
+): boolean {
+  if (!company) return false;
+  // Strict rule: Must hire from India
+  if (company.hiresFromIndia === false) return false;
+
+  const isIndiaBased = Boolean(company.isIndiaBased);
+  const offersRemoteIndia = Boolean(company.offersRemoteIndia);
+  const offersRelocation = Boolean(company.offersRelocation);
+
+  // Must have at least one valid India-eligible channel
+  if (!isIndiaBased && !offersRemoteIndia && !offersRelocation) {
+    return false;
+  }
+
+  switch (filter) {
+    case "INDIA_ONLY":
+      return isIndiaBased;
+    case "REMOTE_INDIA":
+      return offersRemoteIndia;
+    case "RELOCATION":
+      return offersRelocation;
+    case "ALL_INDIA_ELIGIBLE":
+    default:
+      return isIndiaBased || offersRemoteIndia || offersRelocation;
+  }
+}
 
 export const CANDIDATE_EXPERIENCE_LEVELS = [
   "FRESHER",

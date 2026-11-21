@@ -25,6 +25,10 @@ import {
   inferExperienceLevelFromTitle,
   EXPERIENCE_LEVEL_LABELS,
   EXPERIENCE_LEVEL_SHORT_LABELS,
+  LOCATION_ELIGIBILITY_FILTERS,
+  LOCATION_ELIGIBILITY_LABELS,
+  type LocationEligibilityFilter,
+  matchesLocationFilter,
 } from "../src/lib/domain/jobs.ts";
 import { encryptSecret, decryptSecret } from "../src/lib/crypto.ts";
 import {
@@ -1006,5 +1010,145 @@ Date,Description,Amount
           candidateEmail
         )
       ).toBe(false);
+    });
+  });
+
+  describe("Parent Location & India Eligibility Filters", () => {
+    const indiaHubCompany = {
+      name: "Razorpay",
+      category: "STARTUP",
+      hiresFromIndia: true,
+      isIndiaBased: true,
+      offersRemoteIndia: false,
+      offersRelocation: false,
+    };
+
+    const remoteIndiaCompany = {
+      name: "GitLab",
+      category: "FOREIGN",
+      hiresFromIndia: true,
+      isIndiaBased: false,
+      offersRemoteIndia: true,
+      offersRelocation: false,
+    };
+
+    const relocationCompany = {
+      name: "Booking.com",
+      category: "FOREIGN",
+      hiresFromIndia: true,
+      isIndiaBased: false,
+      offersRemoteIndia: false,
+      offersRelocation: true,
+    };
+
+    const hybridIndiaCompany = {
+      name: "Microsoft India",
+      category: "BIG_MNC",
+      hiresFromIndia: true,
+      isIndiaBased: true,
+      offersRemoteIndia: true,
+      offersRelocation: true,
+    };
+
+    const nonIndiaCompany = {
+      name: "US Local Only Co",
+      category: "STARTUP",
+      hiresFromIndia: false,
+      isIndiaBased: false,
+      offersRemoteIndia: false,
+      offersRelocation: false,
+    };
+
+    it("matches ALL_INDIA_ELIGIBLE if company has at least one valid India hiring mode", () => {
+      expect(matchesLocationFilter(indiaHubCompany, "ALL_INDIA_ELIGIBLE")).toBe(true);
+      expect(matchesLocationFilter(remoteIndiaCompany, "ALL_INDIA_ELIGIBLE")).toBe(true);
+      expect(matchesLocationFilter(relocationCompany, "ALL_INDIA_ELIGIBLE")).toBe(true);
+      expect(matchesLocationFilter(hybridIndiaCompany, "ALL_INDIA_ELIGIBLE")).toBe(true);
+      expect(matchesLocationFilter(nonIndiaCompany, "ALL_INDIA_ELIGIBLE")).toBe(false);
+      expect(matchesLocationFilter(null, "ALL_INDIA_ELIGIBLE")).toBe(false);
+    });
+
+    it("matches INDIA_ONLY strictly when isIndiaBased is true", () => {
+      expect(matchesLocationFilter(indiaHubCompany, "INDIA_ONLY")).toBe(true);
+      expect(matchesLocationFilter(hybridIndiaCompany, "INDIA_ONLY")).toBe(true);
+      expect(matchesLocationFilter(remoteIndiaCompany, "INDIA_ONLY")).toBe(false);
+      expect(matchesLocationFilter(relocationCompany, "INDIA_ONLY")).toBe(false);
+      expect(matchesLocationFilter(nonIndiaCompany, "INDIA_ONLY")).toBe(false);
+    });
+
+    it("matches REMOTE_INDIA strictly when offersRemoteIndia is true", () => {
+      expect(matchesLocationFilter(remoteIndiaCompany, "REMOTE_INDIA")).toBe(true);
+      expect(matchesLocationFilter(hybridIndiaCompany, "REMOTE_INDIA")).toBe(true);
+      expect(matchesLocationFilter(indiaHubCompany, "REMOTE_INDIA")).toBe(false);
+      expect(matchesLocationFilter(relocationCompany, "REMOTE_INDIA")).toBe(false);
+      expect(matchesLocationFilter(nonIndiaCompany, "REMOTE_INDIA")).toBe(false);
+    });
+
+    it("matches RELOCATION strictly when offersRelocation is true", () => {
+      expect(matchesLocationFilter(relocationCompany, "RELOCATION")).toBe(true);
+      expect(matchesLocationFilter(hybridIndiaCompany, "RELOCATION")).toBe(true);
+      expect(matchesLocationFilter(indiaHubCompany, "RELOCATION")).toBe(false);
+      expect(matchesLocationFilter(remoteIndiaCompany, "RELOCATION")).toBe(false);
+      expect(matchesLocationFilter(nonIndiaCompany, "RELOCATION")).toBe(false);
+    });
+
+    it("rejects companies where hiresFromIndia is false regardless of other flags", () => {
+      const spoofedCompany = {
+        name: "Spoofed",
+        hiresFromIndia: false,
+        isIndiaBased: true,
+        offersRemoteIndia: true,
+        offersRelocation: true,
+      };
+      expect(matchesLocationFilter(spoofedCompany, "ALL_INDIA_ELIGIBLE")).toBe(false);
+      expect(matchesLocationFilter(spoofedCompany, "INDIA_ONLY")).toBe(false);
+      expect(matchesLocationFilter(spoofedCompany, "REMOTE_INDIA")).toBe(false);
+      expect(matchesLocationFilter(spoofedCompany, "RELOCATION")).toBe(false);
+    });
+
+    it("correctly combines Parent Location Filter and Sub-Filter Categories via logical AND", () => {
+      const companies = [
+        indiaHubCompany, // STARTUP, India Hub
+        remoteIndiaCompany, // FOREIGN, Remote India
+        relocationCompany, // FOREIGN, Relocation
+        hybridIndiaCompany, // BIG_MNC, All three
+      ];
+
+      // Case 1: India Only AND STARTUP
+      const result1 = companies.filter(
+        (c) => matchesLocationFilter(c, "INDIA_ONLY") && c.category === "STARTUP"
+      );
+      expect(result1.map((c) => c.name)).toEqual(["Razorpay"]);
+
+      // Case 2: Remote India AND FOREIGN
+      const result2 = companies.filter(
+        (c) => matchesLocationFilter(c, "REMOTE_INDIA") && c.category === "FOREIGN"
+      );
+      expect(result2.map((c) => c.name)).toEqual(["GitLab"]);
+
+      // Case 3: Relocation AND FOREIGN
+      const result3 = companies.filter(
+        (c) => matchesLocationFilter(c, "RELOCATION") && c.category === "FOREIGN"
+      );
+      expect(result3.map((c) => c.name)).toEqual(["Booking.com"]);
+
+      // Case 4: India Only AND FOREIGN (No match)
+      const result4 = companies.filter(
+        (c) => matchesLocationFilter(c, "INDIA_ONLY") && c.category === "FOREIGN"
+      );
+      expect(result4.length).toBe(0);
+    });
+
+    it("verifies 100% of CURATED_COMPANIES comply with India eligibility", () => {
+      expect(CURATED_COMPANIES.length).toBeGreaterThanOrEqual(35);
+      for (const company of CURATED_COMPANIES) {
+        expect(company.hiresFromIndia).toBe(true);
+        const hasValidMode =
+          Boolean(company.isIndiaBased) ||
+          Boolean(company.offersRemoteIndia) ||
+          Boolean(company.offersRelocation);
+        expect(hasValidMode).toBe(true);
+        expect(matchesLocationFilter(company, "ALL_INDIA_ELIGIBLE")).toBe(true);
+      }
     });
   });

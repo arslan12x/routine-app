@@ -22,8 +22,10 @@ import {
   Loader2,
   Lock,
   Mail,
+  MapPin,
   MessageSquare,
   Paperclip,
+  Plane,
   Plus,
   RefreshCw,
   Send,
@@ -41,6 +43,10 @@ import {
   CANDIDATE_EXPERIENCE_LEVELS,
   EXPERIENCE_LEVEL_LABELS,
   EXPERIENCE_LEVEL_SHORT_LABELS,
+  LOCATION_ELIGIBILITY_FILTERS,
+  LOCATION_ELIGIBILITY_LABELS,
+  type LocationEligibilityFilter,
+  matchesLocationFilter,
   inferExperienceLevelFromTitle,
   type CompanyCategory,
   type CandidateExperienceLevel,
@@ -59,6 +65,10 @@ interface Company {
   location?: string | null;
   description?: string | null;
   lastRefreshedAt: string;
+  hiresFromIndia?: boolean;
+  isIndiaBased?: boolean;
+  offersRemoteIndia?: boolean;
+  offersRelocation?: boolean;
 }
 
 interface JobApplication {
@@ -129,7 +139,10 @@ export default function JobsScreen() {
   const [selectedExpChoice, setSelectedExpChoice] = useState<CandidateExperienceLevel>("FRESHER");
   const [savingExperience, setSavingExperience] = useState(false);
 
-  // Filters & selection
+  // Parent Location & Eligibility Filter
+  const [locationFilter, setLocationFilter] = useState<LocationEligibilityFilter>("ALL_INDIA_ELIGIBLE");
+
+  // Filters & selection (7 Sub-Filter Channels)
   const [selectedCategories, setSelectedCategories] = useState<CompanyCategory[]>([
     "STARTUP",
     "BIG_MNC",
@@ -393,8 +406,8 @@ export default function JobsScreen() {
       if (res.ok) {
         setCandidateExperience(selectedExpChoice);
         setShowExperienceModal(false);
-        // Refresh opportunities matching this experience level
-        await handleQueueJobsWithExp(selectedExpChoice);
+        // Refresh opportunities matching this experience level and current location filter
+        await handleQueueJobsWithExp(selectedExpChoice, locationFilter);
       } else {
         const err = await res.json();
         alert(err.error?.message || "Failed to update experience level");
@@ -421,10 +434,14 @@ export default function JobsScreen() {
     }
   }
 
-  async function loadApplications() {
+  async function loadApplications(loc: LocationEligibilityFilter = locationFilter) {
     setLoading(true);
     try {
-      const res = await fetch("/api/jobs/applications");
+      const params = new URLSearchParams();
+      if (loc) {
+        params.set("locationFilter", loc);
+      }
+      const res = await fetch(`/api/jobs/applications?${params.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setApplications(data.applications || []);
@@ -439,7 +456,12 @@ export default function JobsScreen() {
     }
   }
 
-  async function handleQueueJobsWithExp(exp?: CandidateExperienceLevel) {
+  function handleLocationFilterChange(newFilter: LocationEligibilityFilter) {
+    setLocationFilter(newFilter);
+    loadApplications(newFilter);
+  }
+
+  async function handleQueueJobsWithExp(exp?: CandidateExperienceLevel, loc?: LocationEligibilityFilter) {
     if (selectedCategories.length === 0) {
       alert("Please check at least one company category.");
       return;
@@ -452,10 +474,11 @@ export default function JobsScreen() {
         body: JSON.stringify({
           categories: selectedCategories,
           experienceLevel: exp || candidateExperience,
+          locationFilter: loc || locationFilter,
         }),
       });
       if (res.ok) {
-        await loadApplications();
+        await loadApplications(loc || locationFilter);
       } else {
         const err = await res.json();
         alert(err.error?.message || "Failed to refresh 2-day hiring batch");
@@ -668,10 +691,20 @@ export default function JobsScreen() {
     );
   }
 
-  // Filter applications by active tab and experience filter
+  // Filter applications by parent location filter, category sub-filter, active tab, and experience filter
   const now = new Date();
   const filteredApps = applications.filter((app) => {
-    // 1. Stage filter
+    // 0. Parent Location & India Eligibility Filter
+    if (!matchesLocationFilter(app.company, locationFilter)) {
+      return false;
+    }
+
+    // 1. Company Category Sub-Filter (7 Channels)
+    if (selectedCategories.length > 0 && !selectedCategories.includes(app.company.category as CompanyCategory)) {
+      return false;
+    }
+
+    // 2. Stage filter
     let stageMatch = false;
     if (activeTab === "APPLY") {
       stageMatch = app.stage === "TO_APPLY";
@@ -693,7 +726,7 @@ export default function JobsScreen() {
 
     if (!stageMatch) return false;
 
-    // 2. Experience level filter
+    // 3. Experience level filter
     if (experienceFilter !== "ALL") {
       const appExp = inferExperienceLevelFromTitle(app.jobTitle);
       if (appExp !== experienceFilter) return false;
@@ -906,64 +939,120 @@ export default function JobsScreen() {
         </div>
       </Card>
 
-      {/* 3. Company Categories Bar (Balanced Responsive Grid) */}
-      <Card className="border border-border/80 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5 mb-3">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
-            <Filter size={14} /> Target Company Categories (7 Channels · ⚡ 2-Day Refresh for All)
+      {/* 3. Two-Tier Filter Architecture (Parent Location & Eligibility -> Sub-Filter Company Channels) */}
+      <Card className="border border-border/80 p-4 sm:p-5 shadow-sm space-y-4">
+        {/* Tier 1: Parent Location & Eligibility Filter */}
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+              <Globe size={14} className="text-brand" />
+              <span>Location & India Eligibility (Parent Filter)</span>
+            </div>
+            <span className="text-[11px] font-medium text-muted">
+              {locationFilter === "ALL_INDIA_ELIGIBLE" && "Showing all companies with verified hiring paths for Indian talent"}
+              {locationFilter === "INDIA_ONLY" && "Showing companies with physical offices and engineering hubs in India"}
+              {locationFilter === "REMOTE_INDIA" && "Showing companies offering remote positions open to engineers based in India"}
+              {locationFilter === "RELOCATION" && "Showing international companies offering relocation support & visa sponsorship"}
+            </span>
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted">
-            <span>{selectedCategories.length} of 7 active</span>
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedCategories.length === COMPANY_CATEGORIES.length) {
-                  setSelectedCategories(["STARTUP"]);
-                } else {
-                  setSelectedCategories([...COMPANY_CATEGORIES]);
-                }
-              }}
-              className="text-brand hover:underline font-semibold"
-            >
-              {selectedCategories.length === COMPANY_CATEGORIES.length ? "Reset" : "Select All"}
-            </button>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 bg-soft/70 rounded-xl border border-border/60">
+            {LOCATION_ELIGIBILITY_FILTERS.map((locKey) => {
+              const active = locationFilter === locKey;
+              return (
+                <button
+                  key={locKey}
+                  type="button"
+                  onClick={() => handleLocationFilterChange(locKey)}
+                  className={`flex items-center justify-center gap-2 rounded-lg py-2.5 px-3 text-xs font-semibold transition-all ${
+                    active
+                      ? "bg-card text-fg shadow-sm border border-border/80"
+                      : "text-muted hover:text-fg hover:bg-card/40 border border-transparent"
+                  }`}
+                >
+                  {locKey === "ALL_INDIA_ELIGIBLE" && <Globe size={14} className={active ? "text-brand" : "text-muted"} />}
+                  {locKey === "INDIA_ONLY" && <MapPin size={14} className={active ? "text-orange-500" : "text-muted"} />}
+                  {locKey === "REMOTE_INDIA" && <Globe size={14} className={active ? "text-teal-500" : "text-muted"} />}
+                  {locKey === "RELOCATION" && <Plane size={14} className={active ? "text-purple-500" : "text-muted"} />}
+                  <span>{LOCATION_ELIGIBILITY_LABELS[locKey]}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {COMPANY_CATEGORIES.map((cat) => {
-            const checked = selectedCategories.includes(cat);
-            return (
-              <label
-                key={cat}
-                onClick={(e) => {
-                  e.preventDefault();
-                  toggleCategory(cat);
+        {/* Tier 2: Sub-Filter: 7 Company Channels (CRITICAL PRESERVATION) */}
+        <div className="pt-3 border-t border-border/60 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted">
+              <Filter size={14} />
+              <span>Target Company Channels (7 Sub-Filters · ⚡ 2-Day Refresh for All)</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-muted">
+              <span>{selectedCategories.length} of 7 active</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedCategories.length === COMPANY_CATEGORIES.length) {
+                    setSelectedCategories(["STARTUP"]);
+                  } else {
+                    setSelectedCategories([...COMPANY_CATEGORIES]);
+                  }
                 }}
-                className={`flex cursor-pointer items-center justify-between gap-2.5 rounded-xl border px-3 py-2.5 text-xs transition-all ${
-                  checked
-                    ? "border-brand bg-brand/5 text-fg font-medium shadow-sm"
-                    : "border-border/60 bg-card text-muted hover:bg-soft"
-                }`}
+                className="text-brand hover:underline font-semibold"
               >
-                <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div
-                    className={`grid size-4 shrink-0 place-items-center rounded border transition-colors ${
-                      checked ? "bg-brand text-brandfg border-brand" : "border-border bg-card"
-                    }`}
-                  >
-                    {checked && <Check size={12} strokeWidth={3} />}
+                {selectedCategories.length === COMPANY_CATEGORIES.length ? "Reset" : "Select All"}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {COMPANY_CATEGORIES.map((cat) => {
+              const checked = selectedCategories.includes(cat);
+              const matchingCount = applications.filter(
+                (a) => a.company.category === cat && matchesLocationFilter(a.company, locationFilter)
+              ).length;
+
+              return (
+                <label
+                  key={cat}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    toggleCategory(cat);
+                  }}
+                  className={`flex cursor-pointer items-center justify-between gap-2.5 rounded-xl border px-3 py-2.5 text-xs transition-all ${
+                    checked
+                      ? "border-brand bg-brand/5 text-fg font-medium shadow-sm"
+                      : "border-border/60 bg-card text-muted hover:bg-soft"
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div
+                      className={`grid size-4 shrink-0 place-items-center rounded border transition-colors ${
+                        checked ? "bg-brand text-brandfg border-brand" : "border-border bg-card"
+                      }`}
+                    >
+                      {checked && <Check size={12} strokeWidth={3} />}
+                    </div>
+                    <span className="font-semibold text-xs leading-snug truncate text-fg" title={CATEGORY_LABELS[cat]}>
+                      {CATEGORY_LABELS[cat]}
+                    </span>
                   </div>
-                  <span className="font-semibold text-xs leading-snug truncate text-fg" title={CATEGORY_LABELS[cat]}>
-                    {CATEGORY_LABELS[cat]}
-                  </span>
-                </div>
-                <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                  ⚡ 2d
-                </span>
-              </label>
-            );
-          })}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className="rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-bold text-muted border border-border/60"
+                      title={`${matchingCount} openings matching location filter`}
+                    >
+                      {matchingCount}
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      ⚡ 2d
+                    </span>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
         </div>
       </Card>
 
@@ -1205,6 +1294,23 @@ export default function JobsScreen() {
                       ) : (
                         <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
                           <ShieldCheck size={12} /> 5+ Years Senior
+                        </span>
+                      )}
+
+                      {/* Verified India Hiring Eligibility Badges */}
+                      {app.company.isIndiaBased && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 border border-orange-500/20 px-2 py-0.5 text-[10px] font-semibold text-orange-600 dark:text-orange-400" title="Physical Engineering Hub in India">
+                          <MapPin size={11} /> India Hub
+                        </span>
+                      )}
+                      {app.company.offersRemoteIndia && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 text-[10px] font-semibold text-teal-600 dark:text-teal-400" title="Remote from India Supported">
+                          <Globe size={11} /> Remote (India)
+                        </span>
+                      )}
+                      {app.company.offersRelocation && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400" title="International Relocation & Visa Sponsorship Provided">
+                          <Plane size={11} /> Relocation / Visa
                         </span>
                       )}
                     </div>

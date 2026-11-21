@@ -652,9 +652,22 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
 ### 1. Schema, Categorization & Candidate Experience Intelligence
 - **Data Models:**
   - `UserResume`: `id`, `userId`, `fileUrl`, `parsedText`, `skillsJson`, timestamps. Isolated strictly per user.
-  - `Company`: `id`, `name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`, timestamps.
+  - `Company`: `id`, `name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`, `hiresFromIndia`, `isIndiaBased`, `offersRemoteIndia`, `offersRelocation`, timestamps.
   - `JobApplication`: `id`, `userId`, `companyId`, `jobTitle`, `jobUrl`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`, timestamps.
   - `UserIntegration` (`provider: CANDIDATE_JOB_PROFILE`): stores candidate outreach settings (`email`, `experienceLevel`, `experienceYears`).
+- **Two-Tier Filter Architecture (Parent Location & India Eligibility → 7 Channel Sub-Filters):**
+  - **Tier 1 - Parent Filter (Location & Eligibility):** Users select their preferred geographic/eligibility scope:
+    - `All India-Eligible` (`ALL_INDIA_ELIGIBLE`, default): Surfaces all companies with verified hiring paths for Indian talent.
+    - `🇮🇳 India Only` (`INDIA_ONLY`): Surfaces companies with physical engineering hubs and registered offices in India (Bengaluru, Hyderabad, Pune, Mumbai, Delhi NCR / Gurugram, etc.).
+    - `🌍 Remote (India)` (`REMOTE_INDIA`): Surfaces companies offering remote engineering roles explicitly open to candidates based in India.
+    - `✈️ Visa / Relocation` (`RELOCATION`): Surfaces international companies offering visa sponsorship and relocation support for Indian engineers.
+  - **Tier 2 - Sub-Filter (7 Company Channels - CRITICAL PRESERVATION):**
+    - The 7 target company categories are preserved underneath the parent filter as sub-filters.
+    - Logical AND combination: An application or company appears only if it matches the parent location filter AND one of the selected company categories.
+    - Dynamic count badges on each channel card compute the exact number of matching opportunities under the active parent location scope.
+- **Strict India-Candidate Eligibility Rule:**
+  - Every curated company in the directory MUST satisfy `hiresFromIndia: true` AND at least one of `isIndiaBased`, `offersRemoteIndia`, or `offersRelocation`.
+  - Companies unwilling to hire Indian talent are strictly excluded from the directory and refresh rotations.
 - **4 Candidate Experience Levels:**
   - `FRESHER`: 0-1 years experience. Curation highlights entry-level, graduate trainee, and associate engineer positions (e.g. Associate Software Engineer, Graduate Trainee, Junior Analyst).
   - `JUNIOR`: 1-3 years experience. Early-career engineer / developer opportunities.
@@ -664,17 +677,17 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - `inferExperienceLevelFromTitle(title)` extracts candidate experience tiers from job titles with regex word boundaries.
   - `getRoleForExperience(companyName, category, level)` dynamically provisions experience-appropriate roles for any company.
 - **7 Target Company Channels:**
-  - `STARTUP`: Fast-growing venture-backed startups (Seed through Series C).
-  - `BIG_MNC`: Global Fortune 500 enterprises (Microsoft, Oracle, Cisco).
-  - `BIG_SHARKS`: Tier-1 tech giants and decacorns (Stripe, Uber, Databricks).
-  - `ACTIVELY_HIRING`: Organizations with active hiring surges (Vercel, Supabase, Postman).
-  - `MID_MNC`: Digital engineering leaders and mid-market innovators (EPAM, Endava).
-  - `SMALL_SCALE`: Specialized boutique consultancies and engineering agencies (Thoughtbot, Formidable Labs).
-  - `FOREIGN`: Distributed, remote-first international companies (GitLab, Automattic, Canonical).
+  - `STARTUP`: Fast-growing venture-backed startups (Razorpay, Swiggy, CRED, Zepto, Postman).
+  - `BIG_MNC`: Global Fortune 500 enterprises with prominent India tech centres (Microsoft India, Google India, Amazon India, Cisco India).
+  - `BIG_SHARKS`: Tier-1 tech giants and decacorns (Uber India, Stripe India, Databricks India, Atlassian India).
+  - `ACTIVELY_HIRING`: Organizations with aggressive hiring surges (Zomato, Flipkart, Meesho, PhonePe).
+  - `MID_MNC`: Digital engineering leaders and mid-market innovators (EPAM India, Thoughtworks India, Persistent Systems).
+  - `SMALL_SCALE`: Specialized boutique consultancies and engineering agencies (Axelerant, GeekyAnts, Frappe Technologies).
+  - `FOREIGN`: International and remote-first companies providing visa sponsorship or hiring Indian engineers remotely (GitLab, Automattic, Booking.com, Canonical, DuckDuckGo).
 - **⚡ 2-Day Batch Refresh for ALL Channels:**
   - The 2-Day Refresh feature applies across **all 7 categories**, not just startups.
   - Every 2 days, active hiring companies across all channels rotate into the Apply stage (`TO_APPLY`), listing at least 30-35+ verified opportunities.
-  - The batch refresh engine (`POST /api/jobs/refresh`) utilizes a 10-second interactive Prisma transaction timeout with parallel processing to prevent database transaction timeout errors (P2028).
+  - The batch refresh engine (`POST /api/jobs/refresh`) uses fast batch `updateMany` operations to synchronize hiring flags and maintain sub-second response times, eliminating interactive transaction timeouts.
 
 ### 2. Direct SMTP + IMAP Candidate Dispatch & Automated Recruiter Reply Detection
 - **Direct Mailbox Dispatch (`nodemailer`):** Candidates connect their real personal inbox (Gmail, Outlook, Zoho, or custom SMTP/IMAP) using an App Password. Outreach emails are dispatched directly from the candidate's real email address (`from: user.email`), ensuring messages natively appear in the user's real Sent mailbox.
@@ -698,8 +711,8 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
 - **Mandatory Resume Gating (`UserResume`):** Candidates cannot apply to jobs without uploading a resume document (`.pdf`, `.doc`, `.docx`, `.txt`). The parser extracts technical skills into JSON and renders them as skill badges. Resume storage is strictly isolated per candidate.
 
 ### 3. AI Email Drafter
-- Leverages the candidate's parsed resume (`parsedText`, `skillsJson`), company specifications, and candidate experience tier to draft non-repetitive pitches:
-  - *Day 0 (Initial Application):* Direct application tailoring skills to company challenges with resume attachment confirmation. Pitch tone adapts to career stage (foundational speed and learning velocity for freshers; architectural scale and engineering leadership for seniors).
+- Leverages the candidate's parsed resume (`parsedText`, `skillsJson`), company specifications, hiring mode context (India hub vs. Remote India vs. Visa/Relocation sponsorship), and candidate experience tier to draft non-repetitive pitches:
+  - *Day 0 (Initial Application):* Direct application tailoring skills to company challenges with resume attachment confirmation. Pitch tone adapts to career stage (foundational speed and learning velocity for freshers; architectural scale and engineering leadership for seniors) and references appropriate hiring mode alignment (e.g. excitement to contribute to their India engineering hub, enthusiasm for global remote asynchronous workflows, or full readiness to relocate internationally under visa sponsorship).
   - *Day 4 (Follow-Up 1):* Courteous 2-paragraph nudge acknowledging busy hiring cycles.
   - *Day 10 (Follow-Up 2):* Proactive value-add message sharing relevant architectural or technical perspectives.
   - *Day 15 (Final Follow-Up):* Professional closing check-in leaving the door open for future collaboration.
@@ -716,7 +729,9 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
 
 ### 5. Responsive UI Architecture (`/jobs`)
 - **Readiness Toolbar:** Full-width 3-column grid (`grid-cols-1 md:grid-cols-3`) providing spacious cards for Sender Email, Resume Document, and Experience Level with zero truncation.
-- **Category Filter Grid:** 4-column balanced responsive grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`) accommodating all 7 channels cleanly on all viewports.
+- **Two-Tier Filter Controls:**
+  - *Row 1 (Parent Location Filter):* Prominent segmented control (`All India-Eligible`, `🇮🇳 India Only`, `🌍 Remote (India)`, `✈️ Visa / Relocation`) with descriptive helper text.
+  - *Row 2 (Sub-Filter Channels):* Responsive 4-column grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`) accommodating all 7 preserved channels, with dynamic count badges matching the active parent location scope.
 - **Pipeline Navigation:** Clean separation of Stage tabs and Experience filter pills into two dedicated rows.
-- **Standardized Job Cards:** Uniform card heights with `min-h-[3rem]` title and `min-h-[2.5rem]` description baselines, maintaining pixel-perfect grid alignment across varying title lengths.
+- **Standardized Job Cards:** Uniform card heights with `min-h-[3rem]` title and `min-h-[2.5rem]` description baselines, maintaining pixel-perfect grid alignment across varying title lengths. Equipped with compact hiring mode badges (`🇮🇳 India Hub`, `🌍 Remote (India)`, `✈️ Relocation / Visa`).
 - **Interactive Email Drawer:** Live in-drawer preview, editable subject/body, one-click AI copy regeneration, delivery mode indicator, and instant dispatch.

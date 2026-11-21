@@ -16,6 +16,10 @@ export interface EmailDraftInput {
   parsedResume?: string;
   skills?: string[];
   experienceLevel?: CandidateExperienceLevel;
+  isIndiaBased?: boolean;
+  offersRemoteIndia?: boolean;
+  offersRelocation?: boolean;
+  companyCategory?: string;
 }
 
 export interface EmailDraft {
@@ -25,9 +29,29 @@ export interface EmailDraft {
 }
 
 export function buildFallbackEmail(input: EmailDraftInput): EmailDraft {
-  const { stage, candidateName, jobTitle, companyName, skills, experienceLevel } = input;
+  const {
+    stage,
+    candidateName,
+    jobTitle,
+    companyName,
+    skills,
+    experienceLevel,
+    isIndiaBased,
+    offersRemoteIndia,
+    offersRelocation,
+    companyCategory,
+  } = input;
   const topSkills = skills && skills.length > 0 ? skills.slice(0, 4).join(", ") : "modern full-stack engineering, scalable architecture, and TypeScript";
   const isFresher = experienceLevel === "FRESHER";
+
+  let locationNudge = "";
+  if (companyCategory === "FOREIGN" && offersRelocation && !isIndiaBased) {
+    locationNudge = ` I am based in India and fully prepared to relocate with visa sponsorship to support your international engineering initiatives.`;
+  } else if (offersRemoteIndia && !isIndiaBased) {
+    locationNudge = ` Working remotely from India, I have established a strong rhythm of async documentation, proactive ownership, and cross-timezone collaboration.`;
+  } else if (isIndiaBased) {
+    locationNudge = ` I would love to collaborate closely with your engineering teams in India to accelerate product deliverables.`;
+  }
 
   switch (stage) {
     case "APPLY":
@@ -38,7 +62,7 @@ export function buildFallbackEmail(input: EmailDraftInput): EmailDraft {
           ? [
               `Hi Hiring Team at ${companyName},`,
               "",
-              `I am writing to express my enthusiastic interest in the ${jobTitle} position at ${companyName}. As an aspiring software engineer with solid foundations in ${topSkills}, I have built performant, resilient applications and am eager to bring fresh energy and fast adaptability to your team.`,
+              `I am writing to express my enthusiastic interest in the ${jobTitle} position at ${companyName}. As an aspiring software engineer with solid foundations in ${topSkills}, I have built performant, resilient applications and am eager to bring fresh energy and fast adaptability to your team.${locationNudge}`,
               "",
               `Given ${companyName}'s trajectory and engineering standards, I would love to contribute my problem-solving ability, dedication, and technical curiosity to your product roadmap.`,
               "",
@@ -50,7 +74,7 @@ export function buildFallbackEmail(input: EmailDraftInput): EmailDraft {
           : [
               `Hi Hiring Team at ${companyName},`,
               "",
-              `I am writing to express my strong interest in the ${jobTitle} position at ${companyName}. With deep hands-on expertise in ${topSkills}, I have consistently built resilient, high-performance systems that drive measurable business impact.`,
+              `I am writing to express my strong interest in the ${jobTitle} position at ${companyName}. With deep hands-on expertise in ${topSkills}, I have consistently built resilient, high-performance systems that drive measurable business impact.${locationNudge}`,
               "",
               `Given ${companyName}'s trajectory and engineering standards, I am eager to contribute my problem-solving ability and technical rigor to your product roadmap.`,
               "",
@@ -124,9 +148,30 @@ export async function generateJobEmailDraft(input: EmailDraftInput): Promise<Ema
     return buildFallbackEmail(input);
   }
 
-  const { stage, candidateName, jobTitle, companyName, parsedResume, skills, experienceLevel } = input;
+  const {
+    stage,
+    candidateName,
+    jobTitle,
+    companyName,
+    parsedResume,
+    skills,
+    experienceLevel,
+    isIndiaBased,
+    offersRemoteIndia,
+    offersRelocation,
+    companyCategory,
+  } = input;
   const topSkills = skills && skills.length > 0 ? skills.slice(0, 5).join(", ") : "full-stack development";
   const isFresher = experienceLevel === "FRESHER";
+
+  let locationGuidance = "";
+  if (companyCategory === "FOREIGN" && offersRelocation && !isIndiaBased) {
+    locationGuidance = "The candidate is based in India and eager to relocate with visa sponsorship for international engineering teams.";
+  } else if (offersRemoteIndia && !isIndiaBased) {
+    locationGuidance = "The candidate is based in India with strong experience in async, distributed remote collaboration across timezones.";
+  } else if (isIndiaBased) {
+    locationGuidance = "Tailor naturally for India-based engineering hubs / hybrid collaborative engineering teams.";
+  }
 
   const stagePrompts = {
     APPLY: `Stage: Day 0 Initial Application.
@@ -149,7 +194,7 @@ Goal: Write a gracious, professional closing check-in. Understand that prioritie
 Generate an email subject and body for a candidate named "${candidateName}".
 Company: ${companyName}
 Role: ${jobTitle}
-${stagePrompts[stage]}
+${locationGuidance ? `Hiring Mode Alignment: ${locationGuidance}\n` : ""}${stagePrompts[stage]}
 
 Candidate Context:
 Experience Tier: ${experienceLevel || "FRESHER"}
