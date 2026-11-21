@@ -4,7 +4,7 @@ This document is the maintained, high-level reference for the app's purpose, use
 
 **Maintenance rule for future changes:** when changing user-visible behavior, business rules, API routes, data models, authentication, deployment, or scheduled jobs, update the relevant sections of this guide in the same change. Re-read the implementation and make the guide match the code; code is authoritative if this document ever disagrees. Update the “Guide checked” date below. Do not copy secrets, real account credentials, or `.env` values into this file.
 
-**Guide checked:** 2026-11-19
+**Guide checked:** 2026-11-20
 
 ## Start here (including for IDE coding assistants)
 
@@ -61,11 +61,14 @@ The app is not a public self-registration service. It uses username/password cre
 - Better Auth with the username plugin and a Prisma adapter.
 - Prisma 7 with the PostgreSQL driver adapter; Supabase Postgres is the deployment database.
 - Supabase JS Realtime client for owner-scoped live updates in Tasks.
-- Inngest schedules and runs retryable background workers for push reminders, with Sentry error telemetry on failed retries.
+- Inngest schedules and runs retryable background workers for push reminders, weekly AI coach reviews, Duolingo sync, and job follow-up transitions.
 - Vercel hosts the Next.js app and Vercel Analytics is mounted in the root layout.
 - Sentry (`@sentry/nextjs`) captures React Suspense crashes, 500 API errors, and failed background retries.
-- Web Push (`web-push`) and a service worker deliver optional reminders.
-- Vitest tests pure domain rules in `tests/domain.test.ts`.
+- Google Generative AI (`@ai-sdk/google`) powers AI study tutoring, blog series curriculum, smart push reminders, and candidate job application email drafting via `gemini-3.5-flash-lite`. Stderr deprecation warnings are silenced with `process.env.AI_SDK_LOG_WARNINGS = "false"` to keep Vercel runtime logs clean.
+- Resend API HTTP transport delivers candidate job application emails to recruiters with automatic candidate BCC copies; falls back gracefully to deterministic simulation (MOCK mode) when API keys are absent.
+- Web Push (`web-push`) and a service worker (`public/sw.js`, `routine-static-v3`) deliver optional reminders and enforce a **Network-First** strategy for Next.js static assets (`/_next/static/`), preventing stale client-side chunk caching on redeployment.
+- Hardened Content Security Policy (`next.config.ts`) explicitly whitelists Vercel manifests (`manifest-src 'self' https://vercel.com https://*.vercel.com`), live connections (`connect-src ... https://vercel.live https://*.vercel.app https://vercel.com`), and verified novel cover domains (`img-src ... https://covers.openlibrary.org https://upload.wikimedia.org`).
+- Vitest tests pure domain rules in `tests/domain.test.ts` (67 unit tests covering scheduling, streaks, analytics, ranking, achievements, novels, learning memory, skipped day penalties, finance, and the 4-stage job pipeline).
 - Playwright runs foundational E2E authentication and dashboard tests in `tests/e2e/`.
 
 ### Request/data flow
@@ -135,6 +138,9 @@ Redirects to `/tasks`; page authorization then sends a signed-out user to `/logi
 - Boolean tasks toggle complete/incomplete. Measurable tasks accept a numeric value. Weekly-total tasks accumulate progress over the configured week.
 - Native Health Auto-Sync (Apple HealthKit & Health Connect) can auto-sync steps and workout minutes for Measurable tasks on mount and in the background. A "Sync Health" button in the dashboard header triggers an immediate sync.
 - AI-guided tasks can use any supported completion type or recurrence and are tied to DSA, FDA (Forward Deployed Engineering), Java, System Design, or a custom course. A passing session completes a scheduled Boolean/measurable task; weekly-total tasks count one successful study session toward their weekly target. A custom course stores a name and learner-provided brief that shapes a progressive roadmap and daily lessons. Tapping the completion control opens the study chat instead of changing progress optimistically or queuing an offline mutation. Once enabled, the AI gate cannot be removed.
+- **Deterministic Learner Memory (`getTaskLearningContext`):** Solves LLM amnesia across sessions by pre-calculating historical progress from `TaskLog`: unique completed days, current learning streak, and curriculum stage (`Day X+1`, `Module Math.floor(X/5) + 1`). This is injected directly into Gemini's `SYSTEM_CONTEXT`. If 0 completed days exist, it defaults to a Day 1 Onboarding Course (Foundations at absolute zero).
+- **Skipped Day Consistency Penalty:** In AI-guided study tasks, if a user skips any scheduled study day, their consecutive study streak is broken and the system enforces a strict consistency penalty. The learner is punished for inconsistency by requiring a minimum of **10 to 15 intense practice exercises/questions** covering previous topics before any new lesson content for the current day is unlocked.
+- **Duolingo Task Auto-Sync:** For habit tasks linked to language learning, the Tasks screen provides integration with the Duolingo API (`POST /api/integrations/duolingo/sync`). When synced, it verifies `xpGainedToday` in the user's timezone and automatically marks the linked task complete in `TaskLog`.
 - The study chat is a full-screen interface with Markdown/GFM rendering, Mermaid diagrams, and an integrated 25-minute native Pomodoro focus timer (`PomodoroTimer.tsx`). When the sprint finishes, it fires a Capacitor Local Notification and plays a chime to prompt taking a 5-minute break.
 - Standard task-progress mutations reject AI-gated tasks. Database RLS also blocks normal authenticated clients from inserting, updating, or deleting AI-task progress; only the server's study-completion transaction carries the private transaction-local completion claim. AI study requires a network connection; chat sessions are not persisted and cannot be completed offline.
 - Task completion updates optimistically without a spinner and triggers light haptics on supported native platforms. Progress writes run in the background in per-task order; failures restore the prior value and show an error toast.
@@ -185,8 +191,50 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 - Allows users to search and filter free public-domain novels by genre (Fiction, Mystery, Science Fiction, Gothic, Adventure, Romance, Philosophy).
 - Integrates with the Gutendex (Project Gutenberg) and Open Library APIs with local catalog seeding and fallback.
 - Clicking "Read Free Now" logs the user's reading session as `READING` and opens the verified safe reading URL in a new tab (`target="_blank" rel="noopener noreferrer"`).
-- All redirect URLs are strictly verified against an allowlist of safe public-domain hosts (`gutenberg.org`, `openlibrary.org`, `archive.org`, `standardebooks.org`).
+- All redirect URLs are strictly verified against an allowlist of safe public-domain hosts (`gutenberg.org`, `openlibrary.org`, `archive.org`, `standardebooks.org`, `en.wikisource.org`).
 - Users can view their active and completed reading sessions and toggle their completion status.
+
+### `/blogs` — multi-day AI blog content generator
+
+- Allows users to plan and generate multi-day, publication-ready technical blog curriculums with seamless narrative continuity.
+- **Curriculum Planning (Step 1):** Users specify topic, total duration (e.g. 5, 10, or 30 days), tone (Technical / Deep Dive, Conversational, Academic, Practical / Tutorial), and target audience. Gemini generates an exact, non-overlapping sequential syllabus where each day focuses on a distinct subtopic.
+- **Content Generation (Step 2):** Users generate full GitHub-flavored Markdown for individual days. Each day's generation includes previous day context to ensure narrative cohesion and zero redundant explanations.
+- **Interactive Workbench:** Day-by-day interactive timeline tabs, live rendered Markdown preview, inline raw Markdown editor, one-click clipboard copy, and regeneration actions.
+
+### `/finance` — high-security financial budgeting & expenditure tracker
+
+- Isolated personal finance and expenditure management system protected by PostgreSQL Row-Level Security (`FinanceBudget` and `FinanceExpense`).
+- **Privacy Blur Mode:** Instant header toggle (`Eye` / `EyeOff`) masks all balances and monetary figures with CSS blur (`blur-md`), preventing shoulder-surfing in public environments.
+- **Budget-vs-Actual Tracking:** Monthly limits per category with real-time progress bars and visual threshold alerts (<80% emerald green, 80-99% amber warning, >=100% rose over-budget).
+- **Expense Logging & CSV Statement Importer:** Manual transaction entry modal alongside a CSV statement drag-and-drop / paste importer with intelligent merchant keyword inference (Whole Foods → Groceries, Uber → Transport, Netflix → Entertainment, Starbucks → Dining).
+- **Zero Leakage Security Guarantee:** Financial data is strictly private and never joined, queried, or displayed in Friend Insights, Leaderboards, or Team Challenges.
+
+### `/jobs` — candidate job application engine & 4-stage follow-up pipeline
+
+- End-to-end job outreach and scheduled follow-up pipeline designed exclusively for candidates applying to companies (not posting job openings).
+- **Candidate Readiness Toolbar (Spacious 3-Column Layout):**
+  1. *Sender Email (`Reply-To`):* Configurable candidate email address. Applications carry this as `Reply-To` so recruiter replies reach the candidate's personal inbox directly.
+  2. *Resume Document Gate (`UserResume`):* Mandatory document upload (`.pdf`, `.doc`, `.docx`, `.txt`). Candidates cannot apply without a resume. Extracted technical skills are parsed into keyword badges. Resumes are stored isolated per user.
+  3. *Candidate Experience Level:* Persistent tier selector (`FRESHER` 0-1 yrs, `JUNIOR` 1-3 yrs, `MID` 3-5 yrs, `SENIOR` 5+ yrs) stored in `UserIntegration` (`CANDIDATE_JOB_PROFILE`). Automatically adapts job role curation and AI pitch tone.
+- **7 Target Company Categories (Balanced 4-Column Responsive Grid):**
+  1. *Start-up Companies* (`STARTUP`)
+  2. *Big MNCs* (`BIG_MNC`)
+  3. *Big Sharks* (`BIG_SHARKS`)
+  4. *Actively Hiring* (`ACTIVELY_HIRING`)
+  5. *Mid-Market MNCs* (`MID_MNC`)
+  6. *Small-Scale & Consulting Agencies* (`SMALL_SCALE`)
+  7. *Foreign & Remote International Companies* (`FOREIGN`)
+- **⚡ 2-Day Batch Refresh for ALL Channels:** Every 2 days, fresh active hiring openings across ALL 7 categories rotate into the Apply stage (`TO_APPLY`), listing at least 30-35+ curated opportunities tailored to the candidate's experience tier.
+- **4-Stage Follow-Up State Machine with Time Locks:**
+  - *Stage 1 (`TO_APPLY`):* Initial application. On dispatch, transitions to `WAITING_FU1` with `nextActionAt = appliedAt + 4 days`.
+  - *Stage 2 (`FOLLOW_UP_1`):* Surfaces after 4 days. **4-Day Time Lock:** While waiting, the application shows a `Locked (4d)` countdown badge with disabled action buttons. Unlocks only after 4 days. On dispatch, transitions to `WAITING_FU2` with `nextActionAt = appliedAt + 10 days`.
+  - *Stage 3 (`FOLLOW_UP_2`):* Surfaces 10 days after initial application. **10-Day Time Lock:** Button remains disabled until Day 10. On dispatch, transitions to `WAITING_FU3` with `nextActionAt = appliedAt + 15 days`.
+  - *Stage 4 (`FOLLOW_UP_3`):* Final polite check-in surfacing 15 days after initial application. On dispatch, archives application into `CLOSED`.
+  - *HR Response Short-Circuit:* Logging a recruiter reply (`POST /api/jobs/applications/:id/reply`) immediately sets stage to `REPLIED` and clears `nextActionAt`, permanently halting further follow-ups.
+- **AI Email Drafter & Dispatch Drawer:**
+  - Drafts distinct, non-repetitive email copy customized to candidate experience level and stage.
+  - Interactive drawer allows live review and editing of subject and pitch.
+  - **Live Resend Dispatch vs. Mock Mode:** When `RESEND_API_KEY` is configured, dispatches real emails via Resend HTTP API and automatically sends a candidate BCC copy for personal record-keeping; falls back gracefully to deterministic MOCK simulation when unconfigured.
 
 ### `/challenges` — workspace team challenges
 
@@ -210,6 +258,7 @@ Main implementation: `src/app/(dashboard)/tasks/page.tsx`, `src/features/tasks/T
 - On the first dashboard visit, `TimezoneSync` attempts to save the browser's IANA timezone if the user has not selected a timezone. Saving settings is available through the normal form/API.
 - Theme is handled by `next-themes`.
 - “Export my data” downloads a JSON file containing the user's task definitions and progress logs.
+- **Duolingo Account Integration:** Dedicated settings card where users can link their external Duolingo account by username. The backend queries the Duolingo public user API, verifies account existence, stores the integration in `UserIntegration` (`provider: DUOLINGO`), and surfaces current streak and daily XP.
 - Push reminders are enabled/disabled per browser/device. Each phone/browser needs its own opt-in.
 - Apple Health & Health Connect auto-sync can be enabled/disabled to automatically sync steps and workout minutes with Measurable tasks in the background.
 - Installation hints are shown for iPhone (Safari > Share > Add to Home Screen) and Android (Chrome > Install app).
@@ -307,19 +356,51 @@ Routes using the shared app `route()` wrapper set private/no-store response head
 | `PATCH /api/tasks/:id` | Signed-in owner | Update task, version its result rules, or archive it. |
 | `DELETE /api/tasks/:id` | Signed-in owner | Delete a task only when it has no progress history. |
 | `PUT /api/tasks/:id/progress` | Signed-in owner | Set absolute progress for a valid date; supports LWW conflict evaluation with ISO `updatedAt`. |
+| `GET /api/tasks/:id/learning-context` | Signed-in owner | Calculate deterministic learner memory (completed days, active streak, module, skipped day consistency penalty flag and question count). |
 | `POST /api/ai/study` | Signed-in owner | Stream the subject-specific study chat; the server-only completion tool records progress only for the authenticated user's scheduled AI-gated task. |
 | `GET /api/calendar?month=YYYY-MM` | Signed-in user | Calendar day statuses and streak summary. |
 | `GET /api/calendar/:date` | Signed-in user | Selected day view. |
 | `GET /api/streaks` | Signed-in user | Streak summary. |
 | `GET /api/insights` | Signed-in user | Range/group-based metrics and chart series. |
 | `GET /api/users/:userId/insights` | Signed-in user | View shareable habit, streak, and completion metrics for self or accepted friends (`403 Forbidden` for non-friends). |
-| `GET /api/novels` | Public / User | Search and list free public-domain novels by genre or query with user reading session status. |
-| `POST /api/novels/:id/session` | Signed-in user | Log/update a novel reading session (`READING` or `COMPLETED`) with safe public-domain host domain validation. |
-| `GET /api/novels/sessions` | Signed-in user | List the signed-in user's active and completed novel reading sessions. |
+| `GET /api/challenges` | Signed-in user | List organization team challenges with progress bars, participant counts, and top contributors. |
+| `POST /api/challenges` | Signed-in user | Create a new organization-wide team challenge with target, unit, and date range. |
+| `POST /api/challenges/:id/join` | Signed-in user | Enroll current user into a workspace team challenge. |
 | `GET /api/leaderboard` | Signed-in user | Safe aggregate leaderboard for self and accepted friends; Better Auth global admins see all opted-in workspace members. |
 | `GET /api/friends/discover` | Signed-in user | Safe workspace profile list, friendship states, and incoming requests. |
 | `POST /api/friends/requests` | Signed-in user | Send a pending friend request by user ID. |
 | `PUT /api/friends/requests/:userId` | Signed-in user | Accept or decline the pending request from that user. Decline removes the request. |
+| `GET /api/novels` | Public / User | Search and list free public-domain novels by genre or query with user reading session status. |
+| `POST /api/novels/:id/session` | Signed-in user | Log/update a novel reading session (`READING` or `COMPLETED`) with safe public-domain host domain validation. |
+| `GET /api/novels/sessions` | Signed-in user | List the signed-in user's active and completed novel reading sessions. |
+| `GET /api/coach/latest` | Signed-in user | Retrieve the latest weekly AI coach review and high-impact routine tip. |
+| `GET /api/integrations/duolingo` | Signed-in user | Fetch active Duolingo integration status, username, streak, and last sync timestamp. |
+| `POST /api/integrations/duolingo/sync` | Signed-in user | Verify external Duolingo profile via public API, update streak and XP, and auto-complete linked tasks. |
+| `GET /api/blogs` | Signed-in user | List the signed-in user's multi-day AI blog generation plans. |
+| `POST /api/blogs/plan` | Signed-in user | Step 1: Create a multi-day blog plan and generate an exact sequential outline via Gemini. |
+| `GET /api/blogs/:planId` | Signed-in user | Retrieve a blog plan and its daily syllabus contents. |
+| `POST /api/blogs/:planId/generate-day/:dayNumber` | Signed-in user | Step 2: Generate publication-ready GitHub-flavored Markdown for a specific day using previous-day context. |
+| `PATCH /api/blogs/:planId/days/:dayNumber` | Signed-in user | Update/edit the generated markdown content for a specific day. |
+| `GET /api/finance/summary` | Signed-in user | Financial overview: total monthly spend, budget limits, category breakdown, and alerts. |
+| `GET /api/finance/budgets` | Signed-in user | Retrieve active monthly category budgets. |
+| `POST /api/finance/budgets` | Signed-in user | Create or update a monthly category budget limit. |
+| `GET /api/finance/expenses` | Signed-in user | List recent user expenses with optional category and date filtering. |
+| `POST /api/finance/expenses` | Signed-in user | Log a new personal expenditure. |
+| `DELETE /api/finance/expenses/:id` | Signed-in user | Delete an expense entry owned by the signed-in user. |
+| `POST /api/finance/import` | Signed-in user | Import CSV bank/credit statements with automatic keyword-based category inference. |
+| `GET /api/jobs/profile` | Signed-in user | Retrieve candidate job outreach profile (sender email, experience level, experience years). |
+| `PUT /api/jobs/profile` | Signed-in user | Update candidate job outreach profile (sender email, experience tier). |
+| `GET /api/jobs/resume` | Signed-in user | Retrieve parsed resume metadata and detected skill badges. |
+| `POST /api/jobs/resume` | Signed-in user | Upload and parse candidate resume document (`.pdf`, `.doc`, `.docx`, `.txt`), extracting skills into JSON. |
+| `GET /api/jobs/companies` | Signed-in user | List curated companies across the 7 categories. |
+| `POST /api/jobs/refresh` | Signed-in user | ⚡ 2-Day Batch Refresh: Rotate active hiring openings across ALL 7 channels into the Apply stage (`TO_APPLY`). |
+| `GET /api/jobs/applications` | Signed-in user | List candidate job applications with stage filtering, stage counters, and locked timers. |
+| `POST /api/jobs/applications` | Signed-in user | Queue a new job application for outreach. |
+| `GET /api/jobs/applications/:id/draft` | Signed-in user | Generate or retrieve AI-drafted email pitch tailored to candidate experience and pipeline stage. |
+| `POST /api/jobs/applications/:id/apply` | Signed-in user | Dispatch initial application email; sets `appliedAt`, moves to `WAITING_FU1` with 4-day lock, and triggers candidate BCC copy. |
+| `POST /api/jobs/applications/:id/follow-up` | Signed-in user | Dispatch scheduled follow-up email when lock window elapses; advances pipeline to next waiting stage. |
+| `POST /api/jobs/applications/:id/reply` | Signed-in user | Record recruiter reply; short-circuits application to `REPLIED` and halts further follow-up triggers. |
+| `PATCH /api/jobs/applications/:id/auto-send` | Signed-in user | Toggle automatic background follow-up dispatch for an application. |
 | `GET /api/export` | Signed-in user | Own task definitions and logs. |
 | `GET /api/admin/accounts` | Admin | List provisioned accounts. |
 | `POST /api/admin/accounts` | Admin | Create a provisioned account. |
@@ -360,8 +441,16 @@ See `prisma/schema.prisma` and forward-only SQL files in `prisma/migrations/`.
 - `CoachReview`: weekly AI routine performance reviews and actionable tips generated by Sunday night Inngest cron using Gemini (`gemini-3.5-flash-lite`). Unique by `[userId, weekStartDate]`.
 - `NovelCatalog`: public-domain novel metadata (externalId, title, author, genre, coverUrl, readUrl, description, language).
 - `UserReadingSession`: user reading progress on cataloged novels (`READING` | `COMPLETED`, startedAt, lastReadAt, completedAt). Unique by `[userId, novelId]`.
+- `BlogPlan`: multi-day AI blog generation series (`userId`, `topic`, `totalDays`, `tone`, `targetAudience`).
+- `BlogDayContent`: sequential syllabus day item (`planId`, `dayNumber`, `title`, `subtopicsJson`, `markdownContent`, `status`). Unique by `[planId, dayNumber]`.
+- `UserIntegration`: external service and profile mappings (`userId`, `provider`, `externalUsername`, `lastSyncedAt`, `lastStatus`, `metadata`). Unique by `[userId, provider]`. Powers Duolingo streak/XP verification (`provider: DUOLINGO`) and candidate outreach profile persistence (`provider: CANDIDATE_JOB_PROFILE` storing experience level, years, and sender email).
+- `FinanceBudget`: monthly category expenditure budget limits (`userId`, `category`, `monthlyLimit`, `currency`, `monthYear`). Unique by `[userId, category, monthYear]`.
+- `FinanceExpense`: personal expenditure records (`userId`, `amount`, `category`, `description`, `spentAt`, `paymentMethod`).
+- `UserResume`: candidate resume document metadata and extracted technical skills (`userId`, `fileUrl`, `parsedText`, `skillsJson`). Unique by `userId`.
+- `Company`: curated outreach opportunities (`name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`). Categorized into 7 channels: `STARTUP`, `BIG_MNC`, `BIG_SHARKS`, `ACTIVELY_HIRING`, `MID_MNC`, `SMALL_SCALE`, `FOREIGN`.
+- `JobApplication`: candidate job application pipeline state machine (`userId`, `companyId`, `jobTitle`, `jobUrl`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`). Unique by `[userId, companyId, jobTitle]`. Stages include `TO_APPLY`, `WAITING_FU1`, `FOLLOW_UP_1`, `WAITING_FU2`, `FOLLOW_UP_2`, `WAITING_FU3`, `FOLLOW_UP_3`, `REPLIED`, and `CLOSED`.
 
-Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. Migration `0012_phase_one_audit_sso` adds workspace-scoped immutable audit records and SSO provider persistence, with RLS policies and server-only mutations. Migration `0013_workspace_friend_isolation` limits discoverable profiles, friendships, and friend requests to members of the same workspace. Migration `0009_ai_gated_study` ensures regular authenticated clients cannot directly write logs for AI-gated tasks; a dedicated server-only scoped transaction sets the claim required for validated study completion. Migration `0016_phase_four_ai_and_achievements` adds `Achievement` and `CoachReview` models with owner RLS policies for `authenticated` users and server background workers. Migration `0017_novel_reading_module` adds `NovelCatalog` and `UserReadingSession` with public catalog read access and user-scoped session RLS policies. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
+Database foreign keys cascade user deletion. SQL migrations add task/log checks and enable RLS. Migration `0006_user_scoped_rls` grants the PostgreSQL `authenticated` role only the required application-table privileges and installs owner policies for `User`, `UserSettings`, `Task`, `TaskVersion`, `TaskLog`, `PushSubscription`, and `ReminderDelivery`. Migration `0008_friendships` scopes friendship reads to either participant, inserts to the requester, and acceptance/deletion to the addressee; it also prevents friendship identity fields from changing. Migration `0012_phase_one_audit_sso` adds workspace-scoped immutable audit records and SSO provider persistence, with RLS policies and server-only mutations. Migration `0013_workspace_friend_isolation` limits discoverable profiles, friendships, and friend requests to members of the same workspace. Migration `0009_ai_gated_study` ensures regular authenticated clients cannot directly write logs for AI-gated tasks; a dedicated server-only scoped transaction sets the claim required for validated study completion. Migration `0016_phase_four_ai_and_achievements` adds `Achievement` and `CoachReview` models with owner RLS policies for `authenticated` users and server background workers. Migration `0017_novel_reading_module` adds `NovelCatalog` and `UserReadingSession` with public catalog read access and user-scoped session RLS policies. Migrations `0018_phase_five_ai_blogs_and_integrations` and `0019_phase_six_and_seven_finance_and_jobs` introduce `BlogPlan`, `BlogDayContent`, `UserIntegration`, `FinanceBudget`, `FinanceExpense`, `UserResume`, `Company`, and `JobApplication` with strict owner-scoped RLS policies ensuring complete data isolation. User-facing reads/writes execute inside an interactive transaction that uses `SET LOCAL ROLE authenticated` and transaction-local `request.jwt.claims` for the Better Auth user ID, so the role and claims cannot leak across pooled connections. The scoped Prisma client extension is private; user code should call `withUserDb`, not raw model methods. Explicit `systemDb` calls bypass this boundary and are limited to required global/system operations; review them carefully. Do not access private application tables directly from client-side Supabase/PostgREST code.
 
 Task/statistics repositories use explicit Prisma `select` projections for UI and export data, including nested task versions and task logs, to avoid transferring unused columns through the database connection.
 
@@ -374,7 +463,8 @@ Configure actual values in a local ignored `.env` or the hosting provider's secr
 - **Required for normal local app operation:** `DATABASE_URL`, `DIRECT_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_EMAIL`, `INITIAL_ADMIN_PASSWORD`.
 - **Required for cross-device Realtime task updates:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` (server-only).
 - RLS-scoped app queries require the Supabase PostgreSQL connection role to be allowed to `SET LOCAL ROLE authenticated`; the runtime helper handles this inside each transaction.
-- **AI-guided study:** `GOOGLE_GENERATIVE_AI_API_KEY` (server-only Gemini API key). Other features can run without it; AI study requests cannot.
+- **AI-guided study, coaching & blogs:** `GOOGLE_GENERATIVE_AI_API_KEY` (server-only Gemini API key). AI SDK deprecation notices are silenced globally with `AI_SDK_LOG_WARNINGS=false` to prevent cluttering server logs.
+- **Job outreach email dispatch:** `RESEND_API_KEY` (server-only Resend API key for live recruiter email dispatch with candidate BCC copies). `JOB_DISPATCH_FROM_EMAIL` (verified sender address, e.g. `onboarding@resend.dev` or custom domain). When `RESEND_API_KEY` is omitted, the application operates in deterministic simulated MOCK mode.
 - **Web Push reminders:** `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`. Generate VAPID keys with `npx web-push generate-vapid-keys`. Inngest keys are needed only when registering/running scheduled reminders.
 - Vercel supplies deployment URL variables used to construct trusted auth origins (`VERCEL_URL` and `VERCEL_PROJECT_PRODUCTION_URL`).
 - **GitHub keepalive/backup workflow only:** `APP_URL` and `BACKUP_DB_URL`.
@@ -484,12 +574,17 @@ Domain unit tests cover scheduling, streaks, analytics, ranking, reminder-time, 
 
 ## Phase 5: AI & External Sync Architecture
 
-Phase 5 introduces deterministic AI learning memory, a multi-day AI blog content generation pipeline, and external integration verification via the Duolingo API.
+Phase 5 introduces deterministic AI learning memory, a skipped-day consistency penalty system, a multi-day AI blog content generation pipeline, and external integration verification via the Duolingo API.
 
-### 1. AI Adaptive Learning Course Generator (Memory Fix)
+### 1. AI Adaptive Learning Course Generator & Skipped Day Consistency Penalty
 - **Deterministic Context Injection:** Querying `TaskLog` provides exact historical metrics: unique completed days, current learning streak, and curriculum stage (`Day X+1`, `Module Math.floor(X/5) + 1`).
-- **Memory Fix (`getTaskLearningContext`):** Solves LLM amnesia across sessions by pre-calculating state deterministically and injecting a `SYSTEM_CONTEXT / DETERMINISTIC LEARNER MEMORY` block into the Gemini prompt.
+- **Memory Fix (`getTaskLearningContext`):** Solves LLM amnesia across sessions by pre-calculating state deterministically and injecting a `SYSTEM_CONTEXT / DETERMINISTIC LEARNER MEMORY` block into the Gemini prompt (`gemini-3.5-flash-lite`).
 - **Syllabus & Badging:** When `completedDays === 0`, defaults strictly to a Day 1 Onboarding Course (Foundations at absolute zero). The UI modal surfaces a `"Based on X completed days"` (or `"Day 1 Onboarding"`) badge with an active Pomodoro timer.
+- **Skipped Day Consistency Penalty:**
+  - When an AI-guided study task (DSA, FDA, Java, System Design, Custom) is scheduled on a date and the learner misses it, their consecutive streak is broken (`missedDays > 0`).
+  - In response, `getTaskLearningContext` flags `hasConsistencyPenalty: true` and calculates `penaltyQuestionsCount` (scaling between **10 and 15 questions** based on the duration of inactivity).
+  - The learner is punished for inconsistency: they must complete a set of 10 to 15 intense review exercises covering previous topics before any new lesson content for the current day is unlocked.
+  - The UI study modal highlights this requirement with an amber warning banner, preventing curriculum advancement until the review exercises are completed.
 - **API Endpoint:** `GET /api/tasks/[id]/learning-context`.
 
 ### 2. Multi-Day AI Blog Content Generator
@@ -547,45 +642,64 @@ Phase 6 implements a strictly isolated, personal financial tracker with bank-gra
 
 ## Phase 7: Automated Job Application Engine & 4-Stage Shifting Follow-Up Pipeline
 
-Phase 7 introduces an end-to-end automated job application pipeline, resume intelligence, multi-channel company categorization, and a deterministic shifting follow-up timeline powered by Inngest and Gemini.
+Phase 7 introduces an end-to-end automated job application pipeline, resume intelligence, multi-channel company categorization, experience-level curation, and a deterministic shifting follow-up timeline powered by Inngest, Gemini, and Resend.
 
-### 1. Schema & Categorization
+### 1. Schema, Categorization & Candidate Experience Intelligence
 - **Data Models:**
-  - `UserResume`: `id`, `userId`, `fileUrl`, `parsedText`, `skillsJson`, timestamps.
+  - `UserResume`: `id`, `userId`, `fileUrl`, `parsedText`, `skillsJson`, timestamps. Isolated strictly per user.
   - `Company`: `id`, `name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`, timestamps.
   - `JobApplication`: `id`, `userId`, `companyId`, `jobTitle`, `jobUrl`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`, timestamps.
-- **7 Company Categories:**
-  - `STARTUP`: Seed / Series A–C startups (refreshed and rotated every 2 days).
+  - `UserIntegration` (`provider: CANDIDATE_JOB_PROFILE`): stores candidate outreach settings (`email`, `experienceLevel`, `experienceYears`).
+- **4 Candidate Experience Levels:**
+  - `FRESHER`: 0-1 years experience. Curation highlights entry-level, graduate trainee, and associate engineer positions (e.g. Associate Software Engineer, Graduate Trainee, Junior Analyst).
+  - `JUNIOR`: 1-3 years experience. Early-career engineer / developer opportunities.
+  - `MID`: 3-5 years experience. Core full-stack, frontend, and backend engineering openings.
+  - `SENIOR`: 5+ years experience. Senior, lead, and staff engineering and architecture positions (e.g. Lead Full-Stack Developer, Staff Infrastructure Engineer).
+  - Users can inspect and change their experience level at any time from the readiness toolbar; the selected tier persists and drives subsequent job listings until updated.
+  - `inferExperienceLevelFromTitle(title)` extracts candidate experience tiers from job titles with regex word boundaries.
+  - `getRoleForExperience(companyName, category, level)` dynamically provisions experience-appropriate roles for any company.
+- **7 Target Company Channels:**
+  - `STARTUP`: Fast-growing venture-backed startups (Seed through Series C).
   - `BIG_MNC`: Global Fortune 500 enterprises (Microsoft, Oracle, Cisco).
-  - `BIG_SHARKS`: Tech giants and tier-1 unicorns (Stripe, Uber, Databricks).
-  - `ACTIVELY_HIRING`: Organizations experiencing urgent, open hiring surges (Vercel, Supabase, Postman).
-  - `MID_MNC`: Mid-market multinational digital engineering leaders (EPAM, Endava).
-  - `SMALL_SCALE`: Boutique consultancies and specialized agencies (Thoughtbot, Formidable Labs).
+  - `BIG_SHARKS`: Tier-1 tech giants and decacorns (Stripe, Uber, Databricks).
+  - `ACTIVELY_HIRING`: Organizations with active hiring surges (Vercel, Supabase, Postman).
+  - `MID_MNC`: Digital engineering leaders and mid-market innovators (EPAM, Endava).
+  - `SMALL_SCALE`: Specialized boutique consultancies and engineering agencies (Thoughtbot, Formidable Labs).
   - `FOREIGN`: Distributed, remote-first international companies (GitLab, Automattic, Canonical).
-- **2-Day Startup Rotation Cron:** Inngest cron job `rotateStartupCompanies` (`0 0 */2 * *`) updates listings and rotates active startup listings every 48 hours.
+- **⚡ 2-Day Batch Refresh for ALL Channels:**
+  - The 2-Day Refresh feature applies across **all 7 categories**, not just startups.
+  - Every 2 days, active hiring companies across all channels rotate into the Apply stage (`TO_APPLY`), listing at least 30-35+ verified opportunities.
+  - The batch refresh engine (`POST /api/jobs/refresh`) utilizes a 10-second interactive Prisma transaction timeout with parallel processing to prevent database transaction timeout errors (P2028).
 
-### 2. Scraping & AI Email Drafter
-- **Recruitment Scraper & HR Email Validation:**
-  - Validates RFC email formats, verifies domain TLD structures, rejects disposable mail domains (`mailinator.com`, `tempmail.com`), and deduplicates contacts.
-  - Automatic directory seeding ensures immediate availability of validated opportunities across all 7 channels.
-- **AI Email Drafter:**
-  - Leverages candidate's parsed resume (`parsedText`, `skillsJson`) and job specifications to draft distinct, non-repetitive copy:
-    - *Day 0 (Initial Application):* Direct application, tailoring top candidate skills to company challenges with resume attachment confirmation.
-    - *Day 4 (Follow-Up 1):* Courteous 2-paragraph nudge acknowledging busy hiring schedules.
-    - *Day 10 (Follow-Up 2):* Proactive value-add message sharing relevant architectural/technical insights.
-    - *Day 15 (Final Follow-Up):* Professional closing check-in leaving the door open for future collaboration.
-  - Includes a global / per-application "Auto-Send" vs. "Review & Approve" toggle before dispatching via SMTP/Resend/mock providers.
+### 2. Candidate Outreach Gating, Sender Email & Live Resend Delivery
+- **Candidate Sender Email (`Reply-To`):** Candidates configure their contact email. All outreach emails carry this address in the `Reply-To` header, ensuring recruiter responses route directly to the candidate's personal inbox.
+- **Mandatory Resume Gating (`UserResume`):** Candidates cannot apply to jobs without uploading a resume document (`.pdf`, `.doc`, `.docx`, `.txt`). The parser extracts technical skills into JSON and renders them as skill badges. Resume storage is strictly isolated per candidate.
+- **Live Resend Dispatch & Candidate BCC Copy:**
+  - When `RESEND_API_KEY` is configured, outgoing outreach is delivered via Resend's HTTP API.
+  - The dispatcher automatically includes the candidate's sender email as a **BCC recipient**, guaranteeing the candidate receives an exact copy in their personal email inbox for record-keeping.
+  - When `RESEND_API_KEY` is omitted, the system falls back gracefully to deterministic MOCK simulation.
+  - The interactive drawer displays a live Delivery Mode banner (`LIVE RESEND DISPATCH` vs. `MOCK MODE`).
 
-### 3. 4-Stage Shifting State Machine
-- **Timeline Progression (`calculateNextStageTransition` & `shouldPromoteFollowUp`):**
-  - *Stage 1 (`TO_APPLY`):* Newly discovered and queued positions. Upon application, sets `appliedAt = now()`, moves to `WAITING_FU1`, sets `nextActionAt = appliedAt + 4 days`, and immediately backfills new opportunities into `TO_APPLY`.
-  - *Stage 2 (`FOLLOW_UP_1`):* Surfaces 4 days after `appliedAt`. Once sent, transitions to `WAITING_FU2` with `nextActionAt = appliedAt + 10 days`.
-  - *Stage 3 (`FOLLOW_UP_2`):* Surfaces 10 days after `appliedAt`. Once sent, transitions to `WAITING_FU3` with `nextActionAt = appliedAt + 15 days`.
-  - *Stage 4 (`FOLLOW_UP_3`):* Surfaces 15 days after `appliedAt`. Once sent, archives into `CLOSED`.
-- **Immediate Reply Short-Circuiting:** Logging an HR response (`POST /api/jobs/applications/[id]/reply`) instantly moves the application to `REPLIED` and nullifies `nextActionAt`, halting all further follow-ups.
+### 3. AI Email Drafter
+- Leverages the candidate's parsed resume (`parsedText`, `skillsJson`), company specifications, and candidate experience tier to draft non-repetitive pitches:
+  - *Day 0 (Initial Application):* Direct application tailoring skills to company challenges with resume attachment confirmation. Pitch tone adapts to career stage (foundational speed and learning velocity for freshers; architectural scale and engineering leadership for seniors).
+  - *Day 4 (Follow-Up 1):* Courteous 2-paragraph nudge acknowledging busy hiring cycles.
+  - *Day 10 (Follow-Up 2):* Proactive value-add message sharing relevant architectural or technical perspectives.
+  - *Day 15 (Final Follow-Up):* Professional closing check-in leaving the door open for future collaboration.
+- Includes a global / per-application "Auto-Send" vs. "Review & Approve" toggle before dispatching.
+
+### 4. 4-Stage Shifting State Machine with Strict Time Locks
+- **Stage Progression:**
+  - *Stage 1 (`TO_APPLY`):* Available openings. Applying stamps `appliedAt = now()`, advances the record to `WAITING_FU1`, and sets `nextActionAt = appliedAt + 4 days`.
+  - *Stage 2 (`FOLLOW_UP_1`):* Surfaces 4 days after application. **4-Day Time Lock:** While waiting, the application card displays a `Locked (4d)` countdown badge with disabled action buttons. Unlocks strictly when 4 full days elapse. Dispatching advances the record to `WAITING_FU2` with `nextActionAt = appliedAt + 10 days`.
+  - *Stage 3 (`FOLLOW_UP_2`):* Surfaces 10 days after initial application. **10-Day Time Lock:** Button remains disabled until Day 10. Dispatching advances to `WAITING_FU3` with `nextActionAt = appliedAt + 15 days`.
+  - *Stage 4 (`FOLLOW_UP_3`):* Final polite nudge surfacing 15 days after initial application. Dispatching archives the application into `CLOSED`.
+- **Immediate Reply Short-Circuiting:** Logging an HR response (`POST /api/jobs/applications/[id]/reply`) immediately transitions the application to `REPLIED` and nullifies `nextActionAt`, permanently halting further follow-up dispatches.
 - **Hourly Pipeline Advancement:** Inngest cron worker `jobFollowUpScheduler` (`0 * * * *`) promotes buffer states and automatically dispatches due follow-ups when `autoSend` is enabled.
 
-### 4. Frontend UI (`/jobs`)
-- **Top Bar:** Resume text / document uploader, detected technical skill chips, multi-select checkboxes for the 7 company channels, and Auto-Send mode toggle.
-- **4-Tab Pipeline View:** `1. Apply`, `2. Follow-Up 1 (Day 4)`, `3. Follow-Up 2 (Day 10)`, `4. Follow-Up 3 (Day 15)`, and `Replied & Closed` with live badge counters.
-- **Interactive Email Drawer:** In-context preview and editing of AI-generated subject and body, one-click AI copy regeneration, and instant dispatch.
+### 5. Responsive UI Architecture (`/jobs`)
+- **Readiness Toolbar:** Full-width 3-column grid (`grid-cols-1 md:grid-cols-3`) providing spacious cards for Sender Email, Resume Document, and Experience Level with zero truncation.
+- **Category Filter Grid:** 4-column balanced responsive grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`) accommodating all 7 channels cleanly on all viewports.
+- **Pipeline Navigation:** Clean separation of Stage tabs and Experience filter pills into two dedicated rows.
+- **Standardized Job Cards:** Uniform card heights with `min-h-[3rem]` title and `min-h-[2.5rem]` description baselines, maintaining pixel-perfect grid alignment across varying title lengths.
+- **Interactive Email Drawer:** Live in-drawer preview, editable subject/body, one-click AI copy regeneration, delivery mode indicator, and instant dispatch.

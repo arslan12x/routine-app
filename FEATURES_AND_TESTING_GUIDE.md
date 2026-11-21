@@ -116,11 +116,12 @@ This document catalogs every module and feature in the application, details the 
 ## 6. AI Adaptive Learning & External Sync (Phase 5)
 
 ### 6.1 Business Logic Implementation
-* **AI Adaptive Learning Course Memory Fix (`src/server/ai/learning-context.ts`):**
-  - Queries `TaskLog` to calculate exact unique completed days for the task.
+* **AI Adaptive Learning Course Memory & Skipped Day Consistency Penalty (`src/server/ai/learning-context.ts`):**
+  - Queries `TaskLog` to calculate exact unique completed days and active streak for the task.
   - Injects deterministic memory into Gemini's `SYSTEM_CONTEXT` (`Day X+1`, `Module Math.floor(X/5) + 1`).
   - If 0 completed days: defaults to "Day 1 - Onboarding Course (Foundations at Zero)".
   - Displays `"Based on X completed days"` (or `"Day 1 Onboarding"`) badge in the UI modal.
+  - **Skipped Day Consistency Penalty:** If a scheduled AI study task is skipped, the streak is broken (`missedDays > 0`). The system enforces an unconsistency penalty requiring **10 to 15 intense exercises/questions** covering previous topics before current day lesson content can be unlocked. The study modal displays an amber warning banner enforcing this review.
 * **Multi-Day AI Blog Content Generator (`src/server/services/blogs.ts`):**
   - **Step 1 (`POST /api/blogs/plan`):** Divides a topic into a sequential JSON curriculum of length `totalDays` with zero topic overlap.
   - **Step 2 (`POST /api/blogs/[planId]/generate-day/[dayNumber]`):** Generates publication-ready Markdown for that day, using yesterday's recap for narrative continuity.
@@ -180,43 +181,62 @@ This document catalogs every module and feature in the application, details the 
 ## 8. Automated Job Application Engine & Shifting Pipeline (Phase 7)
 
 ### 8.1 Business Logic Implementation
-* **Resume Intelligence (`UserResume`):**
-  - Parses uploaded text/PDF into `parsedText` and extracts core technical skills (`TypeScript`, `React`, `PostgreSQL`, `Docker`, `AWS`, etc.) into `skillsJson`.
-* **7 Company Channels & 2-Day Startup Refresh:**
+* **Candidate Experience Levels (`FRESHER`, `JUNIOR`, `MID`, `SENIOR`):**
+  - Stored per candidate in `UserIntegration` (`provider: CANDIDATE_JOB_PROFILE`).
+  - `inferExperienceLevelFromTitle(title)` extracts candidate experience tiers from job titles with regex word boundaries.
+  - `getRoleForExperience(companyName, category, level)` dynamically curates experience-appropriate titles (e.g. Associate Software Engineer / Graduate Trainee for freshers; Lead Full-Stack Developer for senior candidates).
+  - AI email drafter adapts tone and career-stage framing based on the candidate's selected tier.
+* **Resume Gating & Sender Email (`UserResume` & `Reply-To`):**
+  - Mandatory document upload (`.pdf`, `.doc`, `.docx`, `.txt`) parsed into `parsedText` and technical skills extracted into `skillsJson`.
+  - Application dispatch is strictly blocked without an uploaded resume.
+  - Configurable sender email address added as `Reply-To` header on all dispatches, guaranteeing recruiter replies reach the candidate's personal inbox.
+* **7 Company Channels & ⚡ 2-Day Batch Refresh for ALL Channels:**
   - `STARTUP`, `BIG_MNC`, `BIG_SHARKS`, `ACTIVELY_HIRING`, `MID_MNC`, `SMALL_SCALE`, `FOREIGN`.
-  - Inngest cron job `rotateStartupCompanies` (`0 0 */2 * *`) updates and rotates startup listings every 48 hours.
-  - HR email validator (`isValidHrEmail`) checks RFC format, verified TLD, rejects disposable email providers, and deduplicates contacts.
-* **AI Email Drafter (`src/server/ai/jobs.ts`):**
-  - Generates distinct, non-repetitive email copy customized to the candidate's skills across 4 stages:
+  - 2-day batch refresh covers ALL 7 categories (not just startups), rotating at least 30-35+ verified openings into `TO_APPLY`.
+  - Engine uses a 10-second interactive Prisma transaction timeout with parallel processing to prevent database timeout errors (P2028).
+* **AI Email Drafter & Live Resend Delivery:**
+  - Generates distinct, non-repetitive email copy customized to candidate experience level across 4 stages:
     - **Day 0:** Initial application + resume attachment note.
     - **Day 4:** Follow-Up 1 (courteous check-in).
     - **Day 10:** Follow-Up 2 (value-add message with technical insights).
     - **Day 15:** Final Follow-Up (graceful closing check-in).
-* **4-Stage Shifting State Machine (`calculateNextStageTransition` & `shouldPromoteFollowUp`):**
+  - Dispatches via Resend API (`RESEND_API_KEY`) with an automatic candidate BCC copy for personal record-keeping; falls back gracefully to deterministic MOCK mode when unconfigured.
+* **4-Stage Shifting State Machine with 4-Day & 10-Day Time Locks:**
   - `TO_APPLY` → `WAITING_FU1` (+4 days) → `FOLLOW_UP_1` → `WAITING_FU2` (+10 days) → `FOLLOW_UP_2` → `WAITING_FU3` (+15 days) → `FOLLOW_UP_3` → `CLOSED`.
+  - **4-Day Time Lock in Follow-Up 1:** Application shows a `Locked (4d)` countdown badge with disabled dispatch buttons until 4 full days elapse.
+  - **10-Day Time Lock in Follow-Up 2:** Application button remains disabled until Day 10.
   - Immediate short-circuit: Logging an HR response (`POST /api/jobs/applications/[id]/reply`) sets stage to `REPLIED` and nullifies `nextActionAt`, permanently halting further follow-ups.
   - Hourly Inngest scheduler `jobFollowUpScheduler` (`0 * * * *`) promotes buffer states and auto-dispatches follow-ups if `autoSend` is enabled.
 
 ### 8.2 End-to-End Testing Procedure
-1. **Resume & Channel Setup:**
-   - Navigate to `/jobs`. Click "Upload Resume". Paste technical experience; confirm detected skills render as chips.
-   - In category channels, select "Start-up Companies" and "Big Sharks". Click "Find & Queue Jobs".
-   - Confirm active jobs populate in Tab `1. Apply`.
-2. **Application Dispatch (Day 0):**
-   - Click "Preview Draft" on a job. Review AI-tailored subject and pitch referencing extracted skills.
-   - Click "Dispatch Email". Verify the job moves out of `1. Apply`, `appliedAt` is stamped, `nextActionAt` is set to 4 days ahead, and a fresh replacement job is automatically backfilled into `1. Apply`.
-3. **Follow-Up State Shifting (Day 4 & Day 10):**
-   - Simulate elapsed time (or advance record `nextActionAt`). Verify job surfaces in Tab `2. Follow-Up 1 (Day 4)`.
-   - Dispatch Follow-Up 1. Verify job advances to `WAITING_FU2` scheduled for Day 10.
-4. **HR Reply Short-Circuit:**
-   - Click "HR Replied" on an active application and submit notes.
-   - Verify job immediately moves to `Replied & Closed` tab and no further follow-up triggers occur.
+1. **Candidate Profile & Resume Setup:**
+   - Navigate to `/jobs`.
+   - Click "Set Sender Email", enter candidate email address (e.g. `alamxarslan@gmail.com`).
+   - Click "Upload Resume", select or paste resume document. Confirm extracted technical skills render as chips.
+   - Click "Change Experience", toggle between "Fresher (0-1 Yrs)" and "Senior (5+ Yrs)". Verify job titles dynamically re-curate to match the selected experience tier.
+2. **Channel Filtering & 2-Day Refresh:**
+   - Select multiple company channels (e.g. "Start-up Companies", "Big MNCs", "Foreign & Remote International").
+   - Click "⚡ 2-Day Batch Refresh". Verify openings populate across all selected categories in Tab `1. Apply`.
+3. **Application Dispatch & Candidate BCC (Day 0):**
+   - Click "Apply Now" (or "Preview Draft") on an active job.
+   - Review AI draft tailored to the candidate's experience tier.
+   - Note the Delivery Mode banner in the drawer (`LIVE RESEND DISPATCH` or `MOCK MODE`).
+   - Click "Dispatch Email". Verify the job moves out of `1. Apply`, `appliedAt` is stamped, and the job moves to `2. Follow-Up 1 (Day 4)`.
+   - On live dispatch, verify candidate sender email receives a BCC copy of the outreach.
+4. **4-Day Time Lock Verification:**
+   - Switch to Tab `2. Follow-Up 1 (Day 4)`.
+   - Verify the newly applied job card displays a `Locked (4d)` countdown badge and its dispatch button is disabled.
+   - Simulate elapsed time (or advance record `nextActionAt` in database). Verify the button becomes active and enabled once 4 days pass.
+5. **Follow-Up 2 & HR Reply Short-Circuit:**
+   - Dispatch Follow-Up 1. Verify job advances to `WAITING_FU2` with a 10-day locked countdown.
+   - Click "HR Replied" on an active application and submit recruiter response notes.
+   - Verify job immediately moves to `Replied & Closed` tab and all future follow-up triggers are permanently halted.
 
 ---
 
 ## 9. Automated Test Verification Summary
 
-To execute the entire 60-test domain and logic suite:
+To execute the entire 67-test domain and logic suite:
 ```bash
 npm test
 ```
