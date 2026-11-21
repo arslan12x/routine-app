@@ -489,6 +489,8 @@ model UserResume {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   fileUrl    String
   parsedText String   @db.Text
+  fileData   String?  @db.Text
+  mimeType   String?
   skillsJson Json
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

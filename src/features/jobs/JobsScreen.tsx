@@ -1435,55 +1435,60 @@ export default function JobsScreen() {
                   )}
                 </div>
 
-                {/* Bottom Actions Row */}
-                <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between gap-2">
-                  {/* Auto-Send toggle */}
-                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted select-none">
-                    <input
-                      type="checkbox"
-                      checked={app.autoSend}
-                      onChange={() => handleToggleAutoSend(app)}
-                      className="rounded border-border accent-brand size-3.5"
-                    />
-                    <span className="text-[11px]">Auto-Send</span>
-                  </label>
+                {/* Bottom Actions Footer */}
+                <div className="mt-4 pt-3 border-t border-border/60 flex flex-col gap-2">
+                  {/* Row 1: Auxiliary Controls (Auto-Send + Preview/Replied) */}
+                  <div className="flex items-center justify-between gap-2 min-h-[30px]">
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted select-none hover:text-fg transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={app.autoSend}
+                        onChange={() => handleToggleAutoSend(app)}
+                        className="rounded border-border accent-brand size-3.5"
+                      />
+                      <span className="text-[11px] font-medium">Auto-Send</span>
+                    </label>
 
-                  {/* Action Buttons */}
-                  <div className="flex items-center gap-1.5">
-                    {!isReplied && !isClosed && (
-                      <Button
-                        variant="outline"
-                        onClick={() => handleOpenEmailDrawer(app)}
-                        className="h-8 text-xs px-2.5"
-                      >
-                        <Eye size={12} className="mr-1" /> Preview
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1.5">
+                      {!isReplied && !isClosed && (
+                        <Button
+                          variant="outline"
+                          onClick={() => handleOpenEmailDrawer(app)}
+                          className="h-7 text-xs px-2.5 font-medium shadow-xs"
+                        >
+                          <Eye size={12} className="mr-1 shrink-0" /> Preview
+                        </Button>
+                      )}
 
-                    {!isReplied && !isClosed && !isToApply && (
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          setReplyAppId(app.id);
-                          setReplyNote("");
-                        }}
-                        className="h-8 text-xs px-2 text-emerald-600 dark:text-emerald-400"
-                      >
-                        <MessageSquare size={12} className="mr-1" /> Replied
-                      </Button>
-                    )}
+                      {!isReplied && !isClosed && !isToApply && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setReplyAppId(app.id);
+                            setReplyNote("");
+                          }}
+                          className="h-7 text-xs px-2.5 font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/10 shadow-xs"
+                        >
+                          <MessageSquare size={12} className="mr-1 shrink-0" /> Replied
+                        </Button>
+                      )}
+                    </div>
+                  </div>
 
-                    {!isReplied && !isClosed && (
-                      isToApply ? (
-                        <div className="flex items-center gap-1.5">
+                  {/* Row 2: Primary Action Bar */}
+                  {!isReplied && !isClosed && (
+                    <div className="w-full pt-0.5">
+                      {isToApply ? (
+                        <div className={`grid gap-2 w-full ${app.jobUrl ? "grid-cols-2" : "grid-cols-1"}`}>
                           {app.jobUrl && (
                             <a
                               href={app.jobUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center gap-1 h-8 rounded-lg border border-border/80 bg-soft/80 px-2.5 text-xs font-semibold text-fg hover:bg-soft hover:border-brand/40 transition-colors shadow-xs"
+                              className="inline-flex items-center justify-center gap-1.5 h-8.5 rounded-lg border border-border/80 bg-soft/80 px-2 text-xs font-semibold text-fg hover:bg-soft hover:border-brand/40 transition-colors shadow-xs whitespace-nowrap text-center"
                             >
-                              <ExternalLink size={12} /> Apply on Portal
+                              <ExternalLink size={12} className="shrink-0" />
+                              <span className="truncate">Apply on Portal</span>
                             </a>
                           )}
                           <Button
@@ -1500,33 +1505,34 @@ export default function JobsScreen() {
                               }
                               handleOpenEmailDrawer(app);
                             }}
-                            className="h-8 text-xs px-3 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs"
+                            className="inline-flex items-center justify-center gap-1.5 h-8.5 text-xs px-2 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs whitespace-nowrap w-full"
                           >
-                            <Mail size={12} className="mr-1" /> Email HR / Pitch
+                            <Mail size={12} className="shrink-0" />
+                            <span className="truncate">Email HR / Pitch</span>
                           </Button>
                         </div>
                       ) : isLocked ? (
-                        <Button
-                          disabled
-                          className="h-8 text-xs px-2.5 opacity-60 cursor-not-allowed bg-soft text-muted border border-border"
-                        >
-                          <Lock size={12} className="mr-1" /> Locked ({daysRemaining}d)
-                        </Button>
+                        <div className="w-full flex items-center justify-center gap-1.5 h-8.5 rounded-lg bg-soft/70 border border-border/70 text-muted text-xs font-semibold select-none shadow-xs">
+                          <Lock size={12} className="shrink-0 text-amber-500/90" />
+                          <span>Locked ({daysRemaining}d remaining)</span>
+                        </div>
                       ) : (
                         <Button
                           onClick={() => handleOpenEmailDrawer(app)}
-                          className="h-8 text-xs px-3 bg-brand text-brandfg hover:bg-brand/90 font-semibold"
+                          className="w-full inline-flex items-center justify-center gap-1.5 h-8.5 text-xs px-3 bg-brand text-brandfg hover:bg-brand/90 font-semibold shadow-xs"
                         >
-                          <Send size={12} className="mr-1" />
-                          {app.stage.includes("1")
-                            ? "Send FU 1"
-                            : app.stage.includes("2")
-                            ? "Send FU 2"
-                            : "Send Final FU"}
+                          <Send size={12} className="shrink-0" />
+                          <span>
+                            {app.stage.includes("1")
+                              ? "Send Follow-Up 1"
+                              : app.stage.includes("2")
+                              ? "Send Follow-Up 2"
+                              : "Send Final Follow-Up"}
+                          </span>
                         </Button>
-                      )
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </Card>
             );

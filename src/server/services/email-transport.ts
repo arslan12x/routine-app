@@ -3,6 +3,7 @@ import { ImapFlow } from "imapflow";
 import { withUserDb, systemDb } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
 import { type EmailProviderPreset } from "@/lib/domain/email-config";
+import { generatePdfFromText } from "@/lib/pdf-generator";
 
 export interface DirectEmailMetadata {
   preset: EmailProviderPreset;
@@ -38,6 +39,8 @@ export interface SendDirectEmailPayload {
   resume?: {
     fileUrl?: string | null;
     parsedText?: string | null;
+    fileData?: string | null;
+    mimeType?: string | null;
   } | null;
   useSystemDb?: boolean;
 }
@@ -199,16 +202,49 @@ export async function sendDirectEmail(
       // Resume attachment handling (for Day 0 initial applications)
       if (!payload.isFollowUp && payload.resume) {
         const resume = payload.resume;
-        const fileName = resume.fileUrl ? resume.fileUrl.split("/").pop() || "Resume.txt" : "Resume.txt";
-        if (resume.parsedText) {
-          const attachmentName = fileName.endsWith(".pdf") || fileName.endsWith(".doc") || fileName.endsWith(".docx")
-            ? `${fileName.replace(/\.[^/.]+$/, "")}.txt`
-            : fileName;
+        const rawFileName = resume.fileUrl ? resume.fileUrl.split("/").pop() || "Resume.pdf" : "Resume.pdf";
+        const lower = rawFileName.toLowerCase();
+
+        let attachmentName = rawFileName;
+        let mimeType = resume.mimeType || "application/pdf";
+        let content: Buffer | string | null = null;
+
+        if (resume.fileData) {
+          // 1. Exact uploaded binary file (PDF, DOC, DOCX, etc.)
+          content = Buffer.from(resume.fileData, "base64");
+          if (lower.endsWith(".pdf")) {
+            mimeType = "application/pdf";
+          } else if (lower.endsWith(".docx")) {
+            mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          } else if (lower.endsWith(".doc")) {
+            mimeType = "application/msword";
+          } else if (lower.endsWith(".txt")) {
+            mimeType = "text/plain";
+          }
+        } else if (lower.endsWith(".pdf") || (!lower.endsWith(".doc") && !lower.endsWith(".docx") && !lower.endsWith(".txt"))) {
+          // 2. Fallback for PDF: Generate compliant, standard PDF buffer from text
+          if (!attachmentName.toLowerCase().endsWith(".pdf")) {
+            attachmentName = `${attachmentName}.pdf`;
+          }
+          mimeType = "application/pdf";
+          content = generatePdfFromText(attachmentName.replace(/\.pdf$/i, ""), resume.parsedText || "Candidate Resume");
+        } else if (lower.endsWith(".doc") || lower.endsWith(".docx")) {
+          // 3. Fallback for Word doc without binary: Generate a clean PDF so it's readable
+          attachmentName = `${rawFileName.replace(/\.[^/.]+$/, "")}.pdf`;
+          mimeType = "application/pdf";
+          content = generatePdfFromText(rawFileName.replace(/\.[^/.]+$/, ""), resume.parsedText || "Candidate Resume");
+        } else if (lower.endsWith(".txt")) {
+          // 4. Plain text file requested
+          mimeType = "text/plain";
+          content = resume.parsedText || "";
+        }
+
+        if (content) {
           mailOptions.attachments = [
             {
               filename: attachmentName,
-              content: resume.parsedText,
-              contentType: "text/plain",
+              content,
+              contentType: mimeType,
             },
           ];
         }

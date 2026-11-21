@@ -52,7 +52,13 @@ export function extractSkillsFromText(text: string): string[] {
 
 export async function saveUserResume(
   userId: string,
-  input: { fileUrl?: string; rawText: string; skills?: string[] }
+  input: {
+    fileUrl?: string;
+    rawText: string;
+    skills?: string[];
+    fileData?: string;
+    mimeType?: string;
+  }
 ) {
   const parsedText = input.rawText.trim();
   if (!parsedText) {
@@ -69,11 +75,15 @@ export async function saveUserResume(
         userId,
         fileUrl,
         parsedText,
+        fileData: input.fileData,
+        mimeType: input.mimeType,
         skillsJson: skills,
       },
       update: {
         fileUrl,
         parsedText,
+        fileData: input.fileData !== undefined ? input.fileData : undefined,
+        mimeType: input.mimeType !== undefined ? input.mimeType : undefined,
         skillsJson: skills,
       },
     })
@@ -643,6 +653,8 @@ export async function applyToJob(
     resume: {
       fileUrl: resume.fileUrl,
       parsedText: resume.parsedText,
+      fileData: resume.fileData,
+      mimeType: resume.mimeType,
     },
   });
 

@@ -43,6 +43,7 @@ import {
   matchRecruiterReply,
   extractEmailAddress,
 } from "../src/lib/domain/email-config.ts";
+import { generatePdfFromText } from "../src/lib/pdf-generator.ts";
 import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
 import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
@@ -1321,5 +1322,59 @@ Date,Description,Amount
         expect(formatRelativeJobTime(new Date("2026-11-18T10:00:00Z"), now)).toBe("4d ago");
         expect(formatRelativeJobTime(null, now)).toBe("Live");
       });
+    });
+  });
+
+  describe("Native PDF Generator & Resume Attachments", () => {
+    it("generates a valid, compliant standard PDF 1.4 buffer with correct header and trailer", () => {
+      const title = "Mohd_Arslan_SDR";
+      const content = `Senior Full-Stack Engineer with 4 years experience building scalable web applications.
+Skills: TypeScript, Next.js, Node.js, PostgreSQL, Docker, AWS.
+Experience:
+- Architected enterprise multi-tenant routine systems.
+- Optimized query latency by 45% using Postgres indexing.`;
+
+      const pdfBuf = generatePdfFromText(title, content);
+
+      expect(Buffer.isBuffer(pdfBuf)).toBe(true);
+      expect(pdfBuf.length).toBeGreaterThan(200);
+
+      const latinStr = pdfBuf.toString("latin1");
+      expect(latinStr.startsWith("%PDF-1.4\n")).toBe(true);
+      expect(latinStr).toContain("/Type /Catalog");
+      expect(latinStr).toContain("/Type /Pages");
+      expect(latinStr).toContain("/Type /Page");
+      expect(latinStr).toContain("/BaseFont /Helvetica");
+      expect(latinStr).toContain("/BaseFont /Helvetica-Bold");
+      expect(latinStr).toContain("trailer\n");
+      expect(latinStr.trimEnd().endsWith("%%EOF")).toBe(true);
+    });
+
+    it("handles long multi-page resume content cleanly", () => {
+      const longLines = Array.from({ length: 120 }, (_, i) => `Project experience item #${i + 1}: Implemented high-throughput event processing pipelines.`);
+      const content = longLines.join("\n");
+
+      const pdfBuf = generatePdfFromText("Detailed Resume", content);
+      const latinStr = pdfBuf.toString("latin1");
+
+      // Verify multiple pages were generated
+      expect(latinStr).toContain("/Count 3"); // 120 lines / 48 per page = 3 pages
+      expect(latinStr).toContain("Page 1 of 3");
+      expect(latinStr).toContain("Page 2 of 3");
+      expect(latinStr).toContain("Page 3 of 3");
+      expect(latinStr.trimEnd().endsWith("%%EOF")).toBe(true);
+    });
+
+    it("sanitizes quotes, parentheses and special unicode characters without corrupting PDF stream", () => {
+      const trickyContent = `Candidate: “John (Jack) O'Connor” & Co.
+Special symbols: • Bullet 1 — Em dash – En dash … Ellipsis \\ Backslash`;
+
+      const pdfBuf = generatePdfFromText("Special Chars", trickyContent);
+      const latinStr = pdfBuf.toString("latin1");
+
+      expect(latinStr.startsWith("%PDF-1.4\n")).toBe(true);
+      expect(latinStr.trimEnd().endsWith("%%EOF")).toBe(true);
+      // Ensure parentheses were escaped
+      expect(latinStr).toContain("\\(Jack\\)");
     });
   });

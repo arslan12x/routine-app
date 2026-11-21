@@ -35,7 +35,11 @@ export async function GET() {
   try {
     const user = await requireUser();
     const resume = await getUserResume(user.id);
-    return Response.json({ resume }, {
+    if (!resume) {
+      return Response.json({ resume: null }, { headers: { "Cache-Control": "private, no-store" } });
+    }
+    const { fileData: _fd, ...safeResume } = resume;
+    return Response.json({ resume: safeResume }, {
       headers: { "Cache-Control": "private, no-store" },
     });
   } catch (err) {
@@ -60,12 +64,24 @@ export async function POST(request: Request) {
       const fileName = file.name || "Resume.pdf";
       let extractedText = "";
 
-      if (file.type.includes("text") || fileName.endsWith(".txt") || fileName.endsWith(".md")) {
-        extractedText = await file.text();
+      const arrayBuffer = await file.arrayBuffer();
+      const base64Data = Buffer.from(arrayBuffer).toString("base64");
+      const lowerName = fileName.toLowerCase();
+      const mimeType = file.type || (
+        lowerName.endsWith(".pdf")
+          ? "application/pdf"
+          : lowerName.endsWith(".docx")
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : lowerName.endsWith(".doc")
+          ? "application/msword"
+          : "text/plain"
+      );
+
+      if (file.type.includes("text") || lowerName.endsWith(".txt") || lowerName.endsWith(".md")) {
+        extractedText = Buffer.from(arrayBuffer).toString("utf-8");
       } else {
         // Extract readable text from binary document buffer
-        const buffer = await file.arrayBuffer();
-        const uint8 = new Uint8Array(buffer);
+        const uint8 = new Uint8Array(arrayBuffer);
         let text = "";
         for (let i = 0; i < Math.min(uint8.length, 120_000); i++) {
           const code = uint8[i];
@@ -88,9 +104,12 @@ export async function POST(request: Request) {
         fileUrl: fileName,
         rawText: extractedText,
         skills,
+        fileData: base64Data,
+        mimeType,
       });
 
-      return Response.json({ resume: saved }, {
+      const { fileData: _fd, ...safeResume } = saved;
+      return Response.json({ resume: safeResume }, {
         status: 201,
         headers: { "Cache-Control": "private, no-store" },
       });
@@ -101,7 +120,8 @@ export async function POST(request: Request) {
     const validated = resumeSchema.parse(json);
 
     const saved = await saveUserResume(user.id, validated);
-    return Response.json({ resume: saved }, {
+    const { fileData: _fd, ...safeResume } = saved;
+    return Response.json({ resume: safeResume }, {
       status: 201,
       headers: { "Cache-Control": "private, no-store" },
     });
