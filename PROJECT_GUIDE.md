@@ -649,12 +649,38 @@ Phase 6 implements a strictly isolated, personal financial tracker with bank-gra
 
 Phase 7 introduces an end-to-end automated job application pipeline, resume intelligence, multi-channel company categorization, experience-level curation, and a deterministic shifting follow-up timeline powered by Inngest, Gemini, and Resend.
 
-### 1. Schema, Categorization & Candidate Experience Intelligence
+### 1. Schema, Categorization & Real-Time Live Job Fetching Engine
 - **Data Models:**
   - `UserResume`: `id`, `userId`, `fileUrl`, `parsedText`, `skillsJson`, timestamps. Isolated strictly per user.
-  - `Company`: `id`, `name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`, `hiresFromIndia`, `isIndiaBased`, `offersRemoteIndia`, `offersRelocation`, timestamps.
-  - `JobApplication`: `id`, `userId`, `companyId`, `jobTitle`, `jobUrl`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`, timestamps.
+  - `Company`: `id`, `name`, `category`, `hrEmail`, `websiteUrl`, `location`, `description`, `lastRefreshedAt`, `hiresFromIndia`, `isIndiaBased`, `offersRemoteIndia`, `offersRelocation`, `atsProvider`, `atsSlug`, timestamps.
+  - `JobApplication`: `id`, `userId`, `companyId`, `jobTitle`, `jobUrl`, `jobLocation`, `externalJobId`, `postedAt`, `isLiveVerified`, `hrEmail`, `stage`, `appliedAt`, `nextActionAt`, `emailThreadId`, `autoSend`, `logs`, timestamps.
   - `UserIntegration` (`provider: CANDIDATE_JOB_PROFILE`): stores candidate outreach settings (`email`, `experienceLevel`, `experienceYears`).
+- **100% Free, Real-Time Active Job Fetching Engine (`src/server/services/live-job-fetchers.ts`):**
+  - Completely eliminates synthetic / fake job generation. Every role queued in `TO_APPLY` is a verified, live opening fetched directly from free public ATS APIs:
+    - *Greenhouse Public Board API:* `https://boards-api.greenhouse.io/v1/boards/{slug}/jobs`
+    - *Lever Public Postings API:* `https://api.lever.co/v0/postings/{slug}?mode=json`
+    - *Ashby Public Job Board API:* `https://api.ashbyhq.com/posting-api/job-board/{slug}`
+    - *Remotive Free Developer API:* `https://remotive.com/api/remote-jobs?category=software-dev` (Worldwide, Remote India, APAC)
+    - *Arbeitnow Job Board API:* `https://www.arbeitnow.com/api/job-board-api` (Visa sponsorship & remote roles)
+  - Curated targets map across all 7 categories with direct emphasis on prominent Indian tech centres (Razorpay, Postman, BrowserStack, PhonePe, Groww, Swiggy, Atlassian, Stripe, Databricks, Thoughtworks, Vercel, Supabase, Canonical, etc.).
+  - Resilient timeout protection (`AbortSignal.timeout(8000)`) and graceful error handling prevent any single slow or failing board from blocking sync.
+- **Strict India-Priority Filtering & Ranking (`src/lib/domain/live-jobs.ts`):**
+  - *Engineering Role Filter:* Pure regex heuristics retain core software/tech roles (SDE, Full-Stack, Backend, Frontend, Cloud, DevOps, AI/Data, Mobile) and filter out non-tech roles (Sales, HR, Facilities, Legal, Support).
+  - *India Eligibility Classification:* Inspects real location and tags:
+    - `isIndiaBased`: matches physical hubs in Bengaluru, Pune, Hyderabad, Mumbai, Delhi NCR / Gurugram, Noida, Chennai, etc.
+    - `offersRemoteIndia`: matches `Remote - India`, `Worldwide`, `APAC Remote`, `Work from Anywhere`.
+    - `offersRelocation`: matches `Visa Sponsorship`, `Relocation Assistance`.
+    - *Strict Drop Rule:* Roles explicitly restricted to non-Indian regions (e.g., `US Only`, `Remote - US`, `UK Only`) without relocation sponsorship are immediately dropped.
+  - *India-First Priority Scoring (`scoreLiveJobPriority`):*
+    1. Priority 1 (Score 300+): Physical India engineering hubs.
+    2. Priority 2 (Score 200+): Remote roles open to India / Worldwide.
+    3. Priority 3 (Score 100+): International relocation & visa sponsorship.
+    4. Within each tier, roles are sorted by recency (`postedAt`).
+- **Auto-Expiring Closed / Dead Postings:**
+  - When new live feeds are synced, unapplied postings in `TO_APPLY` (`appliedAt: null`) that no longer exist on the company's active live board are automatically purged so candidates never waste time on dead openings.
+- **Continuous Background Syncing (6-Hour Inngest Cron):**
+  - Inngest cron worker `liveJobsContinuousSync` runs every 6 hours (`0 */6 * * *`) using `systemDb` in isolated `step.run()` blocks, keeping active candidate job boards constantly updated with the freshest openings.
+  - Manual sync is available instantly on demand via `POST /api/jobs/refresh`.
 - **Two-Tier Filter Architecture (Parent Location & India Eligibility → 7 Channel Sub-Filters):**
   - **Tier 1 - Parent Filter (Location & Eligibility):** Users select their preferred geographic/eligibility scope:
     - `All India-Eligible` (`ALL_INDIA_ELIGIBLE`, default): Surfaces all companies with verified hiring paths for Indian talent.
@@ -675,7 +701,6 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - `SENIOR`: 5+ years experience. Senior, lead, and staff engineering and architecture positions (e.g. Lead Full-Stack Developer, Staff Infrastructure Engineer).
   - Users can inspect and change their experience level at any time from the readiness toolbar; the selected tier persists and drives subsequent job listings until updated.
   - `inferExperienceLevelFromTitle(title)` extracts candidate experience tiers from job titles with regex word boundaries.
-  - `getRoleForExperience(companyName, category, level)` dynamically provisions experience-appropriate roles for any company.
 - **7 Target Company Channels:**
   - `STARTUP`: Fast-growing venture-backed startups (Razorpay, Swiggy, CRED, Zepto, Postman).
   - `BIG_MNC`: Global Fortune 500 enterprises with prominent India tech centres (Microsoft India, Google India, Amazon India, Cisco India).
@@ -733,5 +758,12 @@ Phase 7 introduces an end-to-end automated job application pipeline, resume inte
   - *Row 1 (Parent Location Filter):* Prominent segmented control (`All India-Eligible`, `🇮🇳 India Only`, `🌍 Remote (India)`, `✈️ Visa / Relocation`) with descriptive helper text.
   - *Row 2 (Sub-Filter Channels):* Responsive 4-column grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`) accommodating all 7 preserved channels, with dynamic count badges matching the active parent location scope.
 - **Pipeline Navigation:** Clean separation of Stage tabs and Experience filter pills into two dedicated rows.
-- **Standardized Job Cards:** Uniform card heights with `min-h-[3rem]` title and `min-h-[2.5rem]` description baselines, maintaining pixel-perfect grid alignment across varying title lengths. Equipped with compact hiring mode badges (`🇮🇳 India Hub`, `🌍 Remote (India)`, `✈️ Relocation / Visa`).
+- **Standardized Job Cards:** Uniform card heights with `min-h-[3rem]` title and `min-h-[2.5rem]` description baselines, maintaining pixel-perfect grid alignment across varying title lengths.
+  - *Green `LIVE` Pulse Badge & Relative Time:* Real-time status indicator (e.g. `LIVE · 2h ago` or `LIVE · 1d ago`).
+  - *Hiring Mode Badges:* Compact badges indicating `🇮🇳 India Hub`, `🌍 Remote (India)`, and `✈️ Relocation / Visa`.
+  - *Real Location:* Shows physical hub or remote scope (e.g. `Bengaluru, India` or `Remote (India)`).
+  - *Dual Action Controls for `TO_APPLY`:*
+    1. **Apply on Portal:** Direct link to the company's real ATS job posting in a new tab (`rel="noopener noreferrer"`).
+    2. **Email HR / Pitch:** Opens the Direct SMTP AI Email Drawer with pre-filled live job title, location, and tailored pitch.
+- **Real-Time Sync Control:** `⚡ Sync Live Jobs` action button with live relative timestamp showing when the last sync executed.
 - **Interactive Email Drawer:** Live in-drawer preview, editable subject/body, one-click AI copy regeneration, delivery mode indicator, and instant dispatch.

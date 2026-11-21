@@ -30,6 +30,13 @@ import {
   type LocationEligibilityFilter,
   matchesLocationFilter,
 } from "../src/lib/domain/jobs.ts";
+import {
+  isEngineeringRole,
+  classifyJobLocation,
+  scoreLiveJobPriority,
+  compareLiveJobsPriority,
+  formatRelativeJobTime,
+} from "../src/lib/domain/live-jobs.ts";
 import { encryptSecret, decryptSecret } from "../src/lib/crypto.ts";
 import {
   getEmailProviderPreset,
@@ -1150,5 +1157,169 @@ Date,Description,Amount
         expect(hasValidMode).toBe(true);
         expect(matchesLocationFilter(company, "ALL_INDIA_ELIGIBLE")).toBe(true);
       }
+    });
+  });
+
+  describe("Real-time Live Job Engine & India Priority Logic", () => {
+    describe("isEngineeringRole filtering", () => {
+      it("accurately identifies engineering, developer, and technical roles", () => {
+        expect(isEngineeringRole("Software Engineer")).toBe(true);
+        expect(isEngineeringRole("Senior Full-Stack Developer (React / Node.js)")).toBe(true);
+        expect(isEngineeringRole("Backend SDE-2 - Core Payment Architecture")).toBe(true);
+        expect(isEngineeringRole("DevOps & Cloud Platform Engineer")).toBe(true);
+        expect(isEngineeringRole("Site Reliability Engineer (SRE)")).toBe(true);
+        expect(isEngineeringRole("Mobile Application Developer - Android / iOS")).toBe(true);
+        expect(isEngineeringRole("Associate Software Development Engineer")).toBe(true);
+        expect(isEngineeringRole("Staff Distributed Systems Architect")).toBe(true);
+        expect(isEngineeringRole("Quality Assurance / SDET Automation Engineer")).toBe(true);
+        expect(isEngineeringRole("Data Platform Engineer - Kafka & Spark")).toBe(true);
+      });
+
+      it("filters out non-engineering roles (Sales, HR, Marketing, Legal, Facilities)", () => {
+        expect(isEngineeringRole("Account Executive - Enterprise Sales")).toBe(false);
+        expect(isEngineeringRole("Business Development Representative (BDR)")).toBe(false);
+        expect(isEngineeringRole("Talent Acquisition Specialist / Recruiter")).toBe(false);
+        expect(isEngineeringRole("People Operations Generalist")).toBe(false);
+        expect(isEngineeringRole("Legal Counsel & Compliance Manager")).toBe(false);
+        expect(isEngineeringRole("Office Facilities & Workplace Coordinator")).toBe(false);
+        expect(isEngineeringRole("Content Writer & Social Media Marketer")).toBe(false);
+        expect(isEngineeringRole("Customer Success Specialist")).toBe(false);
+        expect(isEngineeringRole("Senior Financial Analyst")).toBe(false);
+      });
+    });
+
+    describe("classifyJobLocation", () => {
+      it("identifies active Indian hubs (Bengaluru, Pune, Hyderabad, Mumbai, Delhi NCR, etc.)", () => {
+        const bangalore = classifyJobLocation("Bengaluru, Karnataka, India");
+        expect(bangalore.isIndiaBased).toBe(true);
+        expect(bangalore.isIndiaEligible).toBe(true);
+        expect(bangalore.cleanLocation).toContain("Bengaluru");
+
+        const pune = classifyJobLocation("Pune, Maharashtra");
+        expect(pune.isIndiaBased).toBe(true);
+        expect(pune.isIndiaEligible).toBe(true);
+        expect(pune.cleanLocation).toContain("Pune");
+
+        const hyderabad = classifyJobLocation("Hyderabad, Telangana, India");
+        expect(hyderabad.isIndiaBased).toBe(true);
+        expect(hyderabad.isIndiaEligible).toBe(true);
+
+        const mumbai = classifyJobLocation("Mumbai, India");
+        expect(mumbai.isIndiaBased).toBe(true);
+        expect(mumbai.isIndiaEligible).toBe(true);
+
+        const gurgaon = classifyJobLocation("Gurugram / Delhi NCR, India");
+        expect(gurgaon.isIndiaBased).toBe(true);
+        expect(gurgaon.isIndiaEligible).toBe(true);
+      });
+
+      it("identifies Remote India and Global/Worldwide Remote roles", () => {
+        const remoteIndia = classifyJobLocation("Remote - India");
+        expect(remoteIndia.offersRemoteIndia).toBe(true);
+        expect(remoteIndia.isIndiaEligible).toBe(true);
+
+        const worldwide = classifyJobLocation("Worldwide (Remote)");
+        expect(worldwide.offersRemoteIndia).toBe(true);
+        expect(worldwide.isIndiaEligible).toBe(true);
+
+        const apac = classifyJobLocation("APAC Remote");
+        expect(apac.offersRemoteIndia).toBe(true);
+        expect(apac.isIndiaEligible).toBe(true);
+
+        const anywhere = classifyJobLocation("Work from Anywhere");
+        expect(anywhere.offersRemoteIndia).toBe(true);
+        expect(anywhere.isIndiaEligible).toBe(true);
+      });
+
+      it("identifies Relocation and Visa Sponsorship roles", () => {
+        const amsterdamReloc = classifyJobLocation(
+          "Amsterdam, Netherlands",
+          "Senior Software Engineer (Visa Sponsorship & Relocation Provided)"
+        );
+        expect(amsterdamReloc.offersRelocation).toBe(true);
+        expect(amsterdamReloc.isIndiaEligible).toBe(true);
+
+        const londonReloc = classifyJobLocation("London (Relocation Assistance)");
+        expect(londonReloc.offersRelocation).toBe(true);
+        expect(londonReloc.isIndiaEligible).toBe(true);
+      });
+
+      it("strictly drops roles restricted to non-India regions without relocation sponsorship", () => {
+        const usOnly = classifyJobLocation("San Francisco, CA (US Only)");
+        expect(usOnly.isIndiaEligible).toBe(false);
+
+        const remoteUs = classifyJobLocation("Remote - US");
+        expect(remoteUs.isIndiaEligible).toBe(false);
+
+        const ukOnly = classifyJobLocation("London, UK (UK Only)");
+        expect(ukOnly.isIndiaEligible).toBe(false);
+
+        const canadaOnly = classifyJobLocation("Toronto (Canada Only)");
+        expect(canadaOnly.isIndiaEligible).toBe(false);
+      });
+    });
+
+    describe("scoreLiveJobPriority and priority sorting", () => {
+      it("ranks Indian Hub jobs highest, followed by Remote-India, then Relocation", () => {
+        const indiaHubJob = {
+          isIndiaBased: true,
+          offersRemoteIndia: false,
+          offersRelocation: false,
+          postedAt: new Date(),
+        };
+        const remoteJob = {
+          isIndiaBased: false,
+          offersRemoteIndia: true,
+          offersRelocation: false,
+          postedAt: new Date(),
+        };
+        const relocationJob = {
+          isIndiaBased: false,
+          offersRemoteIndia: false,
+          offersRelocation: true,
+          postedAt: new Date(),
+        };
+
+        const scoreIndia = scoreLiveJobPriority(indiaHubJob);
+        const scoreRemote = scoreLiveJobPriority(remoteJob);
+        const scoreReloc = scoreLiveJobPriority(relocationJob);
+
+        expect(scoreIndia).toBeGreaterThan(scoreRemote);
+        expect(scoreRemote).toBeGreaterThan(scoreReloc);
+        expect(scoreReloc).toBeGreaterThan(0);
+
+        // Comparator verification
+        expect(compareLiveJobsPriority(indiaHubJob, remoteJob)).toBeLessThan(0); // indiaHubJob ranks before remoteJob
+        expect(compareLiveJobsPriority(remoteJob, relocationJob)).toBeLessThan(0);
+      });
+
+      it("sorts within the same tier by recency", () => {
+        const olderIndiaJob = {
+          isIndiaBased: true,
+          offersRemoteIndia: false,
+          offersRelocation: false,
+          postedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days old
+        };
+        const newerIndiaJob = {
+          isIndiaBased: true,
+          offersRemoteIndia: false,
+          offersRelocation: false,
+          postedAt: new Date(), // fresh
+        };
+
+        expect(scoreLiveJobPriority(newerIndiaJob)).toBeGreaterThan(scoreLiveJobPriority(olderIndiaJob));
+        expect(compareLiveJobsPriority(newerIndiaJob, olderIndiaJob)).toBeLessThan(0);
+      });
+    });
+
+    describe("formatRelativeJobTime", () => {
+      it("formats relative timestamps correctly", () => {
+        const now = new Date("2026-11-22T10:00:00Z");
+        expect(formatRelativeJobTime(new Date("2026-11-22T09:59:00Z"), now)).toBe("Just now");
+        expect(formatRelativeJobTime(new Date("2026-11-22T08:00:00Z"), now)).toBe("2h ago");
+        expect(formatRelativeJobTime(new Date("2026-11-21T10:00:00Z"), now)).toBe("1d ago");
+        expect(formatRelativeJobTime(new Date("2026-11-18T10:00:00Z"), now)).toBe("4d ago");
+        expect(formatRelativeJobTime(null, now)).toBe("Live");
+      });
     });
   });

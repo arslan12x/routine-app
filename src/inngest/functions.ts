@@ -5,7 +5,8 @@ import { systemDb } from "@/lib/db";
 import { generateWeeklyCoachReview } from "@/server/ai/coach";
 import { syncDuolingo } from "@/server/services/duolingo";
 import { rotateStartupCompanies } from "@/server/services/job-scraper";
-import { advanceJobPipeline } from "@/server/services/jobs";
+import { advanceJobPipeline, syncLiveJobsForCandidate } from "@/server/services/jobs";
+import { fetchAllActiveLiveJobs } from "@/server/services/live-job-fetchers";
 import { syncRecruiterRepliesForUser } from "@/server/services/email-inbox";
 import { dispatchUserTaskReminder } from "@/server/services/reminders";
 import type { AppUser } from "@/lib/auth/session";
@@ -191,6 +192,57 @@ export const jobFollowUpScheduler = inngest.createFunction(
   },
 );
 
+export const liveJobsContinuousSync = inngest.createFunction(
+  {
+    id: "live-jobs-continuous-sync",
+    triggers: { cron: "0 */6 * * *" }, // Runs every 6 hours
+    onFailure: async ({ error }) => {
+      Sentry.captureException(error, {
+        tags: { inngestFunction: "live-jobs-continuous-sync" },
+      });
+    },
+  },
+  async ({ step }) => {
+    // 1. Fetch fresh live active jobs across ATS sources (Greenhouse, Lever, Ashby, Remotive, Arbeitnow)
+    const liveJobs = await step.run("fetch-all-live-jobs", async () => {
+      return fetchAllActiveLiveJobs();
+    });
+
+    // 2. Find active job candidates who have applications or candidate profiles
+    const candidateUserIds = await step.run("find-active-job-candidates", async () => {
+      const users = await systemDb.user.findMany({
+        where: {
+          banned: false,
+          OR: [
+            { jobApplications: { some: {} } },
+            { integrations: { some: { provider: "CANDIDATE_JOB_PROFILE" } } },
+          ],
+        },
+        select: { id: true },
+      });
+      return users.map((u) => u.id);
+    });
+
+    if (candidateUserIds.length === 0) {
+      return { syncedCandidates: 0, liveJobsFound: liveJobs.length };
+    }
+
+    for (const userId of candidateUserIds) {
+      await step.run(`sync-live-jobs-${userId}`, async () => {
+        try {
+          await syncLiveJobsForCandidate(userId, liveJobs);
+          return { success: true };
+        } catch (err) {
+          console.warn(`[Inngest] Live job sync failed for candidate ${userId}:`, err);
+          return { error: String(err) };
+        }
+      });
+    }
+
+    return { syncedCandidates: candidateUserIds.length, liveJobsFound: liveJobs.length };
+  },
+);
+
 export const reminderFunctions = [
   scheduleTaskReminders,
   sendTaskReminder,
@@ -198,4 +250,5 @@ export const reminderFunctions = [
   duolingoDailySync,
   startupRotationCron,
   jobFollowUpScheduler,
+  liveJobsContinuousSync,
 ];

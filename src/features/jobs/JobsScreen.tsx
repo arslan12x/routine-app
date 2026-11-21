@@ -55,6 +55,7 @@ import {
   getEmailProviderPreset,
   type EmailProviderPreset,
 } from "@/lib/domain/email-config";
+import { formatRelativeJobTime, compareLiveJobsPriority } from "@/lib/domain/live-jobs";
 
 interface Company {
   id: string;
@@ -75,6 +76,10 @@ interface JobApplication {
   id: string;
   jobTitle: string;
   jobUrl?: string | null;
+  jobLocation?: string | null;
+  externalJobId?: string | null;
+  postedAt?: string | null;
+  isLiveVerified?: boolean;
   hrEmail: string;
   stage: string;
   appliedAt?: string | null;
@@ -141,6 +146,7 @@ export default function JobsScreen() {
 
   // Parent Location & Eligibility Filter
   const [locationFilter, setLocationFilter] = useState<LocationEligibilityFilter>("ALL_INDIA_ELIGIBLE");
+  const [lastLiveSyncAt, setLastLiveSyncAt] = useState<Date | null>(new Date());
 
   // Filters & selection (7 Sub-Filter Channels)
   const [selectedCategories, setSelectedCategories] = useState<CompanyCategory[]>([
@@ -478,10 +484,12 @@ export default function JobsScreen() {
         }),
       });
       if (res.ok) {
+        setLastLiveSyncAt(new Date());
+        toast.success("Live job boards synced! Refreshed active India-priority opportunities.");
         await loadApplications(loc || locationFilter);
       } else {
         const err = await res.json();
-        alert(err.error?.message || "Failed to refresh 2-day hiring batch");
+        alert(err.error?.message || "Failed to sync live jobs");
       }
     } catch (err) {
       console.error("Failed to queue jobs", err);
@@ -735,6 +743,24 @@ export default function JobsScreen() {
     return true;
   });
 
+  // Sort India jobs to the top on priority by default
+  filteredApps.sort((a, b) => {
+    return compareLiveJobsPriority(
+      {
+        isIndiaBased: a.company.isIndiaBased,
+        offersRemoteIndia: a.company.offersRemoteIndia,
+        offersRelocation: a.company.offersRelocation,
+        postedAt: a.postedAt || a.createdAt,
+      },
+      {
+        isIndiaBased: b.company.isIndiaBased,
+        offersRemoteIndia: b.company.offersRemoteIndia,
+        offersRelocation: b.company.offersRelocation,
+        postedAt: b.postedAt || b.createdAt,
+      }
+    );
+  });
+
   return (
     <div className="space-y-6">
       {/* 1. Page Header & Primary Actions */}
@@ -784,14 +810,22 @@ export default function JobsScreen() {
             <span>{globalAutoSend ? "Mode: Auto-Send" : "Mode: Review & Approve"}</span>
           </button>
 
-          <Button
-            disabled={queueing}
-            onClick={() => handleQueueJobsWithExp()}
-            className="flex items-center gap-2 py-2 px-4 text-xs font-semibold shadow-sm"
-          >
-            {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            <span>⚡ 2-Day Batch Refresh</span>
-          </Button>
+          <div className="flex flex-col items-end gap-1">
+            <Button
+              disabled={queueing}
+              onClick={() => handleQueueJobsWithExp()}
+              className="flex items-center gap-2 py-2 px-4 text-xs font-semibold shadow-sm"
+              title="Fetch fresh real-time jobs from live ATS boards"
+            >
+              {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              <span>⚡ Sync Live Jobs</span>
+            </Button>
+            {lastLiveSyncAt && (
+              <span className="text-[10px] text-muted font-medium">
+                Last synced: {formatRelativeJobTime(lastLiveSyncAt)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1237,7 +1271,7 @@ export default function JobsScreen() {
           <h2 className="text-lg font-semibold">No Applications Found</h2>
           <p className="mt-1 max-w-sm text-xs text-muted">
             {activeTab === "APPLY"
-              ? "Click '⚡ 2-Day Batch Refresh' above to curate opportunities matching your selected experience level and company categories."
+              ? "Click '⚡ Sync Live Jobs' above to fetch active Indian & India-eligible opportunities matching your selected experience level and company categories."
               : "Applications automatically advance to this tab as their shifting follow-up timeline elapses (Day 4, Day 10, Day 15)."}
           </p>
           {activeTab === "APPLY" && (
@@ -1247,7 +1281,7 @@ export default function JobsScreen() {
               className="mt-5 flex items-center gap-2 py-1.5 px-3.5 text-xs font-semibold"
             >
               {queueing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              <span>⚡ 2-Day Batch Refresh</span>
+              <span>⚡ Sync Live Jobs</span>
             </Button>
           )}
         </Card>
@@ -1274,6 +1308,20 @@ export default function JobsScreen() {
                   {/* Badges Header */}
                   <div className="flex flex-wrap items-center justify-between gap-1.5">
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Green LIVE Pulse Badge */}
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shadow-xs">
+                        <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span>LIVE</span>
+                        {app.postedAt && (
+                          <>
+                            <span className="text-emerald-500/40">·</span>
+                            <span className="font-medium text-[9px] text-emerald-700 dark:text-emerald-300">
+                              {formatRelativeJobTime(app.postedAt)}
+                            </span>
+                          </>
+                        )}
+                      </span>
+
                       <span className="rounded-md bg-brand/10 px-2 py-0.5 text-[11px] font-semibold text-brand">
                         {CATEGORY_LABELS[app.company.category as CompanyCategory] || app.company.category}
                       </span>
@@ -1341,17 +1389,20 @@ export default function JobsScreen() {
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                       <span className="font-semibold text-fg">{app.company.name}</span>
                       <span>·</span>
-                      {app.company.location && <span>{app.company.location}</span>}
-                      {app.company.websiteUrl && (
+                      <span className="inline-flex items-center gap-1 font-medium text-fg/80">
+                        <MapPin size={11} className="text-muted shrink-0" />
+                        {app.jobLocation || app.company.location || "India"}
+                      </span>
+                      {app.jobUrl && (
                         <>
                           <span>·</span>
                           <a
-                            href={app.company.websiteUrl}
+                            href={app.jobUrl}
                             target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-0.5 text-brand hover:underline"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 text-brand hover:underline font-medium"
                           >
-                            <Globe size={11} /> Site
+                            <ExternalLink size={11} /> Portal Post
                           </a>
                         </>
                       )}
@@ -1424,28 +1475,36 @@ export default function JobsScreen() {
 
                     {!isReplied && !isClosed && (
                       isToApply ? (
-                        !resume ? (
+                        <div className="flex items-center gap-1.5">
+                          {app.jobUrl && (
+                            <a
+                              href={app.jobUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-1 h-8 rounded-lg border border-border/80 bg-soft/80 px-2.5 text-xs font-semibold text-fg hover:bg-soft hover:border-brand/40 transition-colors shadow-xs"
+                            >
+                              <ExternalLink size={12} /> Apply on Portal
+                            </a>
+                          )}
                           <Button
-                            onClick={() => setShowResumeModal(true)}
-                            className="h-8 text-xs px-2.5 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 font-semibold"
+                            onClick={() => {
+                              if (!resume) {
+                                setShowResumeModal(true);
+                                toast.info("Please upload your resume to pitch via email.");
+                                return;
+                              }
+                              if (!candidateEmail) {
+                                setShowEmailModal(true);
+                                toast.info("Please configure your sender email to pitch via email.");
+                                return;
+                              }
+                              handleOpenEmailDrawer(app);
+                            }}
+                            className="h-8 text-xs px-3 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs"
                           >
-                            <Upload size={12} className="mr-1" /> Resume
+                            <Mail size={12} className="mr-1" /> Email HR / Pitch
                           </Button>
-                        ) : !candidateEmail ? (
-                          <Button
-                            onClick={() => setShowEmailModal(true)}
-                            className="h-8 text-xs px-2.5 bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 hover:bg-amber-500/25 font-semibold"
-                          >
-                            <Mail size={12} className="mr-1" /> Email
-                          </Button>
-                        ) : (
-                          <Button
-                            onClick={() => handleOpenEmailDrawer(app)}
-                            className="h-8 text-xs px-3 font-semibold"
-                          >
-                            <Send size={12} className="mr-1" /> Apply Now
-                          </Button>
-                        )
+                        </div>
                       ) : isLocked ? (
                         <Button
                           disabled

@@ -508,6 +508,8 @@ model Company {
   isIndiaBased       Boolean          @default(false)
   offersRemoteIndia  Boolean          @default(false)
   offersRelocation   Boolean          @default(false)
+  atsProvider        String?          // GREENHOUSE, LEVER, ASHBY, REMOTIVE, ARBEITNOW
+  atsSlug            String?
   lastRefreshedAt    DateTime         @default(now())
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
@@ -525,6 +527,10 @@ model JobApplication {
   company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   jobTitle      String
   jobUrl        String?
+  jobLocation   String?
+  externalJobId String?
+  postedAt      DateTime?
+  isLiveVerified Boolean  @default(true)
   hrEmail       String
   stage         String    @default("TO_APPLY") // TO_APPLY, WAITING_FU1, FOLLOW_UP_1, WAITING_FU2, FOLLOW_UP_2, WAITING_FU3, FOLLOW_UP_3, REPLIED, CLOSED
   appliedAt     DateTime?

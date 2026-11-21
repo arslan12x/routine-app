@@ -16,6 +16,8 @@ import {
 } from "@/lib/domain/jobs";
 import { generateJobEmailDraft, type EmailDraft } from "@/server/ai/jobs";
 import { sendDirectEmail } from "@/server/services/email-transport";
+import { fetchAllActiveLiveJobs } from "@/server/services/live-job-fetchers";
+import { scoreLiveJobPriority, type NormalizedLiveJob } from "@/lib/domain/live-jobs";
 import {
   CURATED_COMPANIES,
   ensureCompanyDirectorySeeded,
@@ -216,67 +218,135 @@ export async function saveCandidateEmail(userId: string, email: string): Promise
   return profile.email;
 }
 
-export async function queueApplications(
+export async function syncLiveJobsForCandidate(
   userId: string,
-  categories: CompanyCategory[],
-  limit = 30,
-  experienceLevel?: CandidateExperienceLevel,
-  locationFilter?: LocationEligibilityFilter
+  liveJobs: NormalizedLiveJob[],
+  options?: {
+    categories?: CompanyCategory[];
+    limit?: number;
+    experienceLevel?: CandidateExperienceLevel;
+    locationFilter?: LocationEligibilityFilter;
+  }
 ) {
-  await ensureCompanyDirectorySeeded().catch((err) =>
-    console.warn("[Job Engine] ensureCompanyDirectorySeeded notice", err)
-  );
-
-  const candidate = await getCandidateProfile(userId);
-  const expLevel = experienceLevel || candidate.experienceLevel || "FRESHER";
+  const limit = options?.limit ?? 30;
+  const categories = options?.categories;
+  const locationFilter = options?.locationFilter ?? "ALL_INDIA_ELIGIBLE";
 
   return withUserDb(userId, async (tx) => {
-    // Find already queued company IDs
-    const existingApps = await tx.jobApplication.findMany({
+    // 1. Ensure all companies referenced in live jobs exist in database
+    const companyNames = Array.from(new Set(liveJobs.map((j) => j.companyName)));
+    const existingCompanies = await tx.company.findMany({
+      where: { name: { in: companyNames } },
+    });
+    const companyMap = new Map(existingCompanies.map((c) => [c.name.toLowerCase(), c]));
+
+    for (const job of liveJobs) {
+      const key = job.companyName.toLowerCase();
+      if (!companyMap.has(key)) {
+        const created = await tx.company.create({
+          data: {
+            name: job.companyName,
+            category: job.companyCategory,
+            hrEmail: job.hrEmail,
+            websiteUrl: job.jobUrl,
+            location: job.jobLocation,
+            hiresFromIndia: true,
+            isIndiaBased: job.isIndiaBased,
+            offersRemoteIndia: job.offersRemoteIndia,
+            offersRelocation: job.offersRelocation,
+            atsProvider: job.atsProvider,
+          },
+        });
+        companyMap.set(key, created);
+      }
+    }
+
+    // 2. Auto-Expire Closed Jobs:
+    // If an unapplied TO_APPLY job (isLiveVerified: true, appliedAt: null)
+    // is no longer present in the latest live feed for that company, remove it!
+    const unappliedApps = await tx.jobApplication.findMany({
+      where: {
+        userId,
+        stage: "TO_APPLY",
+        appliedAt: null,
+        isLiveVerified: true,
+      },
+      include: { company: true },
+    });
+
+    const liveJobKeySet = new Set(
+      liveJobs.map((j) => `${j.companyName.toLowerCase()}|${j.title.toLowerCase()}`)
+    );
+    const checkedCompanySet = new Set(liveJobs.map((j) => j.companyName.toLowerCase()));
+
+    const toDeleteIds: string[] = [];
+    for (const app of unappliedApps) {
+      if (checkedCompanySet.has(app.company.name.toLowerCase())) {
+        const appKey = `${app.company.name.toLowerCase()}|${app.jobTitle.toLowerCase()}`;
+        if (!liveJobKeySet.has(appKey)) {
+          toDeleteIds.push(app.id);
+        }
+      }
+    }
+
+    if (toDeleteIds.length > 0) {
+      await tx.jobApplication.deleteMany({
+        where: { id: { in: toDeleteIds } },
+      });
+    }
+
+    // 3. User's existing applications (prevent re-queuing already applied/active roles)
+    const userExistingApps = await tx.jobApplication.findMany({
       where: { userId },
       select: { companyId: true, jobTitle: true },
     });
-    const appliedSet = new Set(existingApps.map((a) => `${a.companyId}|${a.jobTitle}`));
+    const appliedSet = new Set(userExistingApps.map((a) => `${a.companyId}|${a.jobTitle}`));
 
-    // Find available companies in the selected categories that hire from India
-    const availableCompanies = await tx.company.findMany({
-      where: {
-        category: { in: categories.length > 0 ? categories : undefined },
-        hiresFromIndia: true,
-      },
-      orderBy: { lastRefreshedAt: "desc" },
-    });
-
+    // 4. Filter live jobs by category, locationFilter, and limit
     const newApplicationsData: Array<{
       userId: string;
       companyId: string;
       jobTitle: string;
       jobUrl: string | null;
+      jobLocation: string | null;
+      externalJobId: string | null;
+      postedAt: Date | null;
+      isLiveVerified: boolean;
       hrEmail: string;
       stage: string;
     }> = [];
 
-    for (const company of availableCompanies) {
+    for (const liveJob of liveJobs) {
       if (newApplicationsData.length >= limit) break;
 
-      // Filter by Parent Location / Eligibility filter
-      if (!matchesLocationFilter(company, locationFilter)) {
+      // Category check
+      if (categories && categories.length > 0 && !categories.includes(liveJob.companyCategory as CompanyCategory)) {
         continue;
       }
 
-      const seed = CURATED_COMPANIES.find((c) => c.name === company.name);
-      const role = getRoleForExperience(seed, expLevel);
+      // Location filter check
+      if (!matchesLocationFilter(liveJob, locationFilter)) {
+        continue;
+      }
 
-      if (!appliedSet.has(`${company.id}|${role}`)) {
+      const comp = companyMap.get(liveJob.companyName.toLowerCase());
+      if (!comp) continue;
+
+      const appKey = `${comp.id}|${liveJob.title}`;
+      if (!appliedSet.has(appKey)) {
         newApplicationsData.push({
           userId,
-          companyId: company.id,
-          jobTitle: role,
-          jobUrl: company.websiteUrl,
-          hrEmail: company.hrEmail,
+          companyId: comp.id,
+          jobTitle: liveJob.title,
+          jobUrl: liveJob.jobUrl,
+          jobLocation: liveJob.jobLocation,
+          externalJobId: liveJob.externalJobId,
+          postedAt: liveJob.postedAt ? new Date(liveJob.postedAt) : null,
+          isLiveVerified: true,
+          hrEmail: liveJob.hrEmail || comp.hrEmail,
           stage: "TO_APPLY",
         });
-        appliedSet.add(`${company.id}|${role}`);
+        appliedSet.add(appKey);
       }
     }
 
@@ -290,8 +360,36 @@ export async function queueApplications(
     return tx.jobApplication.findMany({
       where: { userId, stage: "TO_APPLY" },
       include: { company: true },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ postedAt: "desc" }, { createdAt: "desc" }],
     });
+  });
+}
+
+export async function queueApplications(
+  userId: string,
+  categories: CompanyCategory[] = [...COMPANY_CATEGORIES],
+  limit = 30,
+  experienceLevel?: CandidateExperienceLevel,
+  locationFilter: LocationEligibilityFilter = "ALL_INDIA_ELIGIBLE"
+) {
+  await ensureCompanyDirectorySeeded().catch((err) =>
+    console.warn("[Job Engine] ensureCompanyDirectorySeeded notice", err)
+  );
+
+  const candidate = await getCandidateProfile(userId);
+  const expLevel = experienceLevel || candidate.experienceLevel || "FRESHER";
+
+  // Fetch real-time active jobs
+  const liveJobs = await fetchAllActiveLiveJobs({
+    categories,
+    experienceLevel: expLevel,
+  });
+
+  return syncLiveJobsForCandidate(userId, liveJobs, {
+    categories,
+    limit,
+    experienceLevel: expLevel,
+    locationFilter,
   });
 }
 
@@ -397,6 +495,31 @@ export async function listUserApplications(
     // 3. Filter by Location & Eligibility Parent Filter
     const locFilter = filters?.locationFilter || "ALL_INDIA_ELIGIBLE";
     const filteredApps = allApps.filter((a) => matchesLocationFilter(a.company, locFilter));
+
+    // Sort India jobs to the top on priority by default
+    filteredApps.sort((a, b) => {
+      if (a.stage === b.stage) {
+        const scoreA = scoreLiveJobPriority({
+          isIndiaBased: a.company.isIndiaBased,
+          offersRemoteIndia: a.company.offersRemoteIndia,
+          offersRelocation: a.company.offersRelocation,
+          postedAt: a.postedAt || a.createdAt,
+        });
+        const scoreB = scoreLiveJobPriority({
+          isIndiaBased: b.company.isIndiaBased,
+          offersRemoteIndia: b.company.offersRemoteIndia,
+          offersRelocation: b.company.offersRelocation,
+          postedAt: b.postedAt || b.createdAt,
+        });
+        if (scoreB !== scoreA) {
+          return scoreB - scoreA;
+        }
+        const timeA = a.postedAt ? new Date(a.postedAt).getTime() : new Date(a.createdAt).getTime();
+        const timeB = b.postedAt ? new Date(b.postedAt).getTime() : new Date(b.createdAt).getTime();
+        return timeB - timeA;
+      }
+      return 0;
+    });
 
     // 4. Compute badge counts from filteredApps
     const toApplyCount = filteredApps.filter((a) => a.stage === "TO_APPLY").length;
