@@ -2,8 +2,13 @@ import nodemailer, { type SendMailOptions } from "nodemailer";
 import { ImapFlow } from "imapflow";
 import { withUserDb, systemDb } from "@/lib/db";
 import { decryptSecret } from "@/lib/crypto";
-import { type EmailProviderPreset } from "@/lib/domain/email-config";
+import {
+  type EmailProviderPreset,
+  isValidEmailAddress,
+  sanitizeEmailContent,
+} from "@/lib/domain/email-config";
 import { generatePdfFromText } from "@/lib/pdf-generator";
+import { ApiError } from "@/lib/api";
 
 export interface DirectEmailMetadata {
   preset: EmailProviderPreset;
@@ -152,6 +157,30 @@ export async function sendDirectEmail(
 ): Promise<SendDirectEmailResult> {
   const dispatchedAt = new Date().toISOString();
 
+  // 1. Strict recipient email validation
+  if (!isValidEmailAddress(payload.to)) {
+    throw new ApiError(
+      400,
+      "INVALID_EMAIL_PAYLOAD",
+      `Recipient address "${payload.to}" is not a valid email address.`
+    );
+  }
+
+  // 2. Strict sanitization: strip markdown artifacts and reject unresolved placeholders
+  const baseSubject =
+    payload.isFollowUp && !payload.subject.toLowerCase().startsWith("re:")
+      ? `Re: ${payload.subject}`
+      : payload.subject;
+
+  const sanitized = sanitizeEmailContent(baseSubject, payload.body);
+  if (sanitized.issues.length > 0) {
+    throw new ApiError(
+      400,
+      "INVALID_EMAIL_PAYLOAD",
+      `Email content contains unresolved placeholders: ${sanitized.issues.join("; ")}`
+    );
+  }
+
   // Load user's DIRECT_EMAIL integration
   const integration = payload.useSystemDb
     ? await systemDb.userIntegration.findUnique({
@@ -167,6 +196,14 @@ export async function sendDirectEmail(
 
   // If Direct Email is configured, decrypt password and dispatch via live SMTP
   if (integration?.externalUsername && meta?.encryptedPassword && meta.smtpHost) {
+    if (!isValidEmailAddress(integration.externalUsername)) {
+      throw new ApiError(
+        400,
+        "INVALID_EMAIL_PAYLOAD",
+        `Sender email address "${integration.externalUsername}" is invalid.`
+      );
+    }
+
     try {
       const password = decryptSecret(meta.encryptedPassword);
       const transporter = nodemailer.createTransport({
@@ -181,16 +218,12 @@ export async function sendDirectEmail(
         socketTimeout: 15000,
       });
 
-      // Format subject with "Re: " prefix for follow-ups
-      const subject = payload.isFollowUp && !payload.subject.toLowerCase().startsWith("re:")
-        ? `Re: ${payload.subject}`
-        : payload.subject;
-
       const mailOptions: SendMailOptions = {
         from: integration.externalUsername,
         to: payload.to,
-        subject,
-        text: payload.body,
+        subject: sanitized.subject,
+        text: sanitized.body,
+        html: sanitized.html,
       };
 
       // Threading headers
@@ -254,7 +287,7 @@ export async function sendDirectEmail(
       const messageId = info.messageId || `smtp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
       console.log(
-        `[Direct SMTP] Sent email to ${payload.to} from ${integration.externalUsername} | Subject: "${subject}" | MessageId: ${messageId}`
+        `[Direct SMTP] Sent email to ${payload.to} from ${integration.externalUsername} | Subject: "${sanitized.subject}" | MessageId: ${messageId}`
       );
 
       return {
@@ -272,7 +305,7 @@ export async function sendDirectEmail(
   // Deterministic MOCK fallback when Direct Email is not configured
   const mockMessageId = `mock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@routine.local`;
   console.log(
-    `[Mock Email Dispatcher] Sent simulated email to ${payload.to} | Subject: "${payload.subject}" | MessageId: ${mockMessageId}`
+    `[Mock Email Dispatcher] Sent simulated email to ${payload.to} | Subject: "${sanitized.subject}" | MessageId: ${mockMessageId}`
   );
 
   return {

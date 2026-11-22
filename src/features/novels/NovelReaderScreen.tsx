@@ -3,7 +3,18 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BookOpen, CheckCircle2, ChevronLeft, ChevronRight, HelpCircle, Loader2, Sparkles, XCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  BookOpen,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  HelpCircle,
+  Loader2,
+  Lock,
+  Sparkles,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button, Card } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -32,12 +43,17 @@ export default function NovelReaderScreen({
   novel,
   initialSession,
   initialHalfChapter,
+  lockedActiveNovel,
 }: {
   novel: NovelHeaderInfo;
   initialSession: ReadingSessionInfo;
   initialHalfChapter: HalfChapter;
+  lockedActiveNovel?: { id: string; title: string } | null;
 }) {
   const router = useRouter();
+  const [lockedNovel, setLockedNovel] = useState<{ id: string; title: string } | null>(
+    lockedActiveNovel || null
+  );
   const [session, setSession] = useState<ReadingSessionInfo>(initialSession);
   const [halfChapter, setHalfChapter] = useState<HalfChapter>(initialHalfChapter);
   const [theme, setTheme] = useState<ReadingTheme>("sepia");
@@ -64,7 +80,14 @@ export default function NovelReaderScreen({
       setHalfChapter(res.halfChapter);
       setSession(res.session);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch {
+    } catch (err: unknown) {
+      if (err && typeof err === "object" && "details" in err) {
+        const details = (err as { details?: { activeNovelId?: string; activeNovelTitle?: string } }).details;
+        if (details?.activeNovelId && details?.activeNovelTitle) {
+          setLockedNovel({ id: details.activeNovelId, title: details.activeNovelTitle });
+          return;
+        }
+      }
       toast.error("Could not load chapter content. Please retry.");
     } finally {
       setLoadingChapter(false);
@@ -167,6 +190,35 @@ export default function NovelReaderScreen({
     lg: "text-lg leading-loose sm:text-xl sm:leading-loose",
     xl: "text-xl leading-loose sm:text-2xl sm:leading-loose",
   }[fontSize];
+
+  if (lockedNovel) {
+    return (
+      <div className="mx-auto max-w-lg px-4 py-20 text-center space-y-4">
+        <div className="mx-auto grid size-14 place-items-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+          <Lock size={28} />
+        </div>
+        <h2 className="text-xl font-bold text-fg">Active Novel In Progress</h2>
+        <p className="text-sm text-muted leading-relaxed">
+          You are currently reading <strong className="text-fg">&ldquo;{lockedNovel.title}&rdquo;</strong>. To encourage consistent completion, Routine Tracker locks into one active novel at a time. Complete your current novel to unlock other classics.
+        </p>
+        <div className="pt-3 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Button
+            onClick={() => router.push(`/novels/${lockedNovel.id}`)}
+            className="w-full sm:w-auto bg-brand text-brandfg hover:bg-brand/90 font-semibold shadow-xs text-xs px-4 h-9"
+          >
+            <BookOpen size={14} className="mr-1.5" /> Go to Active Novel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/novels")}
+            className="w-full sm:w-auto text-xs h-9"
+          >
+            Back to Catalog
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn("min-h-screen transition-colors duration-200 pb-20", theme === "dark" ? "bg-stone-950" : theme === "sepia" ? "bg-[#f4e8cf]" : "bg-stone-50")}>

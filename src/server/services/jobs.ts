@@ -665,6 +665,7 @@ export async function getJobEmailDraftForApp(
   return generateJobEmailDraft({
     stage: stageKey,
     candidateName,
+    candidateEmail: candidate.email || undefined,
     jobTitle: application.jobTitle,
     companyName: application.company.name,
     hrEmail: application.hrEmail,

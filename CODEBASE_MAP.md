@@ -46,11 +46,11 @@
 - **`lib/domain/ats-matcher.ts`**: `calculateAtsMatch`, `extractTaxonomySkills`, `matchesSkillToken`, `matchesGoLanguage`, `IT_SKILL_TAXONOMY`
 - **`lib/domain/jobs.ts`**: `matchesLocationFilter`, `inferExperienceLevelFromTitle`, `calculateNextStageTransition`, `shouldPromoteFollowUp`, `isValidHrEmail`, `extractAndValidateEmails`, `COMPANY_CATEGORIES`, `LOCATION_ELIGIBILITY_FILTERS`
 - **`lib/domain/live-jobs.ts`**: `isEngineeringRole`, `classifyJobLocation`, `scoreLiveJobPriority`, `compareLiveJobsPriority`, `formatRelativeJobTime`
-- **`lib/domain/email-config.ts`**: `getEmailProviderPreset`, `matchRecruiterReply`, `extractEmailAddress`, `EMAIL_PRESETS`
+- **`lib/domain/email-config.ts`**: `getEmailProviderPreset`, `matchRecruiterReply`, `extractEmailAddress`, `isValidEmailAddress`, `sanitizeEmailContent`, `EMAIL_PRESETS`
 - **`lib/domain/schedule.ts`**: `logKey`, `scheduledOn`, `isDone`, `progressOf`, `dayInfo`, `weekDays`
 - **`lib/domain/streaks.ts`**: `computeStreaks`, `recentConsistency`
 - **`lib/domain/types.ts`**: `inferPersonalDevType`, `computeEnabledModules`
-- **`lib/domain/novels.ts`**: `isValidNovelRedirectUrl`, `ALLOWED_NOVEL_HOSTS`
+- **`lib/domain/novels.ts`**: `isValidNovelRedirectUrl`, `canOpenNovel`, `ALLOWED_NOVEL_HOSTS`
 - **`lib/domain/ranking.ts`**: `rankRows`
 - **`lib/domain/analytics.ts`**: `computeInsights`
 - **`lib/domain/achievements.ts`**: `evaluateEligibleBadges`, `BADGE_DEFINITIONS`

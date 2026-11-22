@@ -8,7 +8,7 @@ import { shouldRejectStaleWrite } from "../src/lib/domain/sync.ts";
 import { matchTaskToHealthMetric } from "../src/lib/native-health.ts";
 import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
 import { evaluateEligibleBadges, BADGE_DEFINITIONS } from "../src/lib/domain/achievements.ts";
-import { isValidNovelRedirectUrl } from "../src/lib/domain/novels.ts";
+import { isValidNovelRedirectUrl, canOpenNovel } from "../src/lib/domain/novels.ts";
 import { buildSmartReminderPrompt } from "../src/server/ai/reminders.ts";
 import { buildFallbackCoachReview } from "../src/server/ai/coach.ts";
 import { computeTaskStreakAndCompletedDays } from "../src/server/ai/learning-context.ts";
@@ -42,6 +42,8 @@ import {
   getEmailProviderPreset,
   matchRecruiterReply,
   extractEmailAddress,
+  isValidEmailAddress,
+  sanitizeEmailContent,
 } from "../src/lib/domain/email-config.ts";
 import { generatePdfFromText } from "../src/lib/pdf-generator.ts";
 import { calculateAtsMatch, extractTaxonomySkills, matchesSkillToken, matchesGoLanguage } from "../src/lib/domain/ats-matcher.ts";
@@ -1831,5 +1833,111 @@ The traveler looked back one final time before turning toward the horizon.
       expect(chapters[0].content).toContain("To Mrs. Saville, England.");
       expect(chapters[1].title).toBe("Letter 2");
       expect(chapters[1].content).toContain("How slowly the time passes here");
+    });
+  });
+
+  describe("Email Quality Validation & Single-Active-Novel Lock Guards", () => {
+    it("isValidEmailAddress accepts valid corporate emails and rejects placeholders or malformed addresses", () => {
+      // Valid corporate recruiting emails
+      expect(isValidEmailAddress("careers@razorpay.com")).toBe(true);
+      expect(isValidEmailAddress("jobs@gitlab.com")).toBe(true);
+      expect(isValidEmailAddress("talent@hasura.io")).toBe(true);
+      expect(isValidEmailAddress("careers@nagarro.com")).toBe(true);
+      expect(isValidEmailAddress("recruit.tech@canonical.com")).toBe(true);
+
+      // Rejects invalid strings, spaces, double dots, missing parts
+      expect(isValidEmailAddress("")).toBe(false);
+      expect(isValidEmailAddress(null)).toBe(false);
+      expect(isValidEmailAddress(undefined)).toBe(false);
+      expect(isValidEmailAddress("notanemail")).toBe(false);
+      expect(isValidEmailAddress("user@")).toBe(false);
+      expect(isValidEmailAddress("@domain.com")).toBe(false);
+      expect(isValidEmailAddress("user@domain..com")).toBe(false);
+      expect(isValidEmailAddress("user name@domain.com")).toBe(false);
+      expect(isValidEmailAddress("user@domain.c")).toBe(false); // 1-letter TLD
+
+      // Rejects placeholder/test/disposable domains
+      expect(isValidEmailAddress("candidate@example.com")).toBe(false);
+      expect(isValidEmailAddress("test@test.com")).toBe(false);
+      expect(isValidEmailAddress("user@localhost")).toBe(false);
+      expect(isValidEmailAddress("hr@yourcompany.com")).toBe(false);
+      expect(isValidEmailAddress("fake@mailinator.com")).toBe(false);
+    });
+
+    it("sanitizeEmailContent strips markdown formatting, flags template placeholders, and formats clean HTML", () => {
+      const subject = "**Application**: Software Engineer - `Arslan`";
+      const bodyWithPlaceholders = `
+Hi [Company Name] Team,
+
+I am writing to apply for the [Target Company] role. My background in **Java 17** and *React* makes me a great fit.
+You can view my portfolio at [Portfolio](https://example.com).
+
+Please reach out to me at [Phone Number] or [Your Name].
+
+Best regards,
+[Your Name]
+      `;
+
+      const result = sanitizeEmailContent(subject, bodyWithPlaceholders);
+
+      // Subject has markdown stripped
+      expect(result.subject).toBe("Application: Software Engineer - Arslan");
+
+      // Body has markdown stripped
+      expect(result.body).not.toContain("**Java 17**");
+      expect(result.body).toContain("Java 17");
+      expect(result.body).not.toContain("*React*");
+      expect(result.body).toContain("React");
+      expect(result.body).toContain("Portfolio (https://example.com)");
+
+      // Flags template placeholders
+      expect(result.issues.length).toBeGreaterThan(0);
+      expect(result.issues[0]).toContain("Unresolved template placeholders detected");
+      expect(result.issues[0]).toContain("[Company Name]");
+      expect(result.issues[0]).toContain("[Phone Number]");
+      expect(result.issues[0]).toContain("[Your Name]");
+
+      // Generates responsive HTML with <p> tags
+      expect(result.html).toContain("<p style=");
+      expect(result.html).toContain("<!DOCTYPE html>");
+      expect(result.html).toContain("Java 17");
+    });
+
+    it("sanitizeEmailContent produces zero issues for complete, real email content", () => {
+      const cleanSubject = "Application: Software Development Engineer II - Arslan";
+      const cleanBody = `Hi Razorpay Hiring Team,
+
+I am writing to apply for the Software Development Engineer II position at Razorpay. With production experience scaling PostgreSQL and Node.js microservices, I bring strong technical ownership.
+
+I have attached my resume for your review. Would you be open to a brief call this week?
+
+Best regards,
+Mohd Arslan
+alamxarslan@gmail.com`;
+
+      const result = sanitizeEmailContent(cleanSubject, cleanBody);
+      expect(result.subject).toBe(cleanSubject);
+      expect(result.issues).toHaveLength(0);
+      expect(result.html).toContain("Hi Razorpay Hiring Team,");
+      expect(result.html).toContain("alamxarslan@gmail.com");
+    });
+
+    it("canOpenNovel enforces single active novel lock semantics", () => {
+      const activeFrankenstein = { novelId: "novel-frankenstein", status: "READING" };
+      const completedFrankenstein = { novelId: "novel-frankenstein", status: "COMPLETED" };
+
+      // Case 1: No active session -> can open any novel
+      expect(canOpenNovel(null, "novel-frankenstein")).toBe(true);
+      expect(canOpenNovel(null, "novel-dracula")).toBe(true);
+
+      // Case 2: Reading Frankenstein -> can open Frankenstein, CANNOT open Dracula
+      expect(canOpenNovel(activeFrankenstein, "novel-frankenstein")).toBe(true);
+      expect(canOpenNovel(activeFrankenstein, "novel-dracula")).toBe(false);
+      expect(canOpenNovel(activeFrankenstein, "novel-gatsby")).toBe(false);
+
+      // Case 3: Frankenstein completed -> can open any novel
+      expect(canOpenNovel(completedFrankenstein, "novel-frankenstein")).toBe(true);
+      expect(canOpenNovel(completedFrankenstein, "novel-dracula")).toBe(true);
+      expect(canOpenNovel(completedFrankenstein, "novel-gatsby")).toBe(true);
     });
   });

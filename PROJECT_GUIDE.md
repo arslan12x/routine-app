@@ -860,3 +860,15 @@ Phase 8 unifies all specialized learning and career modules (`/jobs`, `/novels`,
 - **Blog Writing Gate:**
   - Generating a day's blog content (`POST /api/blogs/[planId]/generate-day/[dayNumber]`) automatically calls `syncFeatureTaskCompletion` for `BLOG_WRITING`.
 
+### 4. Email Audit & Quality Engine and Strict Single-Active-Novel Lock
+- **Direct SMTP/IMAP Outbound Email Sanitization & Verification (`src/lib/domain/email-config.ts`, `src/server/services/email-transport.ts`):**
+  - **RFC-Compliant Email Validation (`isValidEmailAddress`):** Validates email structure, rejects malformed strings, spaces, consecutive dots, and blocks placeholder/dummy domains (`example.com`, `test.com`, `localhost`, `yourcompany.com`, `mailinator.com`).
+  - **Template Placeholder & Markdown Stripping (`sanitizeEmailContent`):** Recursively strips raw markdown symbols (`**`, `*`, `__`, `_`, `` ` ``, markdown links) and catches unresolved AI bracket placeholders (`[Your Name]`, `[Candidate Name]`, `<insert...>`, `[Company Name]`). If detected, throws an explicit `INVALID_EMAIL_PAYLOAD` ApiError before dispatch.
+  - **Clean Responsive HTML Output:** Formats clean, inline-styled `<p>` tags with system typography for Nodemailer's `html` payload alongside clean plain text.
+  - **Verified Inbound Recruiting Addresses:** Replaced bounced addresses (e.g., `careers@nagarro.com` for Nagarro; `jobs@gitlab.com` for GitLab). Open aggregators without verified corporate domains leave `hrEmail: ""` to ensure candidates apply on portal rather than sending bounced emails.
+- **Strict Single-Active-Novel Lock (`src/lib/domain/novels.ts`, `src/server/services/novels.ts`, `/novels`):**
+  - **Server-Side Lock Guard (`canOpenNovel`, HTTP 409 `ACTIVE_NOVEL_LOCKED`):** When a user has a novel session in `"READING"` status, all other novels in the catalog are locked. Initiating or reading another novel is rejected server-side with HTTP 409.
+  - **UI Catalog Locking:** `/novels` renders a prominent "Currently Reading" banner with "Continue Reading" button. All other catalog cards display a locked badge `🔒 Finish "<Active Novel Title>" to unlock` with disabled action buttons.
+  - **Direct URL Reader Protection:** Direct URL navigation to `/novels/[id]` for a locked book renders a dedicated lock screen preventing access and providing a quick link back to the active novel.
+
+

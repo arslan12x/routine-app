@@ -56,6 +56,7 @@ import {
 } from "@/lib/domain/jobs";
 import {
   getEmailProviderPreset,
+  isValidEmailAddress,
   type EmailProviderPreset,
 } from "@/lib/domain/email-config";
 import { formatRelativeJobTime, compareLiveJobsPriority } from "@/lib/domain/live-jobs";
@@ -1641,7 +1642,11 @@ export default function JobsScreen() {
                   {!isReplied && !isClosed && (
                     <div className="w-full pt-0.5">
                       {isToApply ? (
-                        <div className={`grid gap-1.5 sm:gap-2 w-full ${app.jobUrl ? "grid-cols-2" : "grid-cols-1"}`}>
+                        <div
+                          className={`grid gap-1.5 sm:gap-2 w-full ${
+                            app.jobUrl && isValidEmailAddress(app.hrEmail) ? "grid-cols-2" : "grid-cols-1"
+                          }`}
+                        >
                           {app.jobUrl && (
                             <a
                               href={app.jobUrl}
@@ -1653,25 +1658,31 @@ export default function JobsScreen() {
                               <span className="truncate">Apply on Portal</span>
                             </a>
                           )}
-                          <Button
-                            onClick={() => {
-                              if (!resume) {
-                                setShowResumeModal(true);
-                                toast.info("Please upload your resume to pitch via email.");
-                                return;
-                              }
-                              if (!candidateEmail) {
-                                setShowEmailModal(true);
-                                toast.info("Please configure your sender email to pitch via email.");
-                                return;
-                              }
-                              handleOpenEmailDrawer(app);
-                            }}
-                            className="inline-flex items-center justify-center gap-1 sm:gap-1.5 h-8.5 text-[11px] sm:text-xs px-1.5 sm:px-2 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs whitespace-nowrap w-full min-w-0"
-                          >
-                            <Mail size={12} className="shrink-0" />
-                            <span className="truncate">Email HR / Pitch</span>
-                          </Button>
+                          {isValidEmailAddress(app.hrEmail) ? (
+                            <Button
+                              onClick={() => {
+                                if (!resume) {
+                                  setShowResumeModal(true);
+                                  toast.info("Please upload your resume to pitch via email.");
+                                  return;
+                                }
+                                if (!candidateEmail) {
+                                  setShowEmailModal(true);
+                                  toast.info("Please configure your sender email to pitch via email.");
+                                  return;
+                                }
+                                handleOpenEmailDrawer(app);
+                              }}
+                              className="inline-flex items-center justify-center gap-1 sm:gap-1.5 h-8.5 text-[11px] sm:text-xs px-1.5 sm:px-2 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs whitespace-nowrap w-full min-w-0"
+                            >
+                              <Mail size={12} className="shrink-0" />
+                              <span className="truncate">Email HR / Pitch</span>
+                            </Button>
+                          ) : !app.jobUrl ? (
+                            <div className="w-full flex items-center justify-center h-8.5 text-[11px] text-muted italic">
+                              Direct pitch unavailable
+                            </div>
+                          ) : null}
                         </div>
                       ) : isLocked ? (
                         <div className="w-full flex items-center justify-center gap-1.5 h-8.5 rounded-lg bg-soft/80 border border-border/80 text-muted text-[11px] sm:text-xs font-semibold select-none shadow-xs">

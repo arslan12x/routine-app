@@ -480,7 +480,7 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
   {
     name: "Nagarro",
     category: "MID_MNC",
-    hrEmail: "hiring@nagarro.com",
+    hrEmail: "careers@nagarro.com",
     websiteUrl: "https://nagarro.com/careers",
     location: "Gurugram / Jaipur / Bengaluru, India",
     description: "Digital engineering leader specialized in fluid enterprise solutions with broad presence and remote flexibility across India.",
@@ -575,7 +575,7 @@ export const CURATED_COMPANIES: CompanySeedData[] = [
   {
     name: "GitLab",
     category: "FOREIGN",
-    hrEmail: "all-remote-talent@gitlab.com",
+    hrEmail: "jobs@gitlab.com",
     websiteUrl: "https://about.gitlab.com/jobs",
     location: "100% Remote Worldwide (Hires from India)",
     description: "All-remote DevSecOps platform hiring Indian engineers as full-time contractors/employees.",

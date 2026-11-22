@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/api";
-import { systemDb } from "@/lib/db";
+import { systemDb, withUserDb } from "@/lib/db";
 import { isValidNovelRedirectUrl } from "@/lib/domain/novels";
 
 export interface NovelView {
@@ -13,6 +13,20 @@ export interface NovelView {
   description: string | null;
   language: string;
   sessionStatus: "READING" | "COMPLETED" | null;
+}
+
+export interface ActiveNovelInfo {
+  id: string;
+  title: string;
+  author: string | null;
+  coverUrl: string | null;
+  currentChapter: number;
+  currentHalf: number;
+}
+
+export interface ListNovelsResult {
+  novels: NovelView[];
+  activeNovel: ActiveNovelInfo | null;
 }
 
 const CURATED_NOVELS = [
@@ -221,7 +235,11 @@ export async function fetchFromGutendex(genre?: string, search?: string): Promis
   }
 }
 
-export async function listNovels(userId?: string, genre?: string, search?: string): Promise<NovelView[]> {
+export async function listNovels(
+  userId?: string,
+  genre?: string,
+  search?: string
+): Promise<ListNovelsResult> {
   await ensureSeedCatalog();
 
   // If search or specific genre given, attempt live Gutendex fetch to enrich results
@@ -252,19 +270,32 @@ export async function listNovels(userId?: string, genre?: string, search?: strin
       take: 40,
     }),
     userId
-      ? systemDb.userReadingSession.findMany({
-          where: { userId },
-          select: { novelId: true, status: true },
-        })
+      ? withUserDb(userId, (tx) =>
+          tx.userReadingSession.findMany({
+            where: { userId },
+            include: { novel: true },
+          })
+        )
       : Promise.resolve([]),
   ]);
 
+  let activeNovel: ActiveNovelInfo | null = null;
   const sessionMap = new Map<string, "READING" | "COMPLETED">();
   for (const s of sessions) {
     sessionMap.set(s.novelId, s.status as "READING" | "COMPLETED");
+    if (s.status === "READING" && !activeNovel) {
+      activeNovel = {
+        id: s.novelId,
+        title: s.novel.title,
+        author: s.novel.author,
+        coverUrl: s.novel.coverUrl,
+        currentChapter: s.currentChapter,
+        currentHalf: s.currentHalf,
+      };
+    }
   }
 
-  return novels.map((n) => ({
+  const novelViews = novels.map((n) => ({
     id: n.id,
     externalId: n.externalId,
     title: n.title,
@@ -276,6 +307,8 @@ export async function listNovels(userId?: string, genre?: string, search?: strin
     language: n.language,
     sessionStatus: sessionMap.get(n.id) ?? null,
   }));
+
+  return { novels: novelViews, activeNovel };
 }
 
 export async function updateReadingSession(userId: string, novelId: string, status: "READING" | "COMPLETED") {
@@ -291,28 +324,57 @@ export async function updateReadingSession(userId: string, novelId: string, stat
     throw new ApiError(400, "INVALID_URL", "This novel's reading URL failed security domain validation.");
   }
 
+  // Strict Single-Active-Novel Lock:
+  // If attempting to mark or start as READING, verify no other novel is currently active
+  if (status === "READING") {
+    const activeOther = await withUserDb(userId, (tx) =>
+      tx.userReadingSession.findFirst({
+        where: {
+          userId,
+          status: "READING",
+          novelId: { not: novelId },
+        },
+        include: { novel: { select: { id: true, title: true } } },
+      })
+    );
+
+    if (activeOther) {
+      throw new ApiError(
+        409,
+        "ACTIVE_NOVEL_LOCKED",
+        `You are currently reading "${activeOther.novel.title}". You cannot start another novel until you finish it.`,
+        {
+          activeNovelId: activeOther.novel.id,
+          activeNovelTitle: activeOther.novel.title,
+        }
+      );
+    }
+  }
+
   const now = new Date();
-  const session = await systemDb.userReadingSession.upsert({
-    where: {
-      userId_novelId: {
+  const session = await withUserDb(userId, (tx) =>
+    tx.userReadingSession.upsert({
+      where: {
+        userId_novelId: {
+          userId,
+          novelId,
+        },
+      },
+      create: {
         userId,
         novelId,
+        status,
+        startedAt: now,
+        lastReadAt: now,
+        completedAt: status === "COMPLETED" ? now : null,
       },
-    },
-    create: {
-      userId,
-      novelId,
-      status,
-      startedAt: now,
-      lastReadAt: now,
-      completedAt: status === "COMPLETED" ? now : null,
-    },
-    update: {
-      status,
-      lastReadAt: now,
-      completedAt: status === "COMPLETED" ? now : null,
-    },
-  });
+      update: {
+        status,
+        lastReadAt: now,
+        completedAt: status === "COMPLETED" ? now : null,
+      },
+    })
+  );
 
   return {
     session: {

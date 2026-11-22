@@ -36,3 +36,19 @@ export function isValidNovelRedirectUrl(url: string): boolean {
     return false;
   }
 }
+
+/**
+ * Pure domain check: A user can open or read a novel if:
+ * 1. They have no active session (or none currently in READING status), OR
+ * 2. Their active READING session is for this exact novel.
+ *
+ * If they have an active session for a DIFFERENT novel in READING status, opening is blocked.
+ */
+export function canOpenNovel(
+  activeSession: { novelId: string; status: string } | null,
+  targetNovelId: string
+): boolean {
+  if (!activeSession) return true;
+  if (activeSession.status !== "READING") return true;
+  return activeSession.novelId === targetNovelId;
+}

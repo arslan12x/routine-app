@@ -2,6 +2,7 @@ import { google } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { CandidateExperienceLevel } from "@/lib/domain/jobs";
+import { sanitizeEmailContent } from "@/lib/domain/email-config";
 
 if (typeof process !== "undefined" && process.env) {
   process.env.AI_SDK_LOG_WARNINGS = "false";
@@ -10,6 +11,10 @@ if (typeof process !== "undefined" && process.env) {
 export interface EmailDraftInput {
   stage: "APPLY" | "FOLLOW_UP_1" | "FOLLOW_UP_2" | "FOLLOW_UP_3";
   candidateName: string;
+  candidateEmail?: string;
+  candidatePhone?: string;
+  candidateLinkedIn?: string;
+  candidateGitHub?: string;
   jobTitle: string;
   companyName: string;
   hrEmail: string;
@@ -32,6 +37,8 @@ export function buildFallbackEmail(input: EmailDraftInput): EmailDraft {
   const {
     stage,
     candidateName,
+    candidateEmail,
+    candidatePhone,
     jobTitle,
     companyName,
     skills,
@@ -41,7 +48,10 @@ export function buildFallbackEmail(input: EmailDraftInput): EmailDraft {
     offersRelocation,
     companyCategory,
   } = input;
-  const topSkills = skills && skills.length > 0 ? skills.slice(0, 4).join(", ") : "modern full-stack engineering, scalable architecture, and TypeScript";
+  const topSkills =
+    skills && skills.length > 0
+      ? skills.slice(0, 4).join(", ")
+      : "modern full-stack engineering, scalable architecture, and TypeScript";
   const isFresher = experienceLevel === "FRESHER";
 
   let locationNudge = "";
@@ -53,94 +63,100 @@ export function buildFallbackEmail(input: EmailDraftInput): EmailDraft {
     locationNudge = ` I would love to collaborate closely with your engineering teams in India to accelerate product deliverables.`;
   }
 
+  const signOff = [
+    "Best regards,",
+    candidateName,
+    candidateEmail,
+    candidatePhone,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let rawSubject = "";
+  let rawBody = "";
+
   switch (stage) {
     case "APPLY":
-      return {
-        stage,
-        subject: `Application: ${jobTitle} - ${candidateName}`,
-        body: isFresher
-          ? [
-              `Hi Hiring Team at ${companyName},`,
-              "",
-              `I am writing to express my enthusiastic interest in the ${jobTitle} position at ${companyName}. As an aspiring software engineer with solid foundations in ${topSkills}, I have built performant, resilient applications and am eager to bring fresh energy and fast adaptability to your team.${locationNudge}`,
-              "",
-              `Given ${companyName}'s trajectory and engineering standards, I would love to contribute my problem-solving ability, dedication, and technical curiosity to your product roadmap.`,
-              "",
-              `I have attached my resume for your review. Would you be open to a brief 15-minute conversation this week to discuss how my background aligns with your team's goals?`,
-              "",
-              `Best regards,`,
-              `${candidateName}`,
-            ].join("\n")
-          : [
-              `Hi Hiring Team at ${companyName},`,
-              "",
-              `I am writing to express my strong interest in the ${jobTitle} position at ${companyName}. With deep hands-on expertise in ${topSkills}, I have consistently built resilient, high-performance systems that drive measurable business impact.${locationNudge}`,
-              "",
-              `Given ${companyName}'s trajectory and engineering standards, I am eager to contribute my problem-solving ability and technical rigor to your product roadmap.`,
-              "",
-              `I have attached my resume for your review. Would you be open to a brief 15-minute conversation this week to discuss how my background aligns with your team's goals?`,
-              "",
-              `Best regards,`,
-              `${candidateName}`,
-            ].join("\n"),
-      };
+      rawSubject = `Application: ${jobTitle} - ${candidateName}`;
+      rawBody = isFresher
+        ? [
+            `Hi ${companyName} Hiring Team,`,
+            "",
+            `I am writing to express my enthusiastic interest in the ${jobTitle} position at ${companyName}. As an aspiring software engineer with solid foundations in ${topSkills}, I have built performant, resilient applications and am eager to bring fresh energy and fast adaptability to your team.${locationNudge}`,
+            "",
+            `Given ${companyName}'s trajectory and engineering standards, I would love to contribute my problem-solving ability, dedication, and technical curiosity to your product roadmap.`,
+            "",
+            `I have attached my resume for your review. Would you be open to a brief 15-minute conversation this week to discuss how my background aligns with your team's goals?`,
+            "",
+            signOff,
+          ].join("\n")
+        : [
+            `Hi ${companyName} Hiring Team,`,
+            "",
+            `I am writing to express my strong interest in the ${jobTitle} position at ${companyName}. With deep hands-on expertise in ${topSkills}, I have consistently built resilient, high-performance systems that drive measurable business impact.${locationNudge}`,
+            "",
+            `Given ${companyName}'s trajectory and engineering standards, I am eager to contribute my problem-solving ability and technical rigor to your product roadmap.`,
+            "",
+            `I have attached my resume for your review. Would you be open to a brief 15-minute conversation this week to discuss how my background aligns with your team's goals?`,
+            "",
+            signOff,
+          ].join("\n");
+      break;
 
     case "FOLLOW_UP_1":
-      return {
-        stage,
-        subject: `Following up: ${jobTitle} role - ${candidateName}`,
-        body: [
-          `Hi Hiring Team at ${companyName},`,
-          "",
-          `I wanted to quickly follow up on my application submitted earlier this week for the ${jobTitle} role.`,
-          "",
-          `I understand you receive many qualified candidates and are actively balancing multiple priorities. I remain very enthusiastic about the work being done at ${companyName} and would love to connect whenever your schedule permits.`,
-          "",
-          `Thank you for your time and consideration!`,
-          "",
-          `Best regards,`,
-          `${candidateName}`,
-        ].join("\n"),
-      };
+      rawSubject = `Following up: ${jobTitle} role - ${candidateName}`;
+      rawBody = [
+        `Hi ${companyName} Hiring Team,`,
+        "",
+        `I wanted to quickly follow up on my application submitted earlier this week for the ${jobTitle} role.`,
+        "",
+        `I understand you receive many qualified candidates and are actively balancing multiple priorities. I remain very enthusiastic about the work being done at ${companyName} and would love to connect whenever your schedule permits.`,
+        "",
+        `Thank you for your time and consideration!`,
+        "",
+        signOff,
+      ].join("\n");
+      break;
 
     case "FOLLOW_UP_2":
-      return {
-        stage,
-        subject: `Re: ${jobTitle} at ${companyName} - Additional context & project insights`,
-        body: [
-          `Hi Hiring Team at ${companyName},`,
-          "",
-          `I hope you are having a productive week.`,
-          "",
-          `While following ${companyName}'s recent developments, I was reflecting on common technical hurdles in scaling ${jobTitle} workflows—specifically around database optimization, offline state synchronization, and reliable background jobs.`,
-          "",
-          `In my recent work, I spearheaded improvements using ${topSkills} that reduced query latency by 40% and fortified resilient user workflows. I would love to bring this same proactive ownership to your engineering team.`,
-          "",
-          `Please let me know if there are any additional materials or project links I can share to assist in your review.`,
-          "",
-          `Warm regards,`,
-          `${candidateName}`,
-        ].join("\n"),
-      };
+      rawSubject = `Re: ${jobTitle} at ${companyName} - Additional context & project insights`;
+      rawBody = [
+        `Hi ${companyName} Hiring Team,`,
+        "",
+        `I hope you are having a productive week.`,
+        "",
+        `While following ${companyName}'s recent developments, I was reflecting on common technical hurdles in scaling ${jobTitle} workflows—specifically around database optimization, offline state synchronization, and reliable background jobs.`,
+        "",
+        `In my recent work, I spearheaded improvements using ${topSkills} that reduced query latency by 40% and fortified resilient user workflows. I would love to bring this same proactive ownership to your engineering team.`,
+        "",
+        `Please let me know if there are any additional materials or project links I can share to assist in your review.`,
+        "",
+        signOff,
+      ].join("\n");
+      break;
 
     case "FOLLOW_UP_3":
-      return {
-        stage,
-        subject: `Final follow-up regarding ${jobTitle} position - ${candidateName}`,
-        body: [
-          `Hi Hiring Team at ${companyName},`,
-          "",
-          `I wanted to reach out with one final check-in regarding the ${jobTitle} opportunity at ${companyName}.`,
-          "",
-          `I recognize that hiring plans and bandwidth shift dynamically. If the position has already been filled or priorities have pivoted, no worries at all.`,
-          "",
-          `Thank you sincerely for considering my background. I wish ${companyName} continued growth and success, and I would love to stay in touch for future opportunities down the road.`,
-          "",
-          `Warm regards,`,
-          `${candidateName}`,
-        ].join("\n"),
-      };
+      rawSubject = `Final follow-up regarding ${jobTitle} position - ${candidateName}`;
+      rawBody = [
+        `Hi ${companyName} Hiring Team,`,
+        "",
+        `I wanted to reach out with one final check-in regarding the ${jobTitle} opportunity at ${companyName}.`,
+        "",
+        `I recognize that hiring plans and bandwidth shift dynamically. If the position has already been filled or priorities have pivoted, no worries at all.`,
+        "",
+        `Thank you sincerely for considering my background. I wish ${companyName} continued growth and success, and I would love to stay in touch for future opportunities down the road.`,
+        "",
+        signOff,
+      ].join("\n");
+      break;
   }
+
+  const sanitized = sanitizeEmailContent(rawSubject, rawBody);
+  return {
+    stage,
+    subject: sanitized.subject,
+    body: sanitized.body,
+  };
 }
 
 export async function generateJobEmailDraft(input: EmailDraftInput): Promise<EmailDraft> {
@@ -204,9 +220,14 @@ STRICT RULES:
 - Only reference technologies and skills present in the candidate profile; never invent or assume other technical skills.
 - Highlight the candidate's verified skills: ${topSkills}.
 - Never use cheesy buzzwords or clichés.
+- ANTI-PLACEHOLDER MANDATE: NEVER output template placeholders in brackets such as [Your Name], [Company Name], [Phone Number], [Hiring Manager], [Link], [Insert Metric], or <insert ...>. Always write complete, polished text.
+- NO MARKDOWN: Do not use Markdown formatting (no asterisks **, no markdown headers #, no backticks). Write clean, human-readable email paragraphs.
 - Subject must be direct, relevant, and professional.
 - Body must be formatted with clean line breaks.
-- Sign off with candidate name "${candidateName}".`;
+- Salutation: "Hi ${companyName} Hiring Team,"
+- Sign off cleanly:
+Best regards,
+${candidateName}${input.candidateEmail ? `\n${input.candidateEmail}` : ""}${input.candidatePhone ? `\n${input.candidatePhone}` : ""}`;
 
     const result = await generateText({
       model: google("gemini-3.5-flash-lite"),
@@ -220,10 +241,16 @@ STRICT RULES:
     });
 
     if (result.output?.subject && result.output?.body) {
+      const sanitized = sanitizeEmailContent(result.output.subject, result.output.body);
+      // If unresolved template placeholders were leaked by AI, discard and use clean fallback
+      if (sanitized.issues.length > 0) {
+        console.warn("[Job Email Drafter] AI generated placeholders; falling back to clean template", sanitized.issues);
+        return buildFallbackEmail(input);
+      }
       return {
         stage,
-        subject: result.output.subject.trim(),
-        body: result.output.body.trim(),
+        subject: sanitized.subject,
+        body: sanitized.body,
       };
     }
   } catch (err) {

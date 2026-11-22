@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth/session";
-import { systemDb } from "@/lib/db";
+import { systemDb, withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import { getHalfChapterForNovel } from "@/server/services/novel-reader";
 import { todayIn } from "@/lib/domain/dates";
@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 function errorResponse(error: unknown) {
   if (error instanceof ApiError) {
     return Response.json(
-      { error: { code: error.code, message: error.message } },
+      { error: { code: error.code, message: error.message, fields: error.fields } },
       { status: error.status, headers: { "Cache-Control": "private, no-store" } }
     );
   }
@@ -34,6 +34,30 @@ export async function GET(
     });
     if (!novel) {
       throw new ApiError(404, "NOT_FOUND", "Novel not found");
+    }
+
+    // Strict Single-Active-Novel Lock Guard
+    const activeOther = await withUserDb(user.id, (tx) =>
+      tx.userReadingSession.findFirst({
+        where: {
+          userId: user.id,
+          status: "READING",
+          novelId: { not: id },
+        },
+        include: { novel: { select: { id: true, title: true } } },
+      })
+    );
+
+    if (activeOther) {
+      throw new ApiError(
+        409,
+        "ACTIVE_NOVEL_LOCKED",
+        `You already have an active novel in progress: "${activeOther.novel.title}". Complete it to unlock other novels.`,
+        {
+          activeNovelId: activeOther.novel.id,
+          activeNovelTitle: activeOther.novel.title,
+        }
+      );
     }
 
     let session = await systemDb.userReadingSession.findUnique({

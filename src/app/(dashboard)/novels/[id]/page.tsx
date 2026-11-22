@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { pageUser } from "@/lib/auth/session";
-import { systemDb } from "@/lib/db";
+import { systemDb, withUserDb } from "@/lib/db";
 import { todayIn } from "@/lib/domain/dates";
 import { getHalfChapterForNovel } from "@/server/services/novel-reader";
 import NovelReaderScreen from "@/features/novels/NovelReaderScreen";
@@ -19,6 +19,49 @@ export default async function NovelReaderPage({
 
   if (!novel) {
     notFound();
+  }
+
+  // Strict Single-Active-Novel Lock Guard
+  const activeOther = await withUserDb(user.id, (tx) =>
+    tx.userReadingSession.findFirst({
+      where: {
+        userId: user.id,
+        status: "READING",
+        novelId: { not: id },
+      },
+      include: { novel: { select: { id: true, title: true } } },
+    })
+  );
+
+  if (activeOther) {
+    return (
+      <NovelReaderScreen
+        novel={{
+          id: novel.id,
+          title: novel.title,
+          author: novel.author,
+          genre: novel.genre,
+          coverUrl: novel.coverUrl,
+        }}
+        initialSession={{
+          currentChapter: 1,
+          currentHalf: 1,
+          lastQuizPassedDate: null,
+          passedToday: false,
+        }}
+        initialHalfChapter={{
+          chapterNumber: 1,
+          totalChapters: 1,
+          half: 1,
+          title: "Novel Locked",
+          content: "",
+        }}
+        lockedActiveNovel={{
+          id: activeOther.novel.id,
+          title: activeOther.novel.title,
+        }}
+      />
+    );
   }
 
   let session = await systemDb.userReadingSession.findUnique({

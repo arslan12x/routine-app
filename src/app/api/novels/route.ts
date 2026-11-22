@@ -18,6 +18,6 @@ export const GET = route(async (req) => {
   }
 
   const query = parseQuery(req, novelsQuerySchema);
-  const novels = await listNovels(userId, query.genre, query.search);
-  return { novels };
+  const { novels, activeNovel } = await listNovels(userId, query.genre, query.search);
+  return { novels, activeNovel };
 });

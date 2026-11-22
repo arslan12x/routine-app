@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { BookOpen, Check, ExternalLink, Library, Search, Sparkles } from "lucide-react";
+import { BookOpen, Check, ExternalLink, Library, Lock, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Card, Empty, Skeleton, inputCls } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/fetcher";
 import { NOVEL_GENRES, type NovelGenre } from "@/lib/domain/novels";
-import type { NovelView } from "@/server/services/novels";
+import type { ActiveNovelInfo, NovelView } from "@/server/services/novels";
 
 interface ReadingSessionItem {
   id: string;
@@ -29,12 +29,17 @@ interface ReadingSessionItem {
 
 export default function NovelsScreen({
   initialNovels,
+  initialActiveNovel,
   initialSessions,
 }: {
   initialNovels: NovelView[];
+  initialActiveNovel?: ActiveNovelInfo | null;
   initialSessions: ReadingSessionItem[];
 }) {
   const [novels, setNovels] = useState<NovelView[]>(initialNovels);
+  const [activeNovel, setActiveNovel] = useState<ActiveNovelInfo | null>(
+    initialActiveNovel || null
+  );
   const [sessions, setSessions] = useState<ReadingSessionItem[]>(initialSessions);
   const [selectedGenre, setSelectedGenre] = useState<NovelGenre>("All");
   const [searchQuery, setSearchQuery] = useState("");
@@ -50,10 +55,11 @@ export default function NovelsScreen({
       if (selectedGenre !== "All") params.set("genre", selectedGenre);
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
 
-      api<{ novels: NovelView[] }>(`/api/novels?${params.toString()}`)
+      api<{ novels: NovelView[]; activeNovel: ActiveNovelInfo | null }>(`/api/novels?${params.toString()}`)
         .then((res) => {
           if (active) {
             setNovels(res.novels);
+            setActiveNovel(res.activeNovel);
             setLoading(false);
           }
         })
@@ -74,7 +80,10 @@ export default function NovelsScreen({
   const router = useRouter();
 
   async function handleReadFreeNow(novel: NovelView) {
-    // Navigate directly to in-app reader
+    if (activeNovel && activeNovel.id !== novel.id) {
+      toast.error(`You are currently reading "${activeNovel.title}". Complete it first to unlock other novels.`);
+      return;
+    }
     router.push(`/novels/${novel.id}`);
   }
 
@@ -85,14 +94,17 @@ export default function NovelsScreen({
         method: "POST",
         body: JSON.stringify({ status: targetStatus }),
       });
-      setNovels((prev) =>
-        prev.map((n) => (n.id === novelId ? { ...n, sessionStatus: targetStatus } : n)),
-      );
-      const res = await api<{ sessions: ReadingSessionItem[] }>("/api/novels/sessions");
-      setSessions(res.sessions);
+      const [novelsRes, sessionsRes] = await Promise.all([
+        api<{ novels: NovelView[]; activeNovel: ActiveNovelInfo | null }>("/api/novels"),
+        api<{ sessions: ReadingSessionItem[] }>("/api/novels/sessions"),
+      ]);
+      setNovels(novelsRes.novels);
+      setActiveNovel(novelsRes.activeNovel);
+      setSessions(sessionsRes.sessions);
       toast.success(targetStatus === "COMPLETED" ? "Marked as completed!" : "Marked as reading!");
-    } catch {
-      toast.error("Could not update reading status.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Could not update reading status.";
+      toast.error(msg);
     } finally {
       setUpdatingId(null);
     }
@@ -110,6 +122,41 @@ export default function NovelsScreen({
           Browse, read, and track free public-domain classics hosted on Project Gutenberg and verified archives.
         </p>
       </div>
+
+      {/* Prominent Active Novel Lock Banner */}
+      {activeNovel && (
+        <Card className="mt-6 p-4 sm:p-5 border-brand/40 bg-gradient-to-r from-brand/10 via-brand/5 to-transparent shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="rounded-xl bg-brand/20 p-2.5 text-brand shrink-0">
+                <BookOpen size={24} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-brand bg-brand/10 px-2 py-0.5 rounded-full">
+                    Currently Reading
+                  </span>
+                  <span className="text-xs text-muted flex items-center gap-1 font-medium">
+                    <Lock size={12} className="text-amber-500" /> Single-Active Book Locked
+                  </span>
+                </div>
+                <h2 className="text-base sm:text-lg font-bold text-fg truncate mt-1">
+                  {activeNovel.title}
+                </h2>
+                <p className="text-xs text-muted truncate">
+                  {activeNovel.author || "Classic Novel"} · Chapter {activeNovel.currentChapter} (Part {activeNovel.currentHalf} of 2)
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={() => router.push(`/novels/${activeNovel.id}`)}
+              className="shrink-0 bg-brand text-brandfg hover:bg-brand/90 font-semibold shadow-xs text-xs px-4 h-9"
+            >
+              <BookOpen size={14} className="mr-1.5" /> Continue Reading
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {sessions.length > 0 && (
         <section className="mt-6">
@@ -216,98 +263,132 @@ export default function NovelsScreen({
         </div>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {novels.map((novel) => (
-            <Card
-              key={novel.id}
-              className="flex flex-col justify-between overflow-hidden p-4 transition-all hover:border-brand/40 hover:shadow-md"
-            >
-              <div>
-                <div className="relative mb-3 aspect-[2/3] w-full overflow-hidden rounded-xl bg-soft shadow-inner">
-                  {novel.coverUrl && !failedCovers[novel.id] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={novel.coverUrl}
-                      alt={novel.title}
-                      onError={() => setFailedCovers((prev) => ({ ...prev, [novel.id]: true }))}
-                      className="h-full w-full object-cover transition duration-300 hover:scale-105"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-soft to-card border border-border/40">
-                      <div className="rounded-full bg-brand/10 p-3 text-brand mb-2">
-                        <BookOpen size={28} aria-hidden />
+          {novels.map((novel) => {
+            const isOtherLocked = Boolean(activeNovel && activeNovel.id !== novel.id);
+            return (
+              <Card
+                key={novel.id}
+                className={cn(
+                  "flex flex-col justify-between overflow-hidden p-4 transition-all hover:border-brand/40 hover:shadow-md",
+                  isOtherLocked && "opacity-80 border-border/60"
+                )}
+              >
+                <div>
+                  <div className="relative mb-3 aspect-[2/3] w-full overflow-hidden rounded-xl bg-soft shadow-inner">
+                    {novel.coverUrl && !failedCovers[novel.id] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={novel.coverUrl}
+                        alt={novel.title}
+                        onError={() => setFailedCovers((prev) => ({ ...prev, [novel.id]: true }))}
+                        className={cn(
+                          "h-full w-full object-cover transition duration-300",
+                          !isOtherLocked && "hover:scale-105"
+                        )}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center bg-gradient-to-br from-soft to-card border border-border/40">
+                        <div className="rounded-full bg-brand/10 p-3 text-brand mb-2">
+                          <BookOpen size={28} aria-hidden />
+                        </div>
+                        <div className="text-sm font-semibold text-foreground line-clamp-2">{novel.title}</div>
+                        <div className="text-xs text-muted mt-1">{novel.author ?? "Classic"}</div>
+                        {novel.genre && (
+                          <span className="mt-2 rounded-full bg-soft px-2 py-0.5 text-[10px] font-medium text-muted">
+                            {novel.genre}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-sm font-semibold text-foreground line-clamp-2">{novel.title}</div>
-                      <div className="text-xs text-muted mt-1">{novel.author ?? "Classic"}</div>
-                      {novel.genre && (
-                        <span className="mt-2 rounded-full bg-soft px-2 py-0.5 text-[10px] font-medium text-muted">
-                          {novel.genre}
-                        </span>
-                      )}
+                    )}
+                    {novel.sessionStatus && (
+                      <span
+                        className={cn(
+                          "absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold backdrop-blur-md shadow-sm",
+                          novel.sessionStatus === "COMPLETED"
+                            ? "bg-emerald-500/90 text-white"
+                            : "bg-amber-500/90 text-white",
+                        )}
+                      >
+                        {novel.sessionStatus === "COMPLETED" ? "Completed" : "Reading"}
+                      </span>
+                    )}
+                    {isOtherLocked && (
+                      <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] flex items-center justify-center p-3 text-center">
+                        <div className="rounded-full bg-card/90 p-2.5 text-muted shadow-sm border border-border/60">
+                          <Lock size={20} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="rounded-full bg-soft px-2 py-0.5 text-[10px] font-medium text-muted">
+                      {novel.genre ?? "Classic"}
+                    </span>
+                  </div>
+
+                  <h3 className="display font-semibold text-foreground line-clamp-1 text-base">{novel.title}</h3>
+                  <p className="text-xs text-muted truncate">{novel.author ?? "Unknown"}</p>
+                  
+                  {isOtherLocked && (
+                    <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                      <Lock size={12} className="shrink-0" />
+                      <span className="truncate">Finish &ldquo;{activeNovel?.title}&rdquo; to unlock</span>
                     </div>
                   )}
-                  {novel.sessionStatus && (
-                    <span
-                      className={cn(
-                        "absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-semibold backdrop-blur-md shadow-sm",
-                        novel.sessionStatus === "COMPLETED"
-                          ? "bg-emerald-500/90 text-white"
-                          : "bg-amber-500/90 text-white",
-                      )}
-                    >
-                      {novel.sessionStatus === "COMPLETED" ? "Completed" : "Reading"}
-                    </span>
+
+                  {novel.description && (
+                    <p className="mt-2 text-xs text-foreground/80 line-clamp-2 leading-relaxed">
+                      {novel.description}
+                    </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="rounded-full bg-soft px-2 py-0.5 text-[10px] font-medium text-muted">
-                    {novel.genre ?? "Classic"}
-                  </span>
+                <div className="mt-4 pt-3 border-t border-border flex items-center gap-2">
+                  {isOtherLocked ? (
+                    <Button
+                      disabled
+                      className="flex-1 min-h-9 px-3 text-xs gap-1.5 opacity-60 cursor-not-allowed bg-soft text-muted border border-border"
+                    >
+                      <Lock size={13} aria-hidden />
+                      Locked
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => void handleReadFreeNow(novel)}
+                      className="flex-1 min-h-9 px-3 text-xs gap-1.5 shadow-sm"
+                    >
+                      <BookOpen size={14} aria-hidden />
+                      Read Free Now
+                    </Button>
+                  )}
+
+                  {novel.sessionStatus === "READING" ? (
+                    <Button
+                      variant="outline"
+                      className="min-h-9 px-2.5 text-xs text-emerald-600 hover:text-emerald-700"
+                      title="Mark as Completed"
+                      disabled={updatingId === novel.id}
+                      onClick={() => void handleToggleStatus(novel.id, "COMPLETED")}
+                    >
+                      <Check size={14} aria-hidden />
+                    </Button>
+                  ) : novel.sessionStatus === "COMPLETED" ? (
+                    <Button
+                      variant="outline"
+                      className="min-h-9 px-2.5 text-xs text-muted hover:text-foreground"
+                      title="Mark as Reading"
+                      disabled={updatingId === novel.id || Boolean(activeNovel && activeNovel.id !== novel.id)}
+                      onClick={() => void handleToggleStatus(novel.id, "READING")}
+                    >
+                      <BookOpen size={14} aria-hidden />
+                    </Button>
+                  ) : null}
                 </div>
-
-                <h3 className="display font-semibold text-foreground line-clamp-1 text-base">{novel.title}</h3>
-                <p className="text-xs text-muted truncate">{novel.author ?? "Unknown"}</p>
-                {novel.description && (
-                  <p className="mt-2 text-xs text-foreground/80 line-clamp-2 leading-relaxed">
-                    {novel.description}
-                  </p>
-                )}
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-border flex items-center gap-2">
-                <Button
-                  onClick={() => void handleReadFreeNow(novel)}
-                  className="flex-1 min-h-9 px-3 text-xs gap-1.5 shadow-sm"
-                >
-                  <BookOpen size={14} aria-hidden />
-                  Read Free Now
-                </Button>
-
-                {novel.sessionStatus === "READING" ? (
-                  <Button
-                    variant="outline"
-                    className="min-h-9 px-2.5 text-xs text-emerald-600 hover:text-emerald-700"
-                    title="Mark as Completed"
-                    disabled={updatingId === novel.id}
-                    onClick={() => void handleToggleStatus(novel.id, "COMPLETED")}
-                  >
-                    <Check size={14} aria-hidden />
-                  </Button>
-                ) : novel.sessionStatus === "COMPLETED" ? (
-                  <Button
-                    variant="outline"
-                    className="min-h-9 px-2.5 text-xs text-muted hover:text-foreground"
-                    title="Mark as Reading"
-                    disabled={updatingId === novel.id}
-                    onClick={() => void handleToggleStatus(novel.id, "READING")}
-                  >
-                    <BookOpen size={14} aria-hidden />
-                  </Button>
-                ) : null}
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </>

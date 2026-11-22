@@ -11,6 +11,7 @@ import {
   type CandidateExperienceLevel,
   type CompanyCategory,
 } from "@/lib/domain/jobs";
+import { isValidEmailAddress } from "@/lib/domain/email-config";
 
 export interface AtsCompanyTarget {
   name: string;
@@ -359,7 +360,7 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
     category: "MID_MNC",
     atsProvider: "GREENHOUSE",
     atsSlug: "nagarro",
-    hrEmail: "hiring@nagarro.com",
+    hrEmail: "careers@nagarro.com",
     websiteUrl: "https://www.nagarro.com/en/careers",
     isIndiaBased: true,
     offersRemoteIndia: true,
@@ -644,7 +645,7 @@ export const ATS_COMPANY_TARGETS: AtsCompanyTarget[] = [
     category: "FOREIGN",
     atsProvider: "GREENHOUSE",
     atsSlug: "gitlab",
-    hrEmail: "talent-acquisition@gitlab.com",
+    hrEmail: "jobs@gitlab.com",
     websiteUrl: "https://about.gitlab.com/jobs",
     isIndiaBased: false,
     offersRemoteIndia: true,
@@ -1316,7 +1317,7 @@ export const LIVE_VERIFIED_FALLBACK_JOBS: RawLiveJob[] = [
     postedAt: new Date(Date.now() - 30 * 60 * 60 * 1000),
     jobDescription: "GitLab database engineers optimize one of the world's largest multi-tenant PostgreSQL clusters. Seeking senior engineers with deep PostgreSQL partitioning, query optimization, Ruby/Go, and distributed database experience.",
     category: "FOREIGN",
-    hrEmail: "talent-acquisition@gitlab.com",
+    hrEmail: "jobs@gitlab.com",
   },
   {
     externalId: "gh-canonical-live-15",
@@ -1434,7 +1435,31 @@ export async function fetchAllActiveLiveJobs(options?: {
       (c) => c.name.toLowerCase() === job.companyName.toLowerCase()
     );
     const companyCategory = (job.category as CompanyCategory) || targetMeta?.category || "STARTUP";
-    const hrEmail = job.hrEmail || targetMeta?.hrEmail || `careers@${job.companyName.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`;
+    
+    // Strict HR email derivation: only assign verified corporate inboxes
+    let resolvedHrEmail = "";
+    if (job.hrEmail && isValidEmailAddress(job.hrEmail)) {
+      resolvedHrEmail = job.hrEmail.trim().toLowerCase();
+    } else if (targetMeta?.hrEmail && isValidEmailAddress(targetMeta.hrEmail)) {
+      resolvedHrEmail = targetMeta.hrEmail.trim().toLowerCase();
+    } else {
+      const candidateUrl = targetMeta?.websiteUrl || job.url;
+      if (candidateUrl) {
+        try {
+          const hostname = new URL(candidateUrl).hostname.toLowerCase().replace(/^www\./, "");
+          const isAggregator = /^(?:greenhouse\.io|lever\.co|ashbyhq\.com|jobicy\.com|remoteok\.com|himalayas\.app|remotive\.com|arbeitnow\.com)$/i.test(hostname);
+          if (!isAggregator && hostname.includes(".") && !hostname.startsWith("localhost")) {
+            const candidateEmail = `careers@${hostname}`;
+            if (isValidEmailAddress(candidateEmail)) {
+              resolvedHrEmail = candidateEmail;
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    const hrEmail = resolvedHrEmail;
 
     // India Eligibility Classification
     const locInfo = classifyJobLocation(job.location, job.title, targetMeta?.offersRelocation ?? false);
