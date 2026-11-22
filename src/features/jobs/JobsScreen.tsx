@@ -1641,13 +1641,13 @@ export default function JobsScreen() {
                   {!isReplied && !isClosed && (
                     <div className="w-full pt-0.5">
                       {isToApply ? (
-                        <div className={`grid gap-2 w-full ${app.jobUrl ? "grid-cols-2" : "grid-cols-1"}`}>
+                        <div className={`grid gap-1.5 sm:gap-2 w-full ${app.jobUrl ? "grid-cols-2" : "grid-cols-1"}`}>
                           {app.jobUrl && (
                             <a
                               href={app.jobUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center justify-center gap-1.5 h-8.5 rounded-lg border border-border/80 bg-soft/80 px-2 text-xs font-semibold text-fg hover:bg-soft hover:border-brand/40 transition-colors shadow-xs whitespace-nowrap text-center"
+                              className="inline-flex items-center justify-center gap-1 sm:gap-1.5 h-8.5 rounded-lg border border-border/80 bg-soft/80 px-1.5 sm:px-2 text-[11px] sm:text-xs font-semibold text-fg hover:bg-soft hover:border-brand/40 transition-colors shadow-xs whitespace-nowrap text-center min-w-0"
                             >
                               <ExternalLink size={12} className="shrink-0" />
                               <span className="truncate">Apply on Portal</span>
@@ -1667,16 +1667,16 @@ export default function JobsScreen() {
                               }
                               handleOpenEmailDrawer(app);
                             }}
-                            className="inline-flex items-center justify-center gap-1.5 h-8.5 text-xs px-2 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs whitespace-nowrap w-full"
+                            className="inline-flex items-center justify-center gap-1 sm:gap-1.5 h-8.5 text-[11px] sm:text-xs px-1.5 sm:px-2 font-semibold bg-brand text-brandfg hover:bg-brand/90 shadow-xs whitespace-nowrap w-full min-w-0"
                           >
                             <Mail size={12} className="shrink-0" />
                             <span className="truncate">Email HR / Pitch</span>
                           </Button>
                         </div>
                       ) : isLocked ? (
-                        <div className="w-full flex items-center justify-center gap-1.5 h-8.5 rounded-lg bg-soft/70 border border-border/70 text-muted text-xs font-semibold select-none shadow-xs">
+                        <div className="w-full flex items-center justify-center gap-1.5 h-8.5 rounded-lg bg-soft/80 border border-border/80 text-muted text-[11px] sm:text-xs font-semibold select-none shadow-xs">
                           <Lock size={12} className="shrink-0 text-amber-500/90" />
-                          <span>Locked ({daysRemaining}d remaining)</span>
+                          <span>Follow-Up Locked ({daysRemaining}d remaining)</span>
                         </div>
                       ) : (
                         <Button

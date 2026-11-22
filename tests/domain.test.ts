@@ -44,10 +44,11 @@ import {
   extractEmailAddress,
 } from "../src/lib/domain/email-config.ts";
 import { generatePdfFromText } from "../src/lib/pdf-generator.ts";
-import { calculateAtsMatch, extractTaxonomySkills } from "../src/lib/domain/ats-matcher.ts";
+import { calculateAtsMatch, extractTaxonomySkills, matchesSkillToken, matchesGoLanguage } from "../src/lib/domain/ats-matcher.ts";
 import { inferCompanyCategoryFromMeta, stripHtmlTags } from "../src/server/services/live-job-fetchers.ts";
 import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
+import { cleanDocumentText, validateReadableText } from "../src/server/services/resume-parser.ts";
 import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
 import { computeEnabledModules, type LogMap, type Recurrence, type TaskDef, type TaskVersion } from "../src/lib/domain/types.ts";
 import {
@@ -1419,7 +1420,7 @@ Special symbols: • Bullet 1 — Em dash – En dash … Ellipsis \\ Backslash`
     it("evaluates a Moderate Match scenario when core skills partially overlap or experience is adjacent", () => {
       const jd = `
         Full-Stack Engineer (1-3 Years).
-        Must have: Java, TypeScript, React, PostgreSQL, and AWS.
+        Must have: Java, TypeScript, React, PostgreSQL, Docker, and AWS.
       `;
       const result = calculateAtsMatch(
         javaBackendResume,
@@ -1606,5 +1607,129 @@ The traveler looked back one final time before turning toward the horizon.
       expect(half2.title).toContain("Part 2 of 2");
       expect(half1.content.length).toBeGreaterThan(0);
       expect(half2.content.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Document Resume Parser & Skill Taxonomy Precision", () => {
+    it("cleanDocumentText normalizes ligatures, curly punctuation, bullet points, and blank lines", () => {
+      const rawText = "Pro\uFB01cient in so\uFB00ware engineering \u2018APIs\u2019 \u201Cmicroservices\u201D \u2014 \u2022 Java 17 \u25CF Spring Boot \r\n\r\n\r\n\r\nRedis caching";
+      const cleaned = cleanDocumentText(rawText);
+
+      expect(cleaned).toContain("Proficient");
+      expect(cleaned).toContain("soffware");
+      expect(cleaned).toContain("'APIs'");
+      expect(cleaned).toContain('"microservices"');
+      expect(cleaned).toContain(" - ");
+      expect(cleaned).toContain("- Java 17");
+      expect(cleaned).toContain("- Spring Boot");
+      expect(cleaned).not.toContain("\r");
+      expect(cleaned).not.toContain("\n\n\n");
+    });
+
+    it("validateReadableText rejects too-short or corrupted binary files", () => {
+      expect(() => validateReadableText("Too short", "test.pdf")).toThrowError("Could not extract readable text");
+
+      // Binary garbage with control characters
+      const binaryGarbage = String.fromCharCode(...Array(25).fill(1)) + "Some readable words here.";
+      expect(() => validateReadableText(binaryGarbage, "corrupt.pdf")).toThrowError("contains binary streams");
+
+      // Clean readable text passes cleanly
+      expect(() =>
+        validateReadableText(
+          "Mohd Arslan - Senior Java Backend Engineer with 4 years experience building microservices.",
+          "resume.pdf"
+        )
+      ).not.toThrow();
+    });
+
+    it("matchesGoLanguage strictly rejects common English idioms and substring collisions", () => {
+      // Common English phrases must NOT match Go
+      expect(matchesGoLanguage("Let's go over the architecture.")).toBe(false);
+      expect(matchesGoLanguage("Ready to go to market with the new release.")).toBe(false);
+      expect(matchesGoLanguage("Responsible for production go-live deployments.")).toBe(false);
+      expect(matchesGoLanguage("Always on the go with fast learning.")).toBe(false);
+      expect(matchesGoLanguage("Good communicator and team player.")).toBe(false);
+
+      // Substrings in other words must NOT match Go
+      expect(matchesGoLanguage("Configured AWS Cognito user pools.")).toBe(false);
+      expect(matchesGoLanguage("Integrated Google OAuth2 authentication.")).toBe(false);
+      expect(matchesGoLanguage("Maintained MongoDB document databases.")).toBe(false);
+      expect(matchesGoLanguage("Built REST APIs with Django and Python.")).toBe(false);
+      expect(matchesGoLanguage("Categorized database queries by latency.")).toBe(false);
+
+      // Real Golang references MUST match
+      expect(matchesGoLanguage("Proficient in Golang and Docker.")).toBe(true);
+      expect(matchesGoLanguage("Built microservices in Go lang.")).toBe(true);
+      expect(matchesGoLanguage("Languages: Java, Go, Python, TypeScript.")).toBe(true);
+      expect(matchesGoLanguage("Core Tech Stack: Go / Rust / Kubernetes.")).toBe(true);
+    });
+
+    it("matchesSkillToken strictly prevents .net email false positives for C# while matching real C# and .NET", () => {
+      // Email addresses or domains ending in .net must NOT match C#
+      expect(matchesSkillToken("Contact email: john.doe@consulting.net", ".net")).toBe(false);
+      expect(matchesSkillToken("Visit website at https://company.net/careers", ".net")).toBe(false);
+      expect(matchesSkillToken("Configured telnet listener.", ".net")).toBe(false);
+
+      // Real .NET Core / C# references must match
+      expect(matchesSkillToken("Built enterprise APIs with .NET Core and SQL.", ".net")).toBe(true);
+      expect(matchesSkillToken("Backend development in .NET 8.", ".net")).toBe(true);
+      expect(matchesSkillToken("Languages: C#, Python, SQL.", "c#")).toBe(true);
+      expect(matchesSkillToken("Developed web apps using csharp and ASP.NET.", "csharp")).toBe(true);
+      expect(matchesSkillToken("Proficient in C++ and algorithms.", "c++")).toBe(true);
+      expect(matchesSkillToken("Avoid c+++ invalid tokens.", "c++")).toBe(false);
+    });
+
+    it("extracts 100% accurate skills with zero false positives for candidate Mohd Arslan resume", () => {
+      const arslanResumeText = `
+        Mohd Arslan - Software Development Engineer II
+        Email: arslan@example.com | GitHub: github.com/arslan | Location: Bengaluru, India
+        Summary: Full Stack Engineer with 3.5+ years of experience in distributed systems.
+
+        Technical Skills:
+        - Languages: Java 17, Python, TypeScript, JavaScript, SQL
+        - Backend & Frameworks: Spring Boot, Spring Security, Spring Data JPA, Node.js, Express.js, Microservices, REST APIs, GraphQL, WebSocket
+        - Frontend: React.js, Next.js, Tailwind CSS, HTML5, CSS3, Material-UI
+        - Databases & Caching: PostgreSQL, Redis, DynamoDB, MySQL, MongoDB
+        - Messaging & Async: Apache Kafka, RabbitMQ
+        - Cloud & DevOps: AWS (Bedrock, Cognito, EC2, S3), Docker, Kubernetes, GitLab CI/CD, Linux, Git
+        - Security & Auth: JWT, OAuth2, RBAC
+        - Testing: Unit Testing with JUnit and Mockito
+      `;
+
+      const extracted = extractTaxonomySkills(arslanResumeText);
+      const unifiedSkills = extractSkillsFromText(arslanResumeText);
+
+      // Verify extractSkillsFromText and extractTaxonomySkills agree
+      expect(extracted).toEqual(unifiedSkills);
+
+      // Assert presence of verified canonical skills
+      expect(extracted).toContain("Java");
+      expect(extracted).toContain("Spring Boot");
+      expect(extracted).toContain("React");
+      expect(extracted).toContain("Next.js");
+      expect(extracted).toContain("TypeScript");
+      expect(extracted).toContain("Node.js");
+      expect(extracted).toContain("PostgreSQL");
+      expect(extracted).toContain("Redis");
+      expect(extracted).toContain("Kafka");
+      expect(extracted).toContain("RabbitMQ");
+      expect(extracted).toContain("AWS Bedrock");
+      expect(extracted).toContain("AWS Cognito");
+      expect(extracted).toContain("DynamoDB");
+      expect(extracted).toContain("Docker");
+      expect(extracted).toContain("CI/CD");
+      expect(extracted).toContain("JWT");
+      expect(extracted).toContain("OAuth2");
+      expect(extracted).toContain("Python");
+      expect(extracted).toContain("SQL");
+      expect(extracted).toContain("Unit Testing");
+
+      // CRITICAL ASSERTION: Zero false positives for unowned languages
+      expect(extracted).not.toContain("Go");
+      expect(extracted).not.toContain("C#");
+      expect(extracted).not.toContain("Ruby");
+      expect(extracted).not.toContain("PHP");
+      expect(extracted).not.toContain("Rust");
+      expect(extracted).not.toContain("Swift");
     });
   });

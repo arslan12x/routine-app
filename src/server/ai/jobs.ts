@@ -1,5 +1,5 @@
 import { google } from "@ai-sdk/google";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { CandidateExperienceLevel } from "@/lib/domain/jobs";
 
@@ -201,25 +201,29 @@ Experience Tier: ${experienceLevel || "FRESHER"}
 ${parsedResume ? parsedResume.slice(0, 1500) : `Skills: ${topSkills}`}
 
 STRICT RULES:
+- Only reference technologies and skills present in the candidate profile; never invent or assume other technical skills.
+- Highlight the candidate's verified skills: ${topSkills}.
 - Never use cheesy buzzwords or clichés.
 - Subject must be direct, relevant, and professional.
 - Body must be formatted with clean line breaks.
 - Sign off with candidate name "${candidateName}".`;
 
-    const result = await generateObject({
+    const result = await generateText({
       model: google("gemini-3.5-flash-lite"),
-      schema: z.object({
-        subject: z.string().min(5),
-        body: z.string().min(30),
+      output: Output.object({
+        schema: z.object({
+          subject: z.string().min(5),
+          body: z.string().min(30),
+        }),
       }),
       prompt,
     });
 
-    if (result.object?.subject && result.object?.body) {
+    if (result.output?.subject && result.output?.body) {
       return {
         stage,
-        subject: result.object.subject.trim(),
-        body: result.object.body.trim(),
+        subject: result.output.subject.trim(),
+        body: result.output.body.trim(),
       };
     }
   } catch (err) {
@@ -278,21 +282,23 @@ Instructions:
 5. Provide 2-3 actionable, high-impact resume tweaks to optimize for this specific ATS pipeline.
 6. Provide 3 high-probability interview questions / system design focus topics for this role.`;
 
-      const result = await generateObject({
+      const result = await generateText({
         model: google("gemini-3.5-flash-lite"),
-        schema: z.object({
-          probabilityPercent: z.number().int().min(5).max(98),
-          verdict: z.string().min(10),
-          strengths: z.array(z.string()).min(1).max(6),
-          gaps: z.array(z.string()).max(6),
-          resumeTweaks: z.array(z.string()).min(1).max(5),
-          interviewFocusTopics: z.array(z.string()).min(1).max(5),
+        output: Output.object({
+          schema: z.object({
+            probabilityPercent: z.number().int().min(5).max(98),
+            verdict: z.string().min(10),
+            strengths: z.array(z.string()).min(1).max(6),
+            gaps: z.array(z.string()).max(6),
+            resumeTweaks: z.array(z.string()).min(1).max(5),
+            interviewFocusTopics: z.array(z.string()).min(1).max(5),
+          }),
         }),
         prompt,
       });
 
-      if (result.object) {
-        return result.object;
+      if (result.output) {
+        return result.output;
       }
     } catch (err) {
       console.warn("[Deep ATS Analyzer] Gemini call failed; using deterministic fallback", err);

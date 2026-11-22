@@ -27,30 +27,11 @@ import {
   getRoleForExperience,
 } from "@/server/services/job-scraper";
 import { COMPANY_CATEGORIES } from "@/lib/domain/jobs";
-import { calculateAtsMatch } from "@/lib/domain/ats-matcher";
-
-const COMMON_SKILLS_LIST = [
-  "TypeScript", "JavaScript", "Python", "Java", "Go", "Rust", "C++", "C#", "PHP", "Ruby",
-  "React", "Next.js", "Vue", "Angular", "Node.js", "Express", "Fastify", "NestJS", "Spring Boot", "Django",
-  "PostgreSQL", "MySQL", "MongoDB", "Redis", "SQLite", "DynamoDB", "GraphQL", "REST API", "Prisma",
-  "Docker", "Kubernetes", "AWS", "Google Cloud", "Azure", "Terraform", "CI/CD", "Linux", "Microservices",
-  "Tailwind CSS", "Redux", "Zustand", "Kafka", "RabbitMQ", "WebSockets", "Playwright", "Vitest", "Jest",
-];
+import { calculateAtsMatch, extractTaxonomySkills } from "@/lib/domain/ats-matcher";
 
 export function extractSkillsFromText(text: string): string[] {
   if (!text) return [];
-  const found: string[] = [];
-  const lower = text.toLowerCase();
-
-  for (const skill of COMMON_SKILLS_LIST) {
-    const escaped = skill.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`\\b${escaped}\\b`, "i");
-    if (regex.test(lower)) {
-      found.push(skill);
-    }
-  }
-
-  return found.length > 0 ? found : ["TypeScript", "Full-Stack Development", "React", "Node.js"];
+  return extractTaxonomySkills(text);
 }
 
 export async function saveUserResume(

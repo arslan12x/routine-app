@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { requireUser } from "@/lib/auth/session";
 import { extractSkillsFromText, getUserResume, saveUserResume, recalculateUserAtsScores } from "@/server/services/jobs";
+import { extractResumeText } from "@/server/services/resume-parser";
 import { ApiError } from "@/lib/api";
 
 export const runtime = "nodejs";
@@ -77,27 +78,8 @@ export async function POST(request: Request) {
           : "text/plain"
       );
 
-      if (file.type.includes("text") || lowerName.endsWith(".txt") || lowerName.endsWith(".md")) {
-        extractedText = Buffer.from(arrayBuffer).toString("utf-8");
-      } else {
-        // Extract readable text from binary document buffer
-        const uint8 = new Uint8Array(arrayBuffer);
-        let text = "";
-        for (let i = 0; i < Math.min(uint8.length, 120_000); i++) {
-          const code = uint8[i];
-          if ((code >= 32 && code <= 126) || code === 10 || code === 13) {
-            text += String.fromCharCode(code);
-          } else if (text.endsWith(" ") || text.length === 0) {
-            // Avoid duplicate spaces
-          } else {
-            text += " ";
-          }
-        }
-        extractedText = text.replace(/\s+/g, " ").trim();
-        if (extractedText.length < 20) {
-          extractedText = `Uploaded candidate resume document: ${fileName} with verified technical background in software engineering.`;
-        }
-      }
+      const buffer = Buffer.from(arrayBuffer);
+      extractedText = await extractResumeText(buffer, fileName, mimeType);
 
       const skills = extractSkillsFromText(extractedText);
       const saved = await saveUserResume(user.id, {
@@ -109,15 +91,25 @@ export async function POST(request: Request) {
       });
 
       // Recalculate ATS scores for all candidate TO_APPLY jobs against the new resume
-      await recalculateUserAtsScores(user.id).catch((err) =>
-        console.warn("[Resume API] Recalculate ATS scores failed:", err)
-      );
+      const recalculatedJobsCount = await recalculateUserAtsScores(user.id).catch((err) => {
+        console.warn("[Resume API] Recalculate ATS scores failed:", err);
+        return 0;
+      });
 
       const { fileData: _fd, ...safeResume } = saved;
-      return Response.json({ resume: safeResume }, {
-        status: 201,
-        headers: { "Cache-Control": "private, no-store" },
-      });
+      return Response.json(
+        {
+          resume: safeResume,
+          parsedTextLength: extractedText.length,
+          skillsCount: skills.length,
+          skills,
+          recalculatedJobsCount,
+        },
+        {
+          status: 201,
+          headers: { "Cache-Control": "private, no-store" },
+        }
+      );
     }
 
     // Handle JSON payload
@@ -125,14 +117,24 @@ export async function POST(request: Request) {
     const validated = resumeSchema.parse(json);
 
     const saved = await saveUserResume(user.id, validated);
-    await recalculateUserAtsScores(user.id).catch((err) =>
-      console.warn("[Resume API] Recalculate ATS scores failed:", err)
-    );
-    const { fileData: _fd, ...safeResume } = saved;
-    return Response.json({ resume: safeResume }, {
-      status: 201,
-      headers: { "Cache-Control": "private, no-store" },
+    const recalculatedJobsCount = await recalculateUserAtsScores(user.id).catch((err) => {
+      console.warn("[Resume API] Recalculate ATS scores failed:", err);
+      return 0;
     });
+    const { fileData: _fd, ...safeResume } = saved;
+    return Response.json(
+      {
+        resume: safeResume,
+        parsedTextLength: validated.rawText.length,
+        skillsCount: (safeResume.skillsJson as string[])?.length || 0,
+        skills: safeResume.skillsJson,
+        recalculatedJobsCount,
+      },
+      {
+        status: 201,
+        headers: { "Cache-Control": "private, no-store" },
+      }
+    );
   } catch (err) {
     return errorResponse(err);
   }
