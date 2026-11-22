@@ -1,10 +1,13 @@
 "use client";
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Modal } from "@/components/Modal";
 import { Button, inputCls } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/fetcher";
+import { notifyModulesChanged } from "@/lib/events";
+import { inferPersonalDevType, type EnabledPersonalDevModules } from "@/lib/domain/types";
 import type { TaskView } from "@/server/services/tasks";
 import { CATEGORIES, UNITS, WEEKDAY_LABELS } from "./constants";
 
@@ -28,21 +31,42 @@ const blank: Form = {
 const selectCls = `${inputCls} appearance-none pr-10 disabled:cursor-not-allowed disabled:opacity-60`;
 
 export const PERSONAL_DEV_MODULES = [
-  { value: "JOB_APPLY", label: "Job Apply (10 jobs/day target)" },
-  { value: "DUOLINGO", label: "Duolingo Practice (Streak verified)" },
-  { value: "NOVEL_READING", label: "Novel Reading (1/2 chapter + 5-question quiz)" },
-  { value: "BLOG_WRITING", label: "Blog Writing" },
-  { value: "CUSTOM", label: "Custom" },
+  { value: "NOVEL_READING", label: "📖 Novel Reading (Enables /novels in sidebar)" },
+  { value: "JOB_APPLY", label: "💼 Job Applications (Enables /jobs in sidebar)" },
+  { value: "DUOLINGO", label: "🦉 Duolingo Practice (Streak verified)" },
+  { value: "BLOG_WRITING", label: "✍️ Blog Writing (Enables /blogs in sidebar)" },
+  { value: "CUSTOM", label: "🌟 Custom Personal Development" },
 ] as const;
 
 export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView | null; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState<Form>(task ? { ...task, description: task.description ?? "", unit: task.unit ?? "" } : blank);
+  const router = useRouter();
+  const [f, setF] = useState<Form>(
+    task
+      ? {
+          ...task,
+          description: task.description ?? "",
+          unit: task.unit ?? "",
+          personalDevType: task.personalDevType || inferPersonalDevType(task.title, task.description, task.category),
+        }
+      : blank
+  );
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }));
   const weekly = f.recurrence === "WEEKLY_TOTAL";
   const needsTarget = f.completionType === "MEASURABLE" || weekly;
   const canChangeAiGate = !task || !task.isAiGated;
+
+  const handleTitleChange = (val: string) => {
+    setF((prev) => {
+      const inferred = !prev.personalDevType ? inferPersonalDevType(val, prev.description, prev.category) : null;
+      return {
+        ...prev,
+        title: val,
+        ...(inferred ? { personalDevType: inferred } : {}),
+      };
+    });
+  };
 
   const handleCategoryChange = (cat: Form["category"]) => {
     if (cat === "PERSONAL_DEVELOPMENT") {
@@ -82,11 +106,16 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
           : {}),
       }));
     } else {
-      setF((prev) => ({ ...prev, category: cat, personalDevType: null }));
+      // Retain or infer devType rather than forcibly wiping it
+      setF((prev) => ({
+        ...prev,
+        category: cat,
+        personalDevType: prev.personalDevType || inferPersonalDevType(prev.title, prev.description, cat),
+      }));
     }
   };
 
-  const handleDevTypeChange = (devType: NonNullable<Form["personalDevType"]>) => {
+  const handleDevTypeChange = (devType: Form["personalDevType"]) => {
     setF((prev) => ({
       ...prev,
       personalDevType: devType,
@@ -124,17 +153,32 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
 
   async function run(fn: () => Promise<unknown>) {
     setBusy(true); setErr(null);
-    try { await fn(); onSaved(); onClose(); } catch (e) { setErr(e instanceof Error ? e.message : "Failed"); } finally { setBusy(false); }
+    try {
+      const res = (await fn()) as { enabledModules?: EnabledPersonalDevModules } | undefined;
+      notifyModulesChanged(res?.enabledModules);
+      router.refresh();
+      onSaved();
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
   }
-  const payload = () => ({
-    title: f.title, description: f.description || null, category: f.category,
-    personalDevType: f.category === "PERSONAL_DEVELOPMENT" ? f.personalDevType || "CUSTOM" : null,
-    isAiGated: f.isAiGated, aiSubject: f.isAiGated ? f.aiSubject : null,
-    aiCourseName: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCourseName : null,
-    aiCoursePrompt: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCoursePrompt : null,
-    isMandatory: weekly ? false : f.isMandatory, completionType: f.completionType, target: needsTarget ? Number(f.target) : 1,
-    unit: needsTarget ? f.unit || null : null, recurrence: f.recurrence, weekdays: f.recurrence === "WEEKDAYS" ? f.weekdays : [],
-  });
+
+  const payload = () => {
+    const devType = f.personalDevType || inferPersonalDevType(f.title, f.description, f.category);
+    return {
+      title: f.title, description: f.description || null, category: f.category,
+      personalDevType: devType || null,
+      isAiGated: f.isAiGated, aiSubject: f.isAiGated ? f.aiSubject : null,
+      aiCourseName: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCourseName : null,
+      aiCoursePrompt: f.isAiGated && f.aiSubject === "CUSTOM" ? f.aiCoursePrompt : null,
+      isMandatory: weekly ? false : f.isMandatory, completionType: f.completionType, target: needsTarget ? Number(f.target) : 1,
+      unit: needsTarget ? f.unit || null : null, recurrence: f.recurrence, weekdays: f.recurrence === "WEEKDAYS" ? f.weekdays : [],
+    };
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     run(() => task
@@ -146,7 +190,7 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
   return (
     <Modal title={task ? "Edit task" : "New task"} onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
-        <div><label className={lbl} htmlFor="t-title">Title</label><input id="t-title" required maxLength={80} className={inputCls} value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Walk 11,000 steps" /></div>
+        <div><label className={lbl} htmlFor="t-title">Title</label><input id="t-title" required maxLength={80} className={inputCls} value={f.title} onChange={(e) => handleTitleChange(e.target.value)} placeholder="Read 10 pages" /></div>
         <div><label className={lbl} htmlFor="t-desc">Description (optional)</label><input id="t-desc" maxLength={300} className={inputCls} value={f.description} onChange={(e) => set("description", e.target.value)} /></div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div><label className={lbl} htmlFor="t-cat">Category</label>
@@ -154,34 +198,46 @@ export default function TaskDialog({ task, onClose, onSaved }: { task: TaskView 
           <div><label className={lbl} htmlFor="t-type">Completion</label>
             <div className="relative min-w-0"><select id="t-type" className={selectCls} value={f.completionType} onChange={(e) => set("completionType", e.target.value as Form["completionType"])}><option value="BOOLEAN">Done / not done</option><option value="MEASURABLE">Measured amount</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         </div>
-        {f.category === "PERSONAL_DEVELOPMENT" && (
-          <div className="rounded-xl border border-brand/30 bg-brand/5 p-3 space-y-2">
-            <label className={lbl} htmlFor="t-pdev">Personal Development Module</label>
-            <div className="relative min-w-0">
-              <select
-                id="t-pdev"
-                required
-                className={selectCls}
-                value={f.personalDevType || "JOB_APPLY"}
-                onChange={(e) => handleDevTypeChange(e.target.value as NonNullable<Form["personalDevType"]>)}
+
+        {/* Linked Feature Module section - available across all categories */}
+        <div className={cn("rounded-xl border p-3 space-y-2 transition-colors", f.personalDevType ? "border-brand/40 bg-brand/5" : "border-border/80 bg-card/60")}>
+          <div className="flex items-center justify-between">
+            <label className={lbl} htmlFor="t-pdev">Linked Feature Module (Sidebar)</label>
+            {f.personalDevType && (
+              <button
+                type="button"
+                onClick={() => handleDevTypeChange(null)}
+                className="text-[11px] text-muted hover:text-fg underline cursor-pointer"
               >
-                {PERSONAL_DEV_MODULES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden />
-            </div>
-            <p className="text-xs text-muted">
-              {f.personalDevType === "JOB_APPLY" && "Requires applying to 10 verified jobs/day in /jobs to complete."}
-              {f.personalDevType === "DUOLINGO" && "Automatically verifies your daily Duolingo lesson streak to complete."}
-              {f.personalDevType === "NOVEL_READING" && "Requires reading 1/2 novel chapter and scoring 3/5 on comprehension quiz."}
-              {f.personalDevType === "BLOG_WRITING" && "Enables the /blogs studio and auto-completes when daily post is written."}
-              {f.personalDevType === "CUSTOM" && "Custom personal development task configured to your own target."}
-            </p>
+                Clear link
+              </button>
+            )}
           </div>
-        )}
+          <div className="relative min-w-0">
+            <select
+              id="t-pdev"
+              className={selectCls}
+              value={f.personalDevType || ""}
+              onChange={(e) => handleDevTypeChange((e.target.value || null) as Form["personalDevType"])}
+            >
+              <option value="">None (Standard Routine Task)</option>
+              {PERSONAL_DEV_MODULES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden />
+          </div>
+          <p className="text-xs text-muted">
+            {f.personalDevType === "NOVEL_READING" && "📖 Unlocks the /novels reading studio in your sidebar and verifies chapter progress with AI quizzes."}
+            {f.personalDevType === "JOB_APPLY" && "💼 Unlocks the /jobs candidate outreach engine in your sidebar with 10 jobs/day goal."}
+            {f.personalDevType === "DUOLINGO" && "🦉 Unlocks Duolingo sync in settings and verifies your daily lesson streak."}
+            {f.personalDevType === "BLOG_WRITING" && "✍️ Unlocks the /blogs writing studio in your sidebar for automated daily drafting."}
+            {f.personalDevType === "CUSTOM" && "🌟 Custom personal development task configured to your own target."}
+            {!f.personalDevType && "Optionally link this task to unlock specialized features in your navigation sidebar."}
+          </p>
+        </div>
         <div><label className={lbl} htmlFor="t-rec">Repeats</label>
           <div className="relative min-w-0"><select id="t-rec" className={selectCls} value={f.recurrence} onChange={(e) => set("recurrence", e.target.value as Form["recurrence"])}><option value="DAILY">Every day</option><option value="WEEKDAYS">Selected weekdays</option><option value="WEEKLY_TOTAL">Weekly total (extra only)</option></select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" size={16} aria-hidden /></div></div>
         {f.recurrence === "WEEKDAYS" && (

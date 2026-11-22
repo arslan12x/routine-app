@@ -283,11 +283,22 @@ export default function NovelReaderScreen({
 
               {/* Formatted Paragraphs */}
               <div className={cn("font-serif space-y-4 text-justify select-text", fontSizeClasses)}>
-                {halfChapter.content.split(/\n\s*\n+/).map((para, i) => (
-                  <p key={i} className="indent-4 sm:indent-6">
-                    {para.trim()}
-                  </p>
-                ))}
+                {halfChapter.content
+                  .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+                  .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+                  .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, "")
+                  .replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, "")
+                  .replace(/<\?xml\b[^>]*\?>/gi, "")
+                  .replace(/<!DOCTYPE\b[^>]*>/gi, "")
+                  .replace(/<[^>]+>/g, "")
+                  .split(/\n\s*\n+/)
+                  .map((para) => para.trim())
+                  .filter(Boolean)
+                  .map((para, i) => (
+                    <p key={i} className="indent-4 sm:indent-6">
+                      {para}
+                    </p>
+                  ))}
               </div>
 
               {/* Bottom Section: Quiz & Chapter Advancement */}

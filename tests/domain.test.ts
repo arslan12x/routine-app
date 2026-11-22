@@ -50,9 +50,10 @@ import { buildFallbackEmail } from "../src/server/ai/jobs.ts";
 import { extractSkillsFromText } from "../src/server/services/jobs.ts";
 import { cleanDocumentText, validateReadableText } from "../src/server/services/resume-parser.ts";
 import { CURATED_COMPANIES, getRoleForExperience } from "../src/server/services/job-scraper.ts";
-import { computeEnabledModules, type LogMap, type Recurrence, type TaskDef, type TaskVersion } from "../src/lib/domain/types.ts";
+import { computeEnabledModules, inferPersonalDevType, type LogMap, type Recurrence, type TaskDef, type TaskVersion } from "../src/lib/domain/types.ts";
 import {
   stripGutenbergBoilerplate,
+  stripBookHtmlAndBoilerplate,
   splitBookIntoChapters,
   splitChapterIntoHalves,
 } from "../src/server/services/novel-reader.ts";
@@ -1731,5 +1732,104 @@ The traveler looked back one final time before turning toward the horizon.
       expect(extracted).not.toContain("PHP");
       expect(extracted).not.toContain("Rust");
       expect(extracted).not.toContain("Swift");
+    });
+  });
+
+  describe("Personal Development Auto-Inference and Novel Reader HTML Cleaning", () => {
+    it("auto-infers PersonalDevType from diverse task titles and descriptions across all categories", () => {
+      // Novel reading patterns
+      expect(inferPersonalDevType("Read 10 pages", null, "LEARNING")).toBe("NOVEL_READING");
+      expect(inferPersonalDevType("reading10 pages", null, "OTHER")).toBe("NOVEL_READING");
+      expect(inferPersonalDevType("Frankenstein novel reading", null, "PERSONAL_DEVELOPMENT")).toBe("NOVEL_READING");
+      expect(inferPersonalDevType("Read 1 chapter of book", null, "LEARNING")).toBe("NOVEL_READING");
+
+      // Duolingo patterns
+      expect(inferPersonalDevType("Duolingo Spanish practice", null, "LEARNING")).toBe("DUOLINGO");
+      expect(inferPersonalDevType("Practice German on Duolingo", null, "PERSONAL_DEVELOPMENT")).toBe("DUOLINGO");
+
+      // Job application patterns
+      expect(inferPersonalDevType("Apply to 10 tech jobs", null, "CAREER")).toBe("JOB_APPLY");
+      expect(inferPersonalDevType("Cold email HR recruiters", null, "PERSONAL_DEVELOPMENT")).toBe("JOB_APPLY");
+
+      // Blog writing patterns
+      expect(inferPersonalDevType("Write daily tech blog", null, "LEARNING")).toBe("BLOG_WRITING");
+      expect(inferPersonalDevType("Publish article on Medium", null, "PERSONAL_DEVELOPMENT")).toBe("BLOG_WRITING");
+
+      // Unrelated task should not be inferred
+      expect(inferPersonalDevType("Go for a 5km run", null, "FITNESS")).toBeNull();
+    });
+
+    it("computes enabled sidebar modules including auto-inferred tasks", () => {
+      const activeTasks = [
+        { title: "Read 10 pages", description: null, category: "LEARNING" as const, personalDevType: null, archivedOn: null },
+      ];
+      const modules = computeEnabledModules(activeTasks);
+      expect(modules.novels).toBe(true);
+      expect(modules.jobs).toBe(false);
+      expect(modules.blogs).toBe(false);
+      expect(modules.duolingo).toBe(false);
+
+      // When archived, module is disabled
+      const archivedTasks = [
+        { title: "Read 10 pages", description: null, category: "LEARNING" as const, personalDevType: null, archivedOn: new Date() },
+      ];
+      const disabledModules = computeEnabledModules(archivedTasks);
+      expect(disabledModules.novels).toBe(false);
+    });
+
+    it("strips XML, XHTML, CSS styles, and head tags from novel reader text into clean prose", () => {
+      const sampleStandardEbookXhtml = `<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="en-GB" xml:lang="en-GB">
+<head>
+<title>Frankenstein</title>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<link rel="canonical" href="https://standardebooks.org/ebooks/mary-shelley/frankenstein/text/single-page" />
+<style><![CDATA[
+@namespace epub "http://www.idpf.org/2007/ops";
+/* core.css */
+.core-css { font-variant-numeric: oldstyle-nums; hyphens: auto; text-wrap: pretty; }
+]]></style>
+</head>
+<body>
+<section epub:type="chapter">
+<h2 epub:type="title">Letter 1</h2>
+<p>To Mrs. Saville, England.</p>
+<p>St. Petersburgh, Dec. 11th, 17&mdash;.</p>
+<p>You will rejoice to hear that no disaster has accompanied the commencement of an enterprise which you have regarded with such evil forebodings.</p>
+</section>
+<section epub:type="chapter">
+<h2 epub:type="title">Letter 2</h2>
+<p>How slowly the time passes here, encompassed as I am by frost and snow!</p>
+</section>
+</body>
+</html>`;
+
+      const cleaned = stripBookHtmlAndBoilerplate(sampleStandardEbookXhtml);
+
+      // Verify no XML, head, or style leakage
+      expect(cleaned).not.toContain("<?xml");
+      expect(cleaned).not.toContain("<!DOCTYPE");
+      expect(cleaned).not.toContain("<head");
+      expect(cleaned).not.toContain("<style");
+      expect(cleaned).not.toContain("core.css");
+      expect(cleaned).not.toContain("font-variant-numeric");
+      expect(cleaned).not.toContain("<p>");
+      expect(cleaned).not.toContain("</p>");
+
+      // Verify clean prose and entities decoded
+      expect(cleaned).toContain("Letter 1");
+      expect(cleaned).toContain("To Mrs. Saville, England.");
+      expect(cleaned).toContain("St. Petersburgh, Dec. 11th, 17—.");
+      expect(cleaned).toContain("You will rejoice to hear that no disaster has accompanied");
+      expect(cleaned).toContain("Letter 2");
+
+      // Verify splitBookIntoChapters splits into 2 distinct chapters
+      const chapters = splitBookIntoChapters(cleaned);
+      expect(chapters.length).toBe(2);
+      expect(chapters[0].title).toBe("Letter 1");
+      expect(chapters[0].content).toContain("To Mrs. Saville, England.");
+      expect(chapters[1].title).toBe("Letter 2");
+      expect(chapters[1].content).toContain("How slowly the time passes here");
     });
   });

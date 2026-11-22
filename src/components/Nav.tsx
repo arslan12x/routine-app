@@ -1,9 +1,11 @@
 "use client";
+import { useEffect, useState } from "react";
 import { BookOpen, Briefcase, CalendarDays, ListChecks, Sparkles, TrendingUp, Trophy, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/cn";
 import type { EnabledPersonalDevModules } from "@/lib/domain/types";
+import { MODULES_CHANGED_EVENT } from "@/lib/events";
 
 const allItems = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
@@ -17,8 +19,42 @@ const allItems = [
   { href: "/friends", label: "Friends", Icon: Users },
 ];
 
-export default function Nav({ enabledModules }: { enabledModules?: EnabledPersonalDevModules }) {
+export default function Nav({ enabledModules: initialModules }: { enabledModules?: EnabledPersonalDevModules }) {
   const path = usePathname();
+  const [enabledModules, setEnabledModules] = useState<EnabledPersonalDevModules>(
+    initialModules || { jobs: false, novels: false, blogs: false, duolingo: false }
+  );
+
+  // Sync state if server prop changes
+  useEffect(() => {
+    if (initialModules) {
+      setEnabledModules(initialModules);
+    }
+  }, [initialModules]);
+
+  // Listen for instant client-side updates without needing page reload
+  useEffect(() => {
+    const handleModulesChanged = (e: Event) => {
+      const customEvent = e as CustomEvent<EnabledPersonalDevModules | undefined>;
+      if (customEvent.detail) {
+        setEnabledModules(customEvent.detail);
+      } else {
+        fetch("/api/me/modules")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.enabledModules) {
+              setEnabledModules(data.enabledModules);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    window.addEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
+    return () => {
+      window.removeEventListener(MODULES_CHANGED_EVENT, handleModulesChanged);
+    };
+  }, []);
 
   const items = allItems.filter((item) => {
     if (!item.moduleKey || !enabledModules) return true;

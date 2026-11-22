@@ -8,6 +8,7 @@ import { triggerLightImpact, triggerSuccessNotification } from "@/lib/haptics";
 import type { DayItem, DayView, TaskView } from "@/server/services/tasks";
 import { catLabel } from "./constants";
 import { toast } from "sonner";
+import { inferPersonalDevType } from "@/lib/domain/types";
 
 /** Optimistic local update; the server value replaces it right after the request completes (or fails). */
 export function applyLocal(d: DayView, id: string, value: number): DayView {
@@ -38,7 +39,8 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
   const router = useRouter();
   const measurable = item.completionType === "MEASURABLE";
   const weekly = item.recurrence === "WEEKLY_TOTAL";
-  const isDuolingo = item.personalDevType === "DUOLINGO" || (!item.personalDevType && (item.title.toLowerCase().includes("duolingo") || (item.description?.toLowerCase().includes("duolingo") ?? false)));
+  const devType = item.personalDevType || inferPersonalDevType(item.title, item.description, item.category);
+  const isDuolingo = devType === "DUOLINGO";
   const [syncing, setSyncing] = useState(false);
   const [duoWarning, setDuoWarning] = useState<string | null>(null);
   const [duoAccount, setDuoAccount] = useState<{ username: string; streak?: number; xpGainedToday?: number } | null>(null);
@@ -136,13 +138,13 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
         aria-pressed={item.done}
         aria-label={item.isAiGated
           ? `${item.done ? "Review" : "Start"} AI study: ${item.title}`
-          : item.personalDevType === "JOB_APPLY"
+          : devType === "JOB_APPLY"
           ? `Go to Jobs module: ${item.title}`
-          : item.personalDevType === "DUOLINGO"
+          : devType === "DUOLINGO"
           ? `Sync Duolingo: ${item.title}`
-          : item.personalDevType === "NOVEL_READING"
+          : devType === "NOVEL_READING"
           ? `Go to Novels module: ${item.title}`
-          : item.personalDevType === "BLOG_WRITING"
+          : devType === "BLOG_WRITING"
           ? `Go to Blogs module: ${item.title}`
           : `${item.done ? "Mark incomplete" : "Mark complete"}: ${item.title}`}
         onClick={() => {
@@ -150,19 +152,19 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
             onStudy?.(item);
             return;
           }
-          if (item.personalDevType === "JOB_APPLY") {
+          if (devType === "JOB_APPLY") {
             router.push("/jobs");
             return;
           }
-          if (item.personalDevType === "DUOLINGO") {
+          if (devType === "DUOLINGO") {
             handleDuolingoSync();
             return;
           }
-          if (item.personalDevType === "NOVEL_READING") {
+          if (devType === "NOVEL_READING") {
             router.push("/novels");
             return;
           }
-          if (item.personalDevType === "BLOG_WRITING") {
+          if (devType === "BLOG_WRITING") {
             router.push("/blogs");
             return;
           }
@@ -180,22 +182,22 @@ function Row({ item, editable, onProgress, onStudy, onEdit }: {
         </div>
         <div className="text-xs text-muted flex flex-wrap items-center gap-1.5 mt-0.5">
           <span>{catLabel(item.category)}</span>
-          {item.personalDevType === "JOB_APPLY" && (
+          {devType === "JOB_APPLY" && (
             <span className="inline-flex items-center rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
               🎯 10 Jobs/Day Gate
             </span>
           )}
-          {item.personalDevType === "DUOLINGO" && (
+          {devType === "DUOLINGO" && (
             <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
               🦉 Duolingo Streak
             </span>
           )}
-          {item.personalDevType === "NOVEL_READING" && (
+          {devType === "NOVEL_READING" && (
             <span className="inline-flex items-center rounded-md bg-indigo-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
               📖 Novel 1/2 Ch + Quiz
             </span>
           )}
-          {item.personalDevType === "BLOG_WRITING" && (
+          {devType === "BLOG_WRITING" && (
             <span className="inline-flex items-center rounded-md bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-400">
               ✍️ Blog Post Gate
             </span>

@@ -7,7 +7,8 @@ import { addDays, hourIn, longDate, todayIn, weekStart } from "@/lib/domain/date
 import { shouldRejectStaleWrite } from "@/lib/domain/sync";
 import { isDone, logKey, progressOf, scheduledOn, versionOn, weekDays } from "@/lib/domain/schedule";
 import { computeStreaks } from "@/lib/domain/streaks";
-import type { Category, CompletionType, PersonalDevType, Recurrence, StudySubject, TaskDef } from "@/lib/domain/types";
+import type { Category, CompletionType, EnabledPersonalDevModules, PersonalDevType, Recurrence, StudySubject, TaskDef } from "@/lib/domain/types";
+import { computeEnabledModules, inferPersonalDevType } from "@/lib/domain/types";
 import { d2s, loadLogs, loadTasks, s2d } from "@/server/repositories/tasks";
 
 export const BACKDATE_DAYS = 7;
@@ -109,6 +110,25 @@ export async function listTasks(userId: string) {
   return tasks.map((t) => ({ ...t, current: t.versions[t.versions.length - 1] }));
 }
 
+export async function getEnabledModulesForUser(userId: string): Promise<EnabledPersonalDevModules> {
+  const activeTasks = await withUserDb(userId, (tx) =>
+    tx.task.findMany({
+      where: {
+        userId,
+        archivedOn: null,
+      },
+      select: {
+        title: true,
+        description: true,
+        category: true,
+        personalDevType: true,
+        archivedOn: true,
+      },
+    })
+  );
+  return computeEnabledModules(activeTasks);
+}
+
 export async function createTask(user: AppUser, input: TaskCreate) {
   validateStudySettings({
     isAiGated: input.isAiGated,
@@ -120,12 +140,18 @@ export async function createTask(user: AppUser, input: TaskCreate) {
   const startDate = input.startDate ?? today;
   if (startDate < today) throw new ApiError(400, "VALIDATION", "Start date cannot be in the past");
   const target = input.completionType === "BOOLEAN" && input.recurrence !== "WEEKLY_TOTAL" ? 1 : input.target;
+
+  const resolvedPersonalDevType =
+    input.personalDevType !== undefined
+      ? input.personalDevType
+      : inferPersonalDevType(input.title, input.description, input.category);
+
   const task = await withUserDb(user.id, async (tx) => {
     const agg = await tx.task.aggregate({ where: { userId: user.id }, _max: { sortOrder: true } });
     return tx.task.create({
       data: {
         userId: user.id, title: input.title, description: input.description ?? null, category: input.category,
-        personalDevType: input.personalDevType ?? null,
+        personalDevType: resolvedPersonalDevType ?? null,
         isAiGated: input.isAiGated, aiSubject: input.aiSubject ?? null,
         aiCourseName: input.aiSubject === "CUSTOM" ? input.aiCourseName ?? null : null,
         aiCoursePrompt: input.aiSubject === "CUSTOM" ? input.aiCoursePrompt ?? null : null,
@@ -140,7 +166,8 @@ export async function createTask(user: AppUser, input: TaskCreate) {
       },
     });
   });
-  return { id: task.id };
+  const enabledModules = await getEnabledModulesForUser(user.id);
+  return { id: task.id, enabledModules };
 }
 
 /**
@@ -199,11 +226,20 @@ export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
       merged.isMandatory !== cur.isMandatory || merged.recurrence !== cur.recurrence || merged.target !== cur.target ||
       merged.unit !== cur.unit || merged.completionType !== cur.completionType || merged.weekdays.join() !== cur.weekdays.join();
 
+    const resolvedPersonalDevType =
+      patch.personalDevType !== undefined
+        ? patch.personalDevType
+        : inferPersonalDevType(
+            patch.title ?? task.title,
+            patch.description !== undefined ? patch.description : task.description,
+            patch.category ?? task.category
+          );
+
     await tx.task.update({
       where: { id },
       data: {
         title: patch.title, description: patch.description, category: patch.category,
-        personalDevType: patch.personalDevType !== undefined ? patch.personalDevType : undefined,
+        personalDevType: resolvedPersonalDevType ?? null,
         isAiGated: patch.isAiGated, aiSubject: patch.aiSubject, aiCourseName, aiCoursePrompt,
         archivedOn: patch.archived ? s2d(today) : undefined,
       },
@@ -216,7 +252,8 @@ export async function updateTask(user: AppUser, id: string, patch: TaskPatch) {
       });
     }
   });
-  return { id };
+  const enabledModules = await getEnabledModulesForUser(user.id);
+  return { id, enabledModules };
 }
 
 /** Hard delete only when there is no history; otherwise the client should archive. */
@@ -228,6 +265,8 @@ export async function deleteTask(user: AppUser, id: string) {
     if (logs > 0) throw new ApiError(409, "HAS_HISTORY", "This task has history. Archive it instead to keep your stats.");
     await tx.task.delete({ where: { id } });
   });
+  const enabledModules = await getEnabledModulesForUser(user.id);
+  return { id, enabledModules };
 }
 
 /** Idempotent: sets an ABSOLUTE value for (task, date). Repeating the request changes nothing. */

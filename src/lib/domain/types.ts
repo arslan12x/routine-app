@@ -50,11 +50,57 @@ export interface EnabledPersonalDevModules {
   blogs: boolean;
 }
 
+export function inferPersonalDevType(
+  title: string,
+  description?: string | null,
+  category?: string
+): PersonalDevType | null {
+  const text = `${title || ""} ${description || ""}`.toLowerCase();
+
+  // Novel reading patterns: novel, book, chapters, read ... pages, reading ... pages
+  if (
+    /\b(?:novel|novels|book|books|chapter|chapters|page|pages|read\s+\d+|reading\s*\d+|read\s+novel|reading\s+novel|reading\s+book)\b/i.test(text)
+  ) {
+    return "NOVEL_READING";
+  }
+
+  // Duolingo patterns
+  if (/\b(?:duolingo|language\s+lesson|vocab\s+practice)\b/i.test(text)) {
+    return "DUOLINGO";
+  }
+
+  // Job apply patterns
+  if (/\b(?:job|jobs|apply|applying|job\s+hunt|interview|sde\s+application|pitch\s+hr|recruiter|recruiters|recruiting|outreach|pitch|cold\s+email)\b/i.test(text)) {
+    return "JOB_APPLY";
+  }
+
+  // Blog writing patterns
+  if (/\b(?:blog|blogs|blogging|article|substack|write\s+post)\b/i.test(text)) {
+    return "BLOG_WRITING";
+  }
+
+  if (category === "PERSONAL_DEVELOPMENT") {
+    return "CUSTOM";
+  }
+
+  return null;
+}
+
 export function computeEnabledModules(
-  tasks: Array<{ personalDevType?: string | null; archivedOn?: unknown | null }>
+  tasks: Array<{
+    title?: string;
+    description?: string | null;
+    category?: string;
+    personalDevType?: string | null;
+    archivedOn?: unknown | null;
+  }>
 ): EnabledPersonalDevModules {
-  const active = tasks.filter((t) => !t.archivedOn && t.personalDevType);
-  const types = new Set(active.map((t) => t.personalDevType));
+  const active = tasks.filter((t) => !t.archivedOn);
+  const types = new Set(
+    active
+      .map((t) => t.personalDevType || inferPersonalDevType(t.title || "", t.description, t.category))
+      .filter(Boolean)
+  );
   return {
     jobs: types.has("JOB_APPLY"),
     duolingo: types.has("DUOLINGO"),

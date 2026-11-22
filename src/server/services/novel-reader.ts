@@ -62,8 +62,86 @@ export function stripGutenbergBoilerplate(rawText: string): string {
   return text.trim();
 }
 
+/**
+ * Strips HTML, XHTML, EPUB styling, XML declarations, and Project Gutenberg headers/footers.
+ * Converts headings and paragraphs into clean, readable book prose.
+ */
+export function stripBookHtmlAndBoilerplate(rawText: string): string {
+  if (!rawText) return "";
+
+  let text = rawText;
+
+  // 1. Detect and strip HTML/XHTML/EPUB markup
+  const isHtml = /<html|<\?xml|<!DOCTYPE|<head|<body|<section|<div|<p\b/i.test(text);
+  if (isHtml) {
+    // Strip scripts and styles
+    text = text.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+    text = text.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+
+    // Strip head, nav, header, footer sections
+    text = text.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, "");
+    text = text.replace(/<nav\b[^>]*>[\s\S]*?<\/nav>/gi, "");
+    text = text.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, "");
+    text = text.replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, "");
+
+    // Strip XML processing instructions and doctypes
+    text = text.replace(/<\?xml\b[^>]*\?>/gi, "");
+    text = text.replace(/<!DOCTYPE\b[^>]*>/gi, "");
+    text = text.replace(/<!--[\s\S]*?-->/g, "");
+
+    // Convert section headings (h1 - h6, legend, caption) to readable chapter markers
+    text = text.replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi, (_match, content) => {
+      const cleanHeading = content.replace(/<[^>]+>/g, "").trim();
+      return cleanHeading ? `\n\nChapter: ${cleanHeading}\n\n` : "\n\n";
+    });
+
+    // Paragraph breaks and block-level tags
+    text = text.replace(/<\/p>/gi, "\n\n");
+    text = text.replace(/<p\b[^>]*>/gi, "\n\n");
+    text = text.replace(/<br\s*\/?>/gi, "\n");
+    text = text.replace(/<hr\s*\/?>/gi, "\n\n");
+    text = text.replace(/<li\b[^>]*>/gi, "\n• ");
+    text = text.replace(/<\/(?:div|section|article|blockquote)>/gi, "\n\n");
+
+    // Strip all remaining HTML/XML tags
+    text = text.replace(/<[^>]+>/g, "");
+
+    // Decode HTML entities
+    text = text
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&(?:apos|#39);/gi, "'")
+      .replace(/&(?:mdash|#8212);/gi, "—")
+      .replace(/&(?:ndash|#8211);/gi, "–")
+      .replace(/&(?:ldquo|rdquo|#8220|#8221);/gi, '"')
+      .replace(/&(?:lsquo|rsquo|#8216|#8217);/gi, "'")
+      .replace(/&#(\d+);/g, (_m, dec) => {
+        const code = Number(dec);
+        return code > 0 && code < 65536 ? String.fromCharCode(code) : "";
+      })
+      .replace(/&#x([0-9a-fA-F]+);/g, (_m, hex) => {
+        const code = parseInt(hex, 16);
+        return code > 0 && code < 65536 ? String.fromCharCode(code) : "";
+      });
+  }
+
+  // 2. Strip Project Gutenberg header and footer boilerplate
+  text = stripGutenbergBoilerplate(text);
+
+  // 3. Normalize whitespace and newlines
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  text = text.replace(/[ \t]+/g, " ");
+  text = text.replace(/\n\s*\n\s*\n+/g, "\n\n");
+
+  return text.trim();
+}
+
 export function splitBookIntoChapters(cleanText: string): ChapterChunk[] {
-  const chapterRegex = /(?:^|\n)\s*(?:CHAPTER|Chapter)\s+([0-9]+|[IVXLCDMivxlcdm]+|[A-Za-z]+)(?:[.:\s\n–—]+([^\n]*))?/g;
+  const chapterRegex =
+    /(?:^|\n)\s*(?:CHAPTER|Chapter|LETTER|Letter|BOOK|Book|PART|Part|ACT|Act|SCENE|Scene|PROLOGUE|Prologue|EPILOGUE|Epilogue)\s*[:\s–—]+([^\n]{1,80})/gi;
   const matches = Array.from(cleanText.matchAll(chapterRegex));
 
   if (matches.length >= 2) {
@@ -75,7 +153,11 @@ export function splitBookIntoChapters(cleanText: string): ChapterChunk[] {
       const rawChapter = cleanText.slice(startIndex, endIndex).trim();
 
       const lines = rawChapter.split("\n");
-      const title = lines[0].trim().slice(0, 80) || `Chapter ${i + 1}`;
+      const title =
+        lines[0]
+          .trim()
+          .replace(/^Chapter:\s*/i, "")
+          .slice(0, 80) || `Chapter ${i + 1}`;
       const content = lines.slice(1).join("\n").trim();
 
       if (content.length > 20) {
@@ -176,8 +258,16 @@ export function splitChapterIntoHalves(
 }
 
 export async function fetchNovelFullText(novelId: string): Promise<string> {
-  if (memoryTextCache.has(novelId)) {
-    return memoryTextCache.get(novelId)!;
+  const cached = memoryTextCache.get(novelId);
+  // Invalidate any dirty XML/HTML in memoryTextCache
+  if (
+    cached &&
+    !cached.includes("<?xml") &&
+    !cached.includes("<!DOCTYPE") &&
+    !cached.includes("<style") &&
+    !cached.includes("<head")
+  ) {
+    return cached;
   }
 
   const novel = await systemDb.novelCatalog.findUnique({
@@ -230,7 +320,7 @@ export async function fetchNovelFullText(novelId: string): Promise<string> {
       `where each encounter tested resolve and deepened the traveler's perspective. The journey continued with deliberate focus.`;
   }
 
-  const clean = stripGutenbergBoilerplate(text);
+  const clean = stripBookHtmlAndBoilerplate(text);
   memoryTextCache.set(novelId, clean);
   return clean;
 }

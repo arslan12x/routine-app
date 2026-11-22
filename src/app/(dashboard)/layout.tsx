@@ -3,22 +3,11 @@ import Link from "next/link";
 import Nav from "@/components/Nav";
 import TimezoneSync from "@/components/TimezoneSync";
 import { pageUser } from "@/lib/auth/session";
-import { withUserDb } from "@/lib/db";
-import { computeEnabledModules } from "@/lib/domain/types";
+import { getEnabledModulesForUser } from "@/server/services/tasks";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await pageUser();
-  const activeDevTasks = await withUserDb(user.id, (tx) =>
-    tx.task.findMany({
-      where: {
-        userId: user.id,
-        archivedOn: null,
-        personalDevType: { not: null },
-      },
-      select: { personalDevType: true, archivedOn: true },
-    })
-  );
-  const enabledModules = computeEnabledModules(activeDevTasks);
+  const enabledModules = await getEnabledModulesForUser(user.id);
 
   return (
     <div className="min-h-dvh md:pl-56">
