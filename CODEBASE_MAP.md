@@ -32,7 +32,7 @@
 - **`server/services/email-transport.ts`**: `verifyEmailCredentials`, `isDirectEmailConfigured`, `sendDirectEmail`
 - **`server/services/email-inbox.ts`**: `syncRecruiterRepliesForUser`
 - **`server/services/novel-reader.ts`**: `stripBookHtmlAndBoilerplate`, `splitBookIntoChapters`, `splitChapterIntoHalves`, `fetchNovelFullText`, `getHalfChapterForNovel`, `generateNovelQuiz`, `submitNovelQuiz`
-- **`server/services/novels.ts`**: `listNovels`, `updateReadingSession`, `getUserReadingSessions`, `fetchFromGutendex`
+- **`server/services/novels.ts`**: `listNovels`, `updateReadingSession`, `getUserReadingSessions`, `fetchFromGutendex`, `reconcileActiveReadingSessions`
 - **`server/services/blogs.ts`**: `createBlogPlan`, `listBlogPlans`, `getBlogPlan`, `generateDayContent`, `updateDayMarkdown`, `deleteBlogPlan`
 - **`server/services/duolingo.ts`**: `getDuolingoIntegration`, `upsertDuolingoIntegration`, `syncDuolingo`
 - **`server/services/finance.ts`**: `getFinanceSummary`, `createExpense`, `deleteExpense`, `setBudget`, `importExpensesFromProvider`
@@ -50,7 +50,7 @@
 - **`lib/domain/schedule.ts`**: `logKey`, `scheduledOn`, `isDone`, `progressOf`, `dayInfo`, `weekDays`
 - **`lib/domain/streaks.ts`**: `computeStreaks`, `recentConsistency`
 - **`lib/domain/types.ts`**: `inferPersonalDevType`, `computeEnabledModules`
-- **`lib/domain/novels.ts`**: `isValidNovelRedirectUrl`, `canOpenNovel`, `ALLOWED_NOVEL_HOSTS`
+- **`lib/domain/novels.ts`**: `isValidNovelRedirectUrl`, `canOpenNovel`, `resolveCanonicalActiveReadingSession`, `ALLOWED_NOVEL_HOSTS`
 - **`lib/domain/ranking.ts`**: `rankRows`
 - **`lib/domain/analytics.ts`**: `computeInsights`
 - **`lib/domain/achievements.ts`**: `evaluateEligibleBadges`, `BADGE_DEFINITIONS`

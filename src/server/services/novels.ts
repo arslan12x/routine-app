@@ -1,6 +1,7 @@
 import { ApiError } from "@/lib/api";
 import { systemDb, withUserDb } from "@/lib/db";
 import { isValidNovelRedirectUrl } from "@/lib/domain/novels";
+import type { Prisma } from "@/generated/prisma/client";
 
 export interface NovelView {
   id: string;
@@ -235,6 +236,57 @@ export async function fetchFromGutendex(genre?: string, search?: string): Promis
   }
 }
 
+/**
+ * Auto-heals legacy state where users have multiple UserReadingSession rows with status: "READING".
+ * Finds all UserReadingSession rows for userId with status: "READING", ordered by lastReadAt DESC, startedAt DESC.
+ * If more than 1 exists, keeps ONLY the single most recently read session (sessions[0]) as "READING"
+ * and batch deletes the other stale "READING" sessions in one query.
+ * Returns sessions[0] ?? null as the single canonical active novel.
+ */
+export async function reconcileActiveReadingSessions(
+  tx: Prisma.TransactionClient,
+  userId: string
+) {
+  const activeSessions = await tx.userReadingSession.findMany({
+    where: {
+      userId,
+      status: "READING",
+    },
+    include: {
+      novel: {
+        select: {
+          id: true,
+          title: true,
+          author: true,
+          coverUrl: true,
+        },
+      },
+    },
+    orderBy: [
+      { lastReadAt: "desc" },
+      { startedAt: "desc" },
+    ],
+  });
+
+  if (activeSessions.length <= 1) {
+    return activeSessions[0] ?? null;
+  }
+
+  const [canonical, ...stale] = activeSessions;
+  const staleIds = stale.map((s) => s.id);
+
+  if (staleIds.length > 0) {
+    await tx.userReadingSession.deleteMany({
+      where: {
+        id: { in: staleIds },
+        userId,
+      },
+    });
+  }
+
+  return canonical;
+}
+
 export async function listNovels(
   userId?: string,
   genre?: string,
@@ -270,12 +322,13 @@ export async function listNovels(
       take: 40,
     }),
     userId
-      ? withUserDb(userId, (tx) =>
-          tx.userReadingSession.findMany({
+      ? withUserDb(userId, async (tx) => {
+          await reconcileActiveReadingSessions(tx, userId);
+          return tx.userReadingSession.findMany({
             where: { userId },
             include: { novel: true },
-          })
-        )
+          });
+        })
       : Promise.resolve([]),
   ]);
 
@@ -327,16 +380,17 @@ export async function updateReadingSession(userId: string, novelId: string, stat
   // Strict Single-Active-Novel Lock:
   // If attempting to mark or start as READING, verify no other novel is currently active
   if (status === "READING") {
-    const activeOther = await withUserDb(userId, (tx) =>
-      tx.userReadingSession.findFirst({
+    const activeOther = await withUserDb(userId, async (tx) => {
+      await reconcileActiveReadingSessions(tx, userId);
+      return tx.userReadingSession.findFirst({
         where: {
           userId,
           status: "READING",
           novelId: { not: novelId },
         },
         include: { novel: { select: { id: true, title: true } } },
-      })
-    );
+      });
+    });
 
     if (activeOther) {
       throw new ApiError(
@@ -389,12 +443,15 @@ export async function updateReadingSession(userId: string, novelId: string, stat
 }
 
 export async function getUserReadingSessions(userId: string) {
-  const sessions = await systemDb.userReadingSession.findMany({
-    where: { userId },
-    include: {
-      novel: true,
-    },
-    orderBy: { lastReadAt: "desc" },
+  const sessions = await withUserDb(userId, async (tx) => {
+    await reconcileActiveReadingSessions(tx, userId);
+    return tx.userReadingSession.findMany({
+      where: { userId },
+      include: {
+        novel: true,
+      },
+      orderBy: { lastReadAt: "desc" },
+    });
   });
 
   return sessions.map((s) => ({

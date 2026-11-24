@@ -52,3 +52,39 @@ export function canOpenNovel(
   if (activeSession.status !== "READING") return true;
   return activeSession.novelId === targetNovelId;
 }
+
+export interface NovelReadingSessionLike {
+  id?: string;
+  novelId: string;
+  status: string;
+  lastReadAt: string | Date;
+  startedAt?: string | Date;
+}
+
+/**
+ * Deduplicates multiple active reading sessions for a user, keeping only the single
+ * most recently read session (ordered by lastReadAt DESC, startedAt DESC).
+ */
+export function resolveCanonicalActiveReadingSession<T extends NovelReadingSessionLike>(
+  sessions: T[]
+): { canonical: T | null; stale: T[] } {
+  const readingSessions = sessions
+    .filter((s) => s.status === "READING")
+    .slice()
+    .sort((a, b) => {
+      const aRead = new Date(a.lastReadAt).getTime();
+      const bRead = new Date(b.lastReadAt).getTime();
+      if (bRead !== aRead) return bRead - aRead;
+      const aStart = a.startedAt ? new Date(a.startedAt).getTime() : 0;
+      const bStart = b.startedAt ? new Date(b.startedAt).getTime() : 0;
+      return bStart - aStart;
+    });
+
+  if (readingSessions.length === 0) {
+    return { canonical: null, stale: [] };
+  }
+
+  const [canonical, ...stale] = readingSessions;
+  return { canonical, stale };
+}
+

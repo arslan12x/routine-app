@@ -8,7 +8,7 @@ import { shouldRejectStaleWrite } from "../src/lib/domain/sync.ts";
 import { matchTaskToHealthMetric } from "../src/lib/native-health.ts";
 import { getReminderSlot, isReminderHour, reminderMessage } from "../src/lib/domain/reminders.ts";
 import { evaluateEligibleBadges, BADGE_DEFINITIONS } from "../src/lib/domain/achievements.ts";
-import { isValidNovelRedirectUrl, canOpenNovel } from "../src/lib/domain/novels.ts";
+import { isValidNovelRedirectUrl, canOpenNovel, resolveCanonicalActiveReadingSession } from "../src/lib/domain/novels.ts";
 import { buildSmartReminderPrompt } from "../src/server/ai/reminders.ts";
 import { buildFallbackCoachReview } from "../src/server/ai/coach.ts";
 import { computeTaskStreakAndCompletedDays } from "../src/server/ai/learning-context.ts";
@@ -1939,5 +1939,61 @@ alamxarslan@gmail.com`;
       expect(canOpenNovel(completedFrankenstein, "novel-frankenstein")).toBe(true);
       expect(canOpenNovel(completedFrankenstein, "novel-dracula")).toBe(true);
       expect(canOpenNovel(completedFrankenstein, "novel-gatsby")).toBe(true);
+    });
+
+    it("resolveCanonicalActiveReadingSession auto-heals multiple active novel reading sessions to the most recently read one and unblocks the user", () => {
+      const legacySessions = [
+        {
+          id: "session-1",
+          novelId: "novel-frankenstein",
+          status: "READING",
+          startedAt: new Date("2026-11-18T10:00:00Z"),
+          lastReadAt: new Date("2026-11-20T12:00:00Z"), // older read
+        },
+        {
+          id: "session-2",
+          novelId: "novel-dracula",
+          status: "READING",
+          startedAt: new Date("2026-11-21T09:00:00Z"),
+          lastReadAt: new Date("2026-11-24T10:00:00Z"), // latest read -> canonical
+        },
+        {
+          id: "session-3",
+          novelId: "novel-gatsby",
+          status: "COMPLETED",
+          startedAt: new Date("2026-11-10T09:00:00Z"),
+          lastReadAt: new Date("2026-11-15T10:00:00Z"),
+        },
+      ];
+
+      const { canonical, stale } = resolveCanonicalActiveReadingSession(legacySessions);
+
+      // 1. Only the most recently read active session is kept as canonical
+      expect(canonical).not.toBeNull();
+      expect(canonical?.novelId).toBe("novel-dracula");
+      expect(canonical?.id).toBe("session-2");
+
+      // 2. The older active session is flagged as stale
+      expect(stale).toHaveLength(1);
+      expect(stale[0].novelId).toBe("novel-frankenstein");
+      expect(stale[0].id).toBe("session-1");
+
+      // 3. User is NOT locked out of their active novel ("Dracula")
+      expect(canOpenNovel(canonical, "novel-dracula")).toBe(true);
+
+      // 4. Stale/other novels remain properly locked until canonical is completed
+      expect(canOpenNovel(canonical, "novel-frankenstein")).toBe(false);
+
+      // 5. If only 1 active session exists, it is returned with 0 stale sessions
+      const singleSession = [legacySessions[1]];
+      const singleResult = resolveCanonicalActiveReadingSession(singleSession);
+      expect(singleResult.canonical?.novelId).toBe("novel-dracula");
+      expect(singleResult.stale).toHaveLength(0);
+
+      // 6. If no active sessions exist, canonical is null
+      const noActive = [legacySessions[2]];
+      const emptyResult = resolveCanonicalActiveReadingSession(noActive);
+      expect(emptyResult.canonical).toBeNull();
+      expect(emptyResult.stale).toHaveLength(0);
     });
   });

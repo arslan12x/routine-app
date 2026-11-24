@@ -2,6 +2,7 @@ import { requireUser } from "@/lib/auth/session";
 import { systemDb, withUserDb } from "@/lib/db";
 import { ApiError } from "@/lib/api";
 import { getHalfChapterForNovel } from "@/server/services/novel-reader";
+import { reconcileActiveReadingSessions } from "@/server/services/novels";
 import { todayIn } from "@/lib/domain/dates";
 
 export const runtime = "nodejs";
@@ -36,17 +37,18 @@ export async function GET(
       throw new ApiError(404, "NOT_FOUND", "Novel not found");
     }
 
-    // Strict Single-Active-Novel Lock Guard
-    const activeOther = await withUserDb(user.id, (tx) =>
-      tx.userReadingSession.findFirst({
+    // Auto-Heal & Strict Single-Active-Novel Lock Guard
+    const activeOther = await withUserDb(user.id, async (tx) => {
+      await reconcileActiveReadingSessions(tx, user.id);
+      return tx.userReadingSession.findFirst({
         where: {
           userId: user.id,
           status: "READING",
           novelId: { not: id },
         },
         include: { novel: { select: { id: true, title: true } } },
-      })
-    );
+      });
+    });
 
     if (activeOther) {
       throw new ApiError(

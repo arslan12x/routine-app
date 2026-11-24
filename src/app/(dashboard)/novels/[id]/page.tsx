@@ -3,6 +3,7 @@ import { pageUser } from "@/lib/auth/session";
 import { systemDb, withUserDb } from "@/lib/db";
 import { todayIn } from "@/lib/domain/dates";
 import { getHalfChapterForNovel } from "@/server/services/novel-reader";
+import { reconcileActiveReadingSessions } from "@/server/services/novels";
 import NovelReaderScreen from "@/features/novels/NovelReaderScreen";
 
 export default async function NovelReaderPage({
@@ -21,17 +22,18 @@ export default async function NovelReaderPage({
     notFound();
   }
 
-  // Strict Single-Active-Novel Lock Guard
-  const activeOther = await withUserDb(user.id, (tx) =>
-    tx.userReadingSession.findFirst({
+  // Strict Single-Active-Novel Lock Guard with Auto-Heal
+  const activeOther = await withUserDb(user.id, async (tx) => {
+    await reconcileActiveReadingSessions(tx, user.id);
+    return tx.userReadingSession.findFirst({
       where: {
         userId: user.id,
         status: "READING",
         novelId: { not: id },
       },
       include: { novel: { select: { id: true, title: true } } },
-    })
-  );
+    });
+  });
 
   if (activeOther) {
     return (
