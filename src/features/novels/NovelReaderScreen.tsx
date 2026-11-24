@@ -100,15 +100,25 @@ export default function NovelReaderScreen({
     setAnswers([]);
     setQuizOpen(true);
     try {
-      const res = await api<QuizGenerationResult>(`/api/novels/${novel.id}/quiz`, {
+      const res = await api<QuizGenerationResult | { data: QuizGenerationResult }>(`/api/novels/${novel.id}/quiz`, {
         method: "POST",
         body: JSON.stringify({
           chapter: halfChapter.chapterNumber,
           half: halfChapter.half,
         }),
       });
-      setQuizData(res);
-      setAnswers(new Array(res.questions.length).fill(-1));
+
+      const quiz: QuizGenerationResult =
+        res && typeof res === "object" && "data" in res && res.data && "questions" in (res.data as QuizGenerationResult)
+          ? (res.data as QuizGenerationResult)
+          : (res as QuizGenerationResult);
+
+      if (!quiz || !Array.isArray(quiz.questions) || quiz.questions.length !== 5) {
+        throw new Error("Invalid quiz format");
+      }
+
+      setQuizData(quiz);
+      setAnswers(new Array(quiz.questions.length).fill(-1));
     } catch {
       toast.error("Could not generate comprehension quiz. Please retry.");
       setQuizOpen(false);
@@ -126,7 +136,7 @@ export default function NovelReaderScreen({
 
     setSubmittingQuiz(true);
     try {
-      const res = await api<QuizSubmissionResult>(`/api/novels/${novel.id}/quiz/submit`, {
+      const res = await api<QuizSubmissionResult | { data: QuizSubmissionResult }>(`/api/novels/${novel.id}/quiz/submit`, {
         method: "POST",
         body: JSON.stringify({
           token: quizData.token,
@@ -134,17 +144,22 @@ export default function NovelReaderScreen({
         }),
       });
 
-      setQuizResult(res);
-      if (res.passed) {
-        toast.success(`🎉 Passed with ${res.score}/5! Daily Novel Reading task marked complete.`);
+      const result: QuizSubmissionResult =
+        res && typeof res === "object" && "data" in res && res.data && "score" in (res.data as QuizSubmissionResult)
+          ? (res.data as QuizSubmissionResult)
+          : (res as QuizSubmissionResult);
+
+      setQuizResult(result);
+      if (result.passed) {
+        toast.success(`🎉 Passed with ${result.score}/5! Daily Novel Reading task marked complete.`);
         setSession((prev) => ({
           ...prev,
           passedToday: true,
-          currentChapter: res.nextChapter ?? prev.currentChapter,
-          currentHalf: res.nextHalf ?? prev.currentHalf,
+          currentChapter: result.nextChapter ?? prev.currentChapter,
+          currentHalf: result.nextHalf ?? prev.currentHalf,
         }));
       } else {
-        toast.error(`Scored ${res.score}/5. You need at least 3/5 to pass. Re-read and try again!`);
+        toast.error(`Scored ${result.score}/5. You need at least 3/5 to pass. Re-read and try again!`);
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to submit quiz.");
@@ -493,18 +508,33 @@ export default function NovelReaderScreen({
                 <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                   {quizResult ? (
                     quizResult.passed ? (
-                      <Button
-                        type="button"
-                        onClick={() => {
-                          setQuizOpen(false);
-                          if (quizResult.nextChapter && quizResult.nextHalf) {
-                            loadHalfChapter(quizResult.nextChapter, quizResult.nextHalf);
-                          }
-                        }}
-                        className="py-2 px-5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
-                      >
-                        Continue to Next Part
-                      </Button>
+                      quizResult.isNovelCompleted ? (
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            setQuizOpen(false);
+                            router.push("/novels");
+                          }}
+                          className="py-2 px-5 text-xs font-bold bg-brand text-brandfg hover:bg-brand/90"
+                        >
+                          🎉 Novel Completed! Return to Catalog
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            setQuizOpen(false);
+                            if (quizResult.nextChapter && quizResult.nextHalf) {
+                              loadHalfChapter(quizResult.nextChapter, quizResult.nextHalf);
+                            }
+                          }}
+                          className="py-2 px-5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700"
+                        >
+                          {quizResult.nextHalf === 2
+                            ? "Continue to Part 2"
+                            : `Continue to Chapter ${quizResult.nextChapter}`}
+                        </Button>
+                      )
                     ) : (
                       <Button
                         type="button"

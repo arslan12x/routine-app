@@ -4,7 +4,7 @@ import { encryptSecret, decryptSecret } from "@/lib/crypto";
 import { todayIn } from "@/lib/domain/dates";
 import { syncFeatureTaskCompletion } from "@/server/services/tasks";
 import { google } from "@ai-sdk/google";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 
 export interface ChapterChunk {
@@ -34,6 +34,14 @@ export interface QuizGenerationResult {
   half: 1 | 2;
 }
 
+export interface QuizQuestionResult {
+  questionIndex: number;
+  userAnswer: number;
+  correctAnswer: number;
+  isCorrect: boolean;
+  explanation: string;
+}
+
 export interface QuizSubmissionResult {
   score: number;
   total: 5;
@@ -41,6 +49,8 @@ export interface QuizSubmissionResult {
   explanations: string[];
   nextChapter?: number;
   nextHalf?: 1 | 2;
+  isNovelCompleted: boolean;
+  results: QuizQuestionResult[];
 }
 
 const memoryTextCache = new Map<string, string>();
@@ -57,6 +67,21 @@ export function stripGutenbergBoilerplate(rawText: string): string {
   const endMatch = text.match(endRegex);
   if (endMatch && endMatch.index !== undefined) {
     text = text.slice(0, endMatch.index);
+  }
+
+  // Strip Standard Ebooks / public domain / colophon front-matter boilerplate
+  const boilerplateMarkers = [
+    /The source text and artwork in this ebook are believed to be in the United States public domain[\s\S]*?(?:end of this ebook\.?|CC0 1\.0 Universal[^\n]*)/gi,
+    /CC0 1\.0 Universal Public Domain Dedication[^\n]*/gi,
+    /Standard Ebooks is a volunteer-driven project[\s\S]*?(?:standardebooks\.org)/gi,
+    /transcription from Project Gutenberg and on digital scans from the Internet Archive\.?/gi,
+    /For full license information, see the Uncopyright at the end of this ebook\.?/gi,
+    /Produced by [^\n]+/gi,
+    /Transcribed from [^\n]+/gi,
+  ];
+
+  for (const pattern of boilerplateMarkers) {
+    text = text.replace(pattern, "");
   }
 
   return text.trim();
@@ -84,15 +109,26 @@ export function stripBookHtmlAndBoilerplate(rawText: string): string {
     text = text.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, "");
     text = text.replace(/<footer\b[^>]*>[\s\S]*?<\/footer>/gi, "");
 
+    // Strip Standard Ebooks / EPUB front-matter and back-matter sections
+    text = text.replace(
+      /<(?:section|div)\b[^>]*(?:id|class|epub:type)=["'][^"']*(?:titlepage|imprint|colophon|uncopyright|copyright|frontmatter|backmatter|toc|table-of-contents|halftitle)[^"']*["'][^>]*>[\s\S]*?<\/(?:section|div)>/gi,
+      ""
+    );
+
     // Strip XML processing instructions and doctypes
     text = text.replace(/<\?xml\b[^>]*\?>/gi, "");
     text = text.replace(/<!DOCTYPE\b[^>]*>/gi, "");
     text = text.replace(/<!--[\s\S]*?-->/g, "");
 
+    const BOILERPLATE_HEADINGS = /^(?:title\s*page|imprint|colophon|uncopyright|copyright|table\s*of\s*contents|contents|toc|dedication|acknowledgments?|standard\s*ebooks|project\s*gutenberg|preface|half\s*title)/i;
+
     // Convert section headings (h1 - h6, legend, caption) to readable chapter markers
     text = text.replace(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi, (_match, content) => {
       const cleanHeading = content.replace(/<[^>]+>/g, "").trim();
-      return cleanHeading ? `\n\nChapter: ${cleanHeading}\n\n` : "\n\n";
+      if (!cleanHeading || BOILERPLATE_HEADINGS.test(cleanHeading)) {
+        return "\n\n";
+      }
+      return `\n\nChapter: ${cleanHeading}\n\n`;
     });
 
     // Paragraph breaks and block-level tags
@@ -136,16 +172,33 @@ export function stripBookHtmlAndBoilerplate(rawText: string): string {
   text = text.replace(/[ \t]+/g, " ");
   text = text.replace(/\n\s*\n\s*\n+/g, "\n\n");
 
+  // 4. Strip leftover boilerplate paragraphs
+  const paragraphs = text.split(/\n\s*\n+/);
+  const cleanParagraphs = paragraphs.filter((p) => {
+    const trimmed = p.trim();
+    if (!trimmed) return false;
+    if (/The source text and artwork in this ebook are believed to be in the United States public domain/i.test(trimmed)) return false;
+    if (/CC0 1\.0 Universal/i.test(trimmed)) return false;
+    if (/Uncopyright at the end of this ebook/i.test(trimmed)) return false;
+    if (/Standard Ebooks is a volunteer-driven project/i.test(trimmed)) return false;
+    if (/Project Gutenberg Literary Archive Foundation/i.test(trimmed)) return false;
+    if (/transcription from Project Gutenberg and on digital scans/i.test(trimmed)) return false;
+    return true;
+  });
+  text = cleanParagraphs.join("\n\n");
+
   return text.trim();
 }
 
 export function splitBookIntoChapters(cleanText: string): ChapterChunk[] {
   const chapterRegex =
-    /(?:^|\n)\s*(?:CHAPTER|Chapter|LETTER|Letter|BOOK|Book|PART|Part|ACT|Act|SCENE|Scene|PROLOGUE|Prologue|EPILOGUE|Epilogue)\s*[:\s–—]+([^\n]{1,80})/gi;
+    /(?:^|\n)\s*(?:CHAPTER|Chapter|ADVENTURE|Adventure|LETTER|Letter|BOOK|Book|PART|Part|ACT|Act|SCENE|Scene|STORY|Story|PROLOGUE|Prologue|EPILOGUE|Epilogue)\s*[:\s–—.]*([^\n]{1,80})/gi;
   const matches = Array.from(cleanText.matchAll(chapterRegex));
 
+  const BOILERPLATE_TITLES = /^(?:imprint|colophon|uncopyright|titlepage|title\s*page|table\s*of\s*contents|contents|toc|frontmatter|backmatter|dedication|acknowledgments?)/i;
+
   if (matches.length >= 2) {
-    const chapters: ChapterChunk[] = [];
+    const rawChapters: Array<{ title: string; content: string }> = [];
     for (let i = 0; i < matches.length; i++) {
       const match = matches[i];
       const startIndex = match.index!;
@@ -160,15 +213,18 @@ export function splitBookIntoChapters(cleanText: string): ChapterChunk[] {
           .slice(0, 80) || `Chapter ${i + 1}`;
       const content = lines.slice(1).join("\n").trim();
 
-      if (content.length > 20) {
-        chapters.push({
-          chapterNumber: chapters.length + 1,
-          title,
-          content,
-        });
+      if (!BOILERPLATE_TITLES.test(title) && content.length > 20) {
+        rawChapters.push({ title, content });
       }
     }
-    if (chapters.length >= 2) return chapters;
+
+    if (rawChapters.length >= 2) {
+      return rawChapters.map((ch, idx) => ({
+        chapterNumber: idx + 1,
+        title: ch.title,
+        content: ch.content,
+      }));
+    }
   }
 
   // Fallback: chunk by ~2,500 words per chapter
@@ -343,6 +399,90 @@ export async function getHalfChapterForNovel(
   return splitChapterIntoHalves(targetChapter, chapters.length, half);
 }
 
+export function buildDeterministicReadingQuiz(halfChapter: HalfChapter): Array<{
+  id: string;
+  question: string;
+  options: string[];
+  correctIndex: 0 | 1 | 2 | 3;
+  explanation: string;
+}> {
+  const sentences = halfChapter.content
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim().replace(/\s+/g, " "))
+    .filter((s) => s.length >= 25 && s.length <= 180 && !s.includes("http") && !s.includes("Gutenberg"));
+
+  return [
+    {
+      id: "q1",
+      question: `What primary premise or narrative scene is established in ${halfChapter.title}?`,
+      options: [
+        sentences[0] ? `"${sentences[0]}"` : "The scene and character dynamics established in this opening section",
+        "An unexpected futuristic sci-fi invention disrupts the setting",
+        "A sudden cancellation of the storyline without narrative progression",
+        "A commercial advertisement interrupts the narrative sequence",
+      ],
+      correctIndex: 0,
+      explanation: "This section introduces the foundational setting and premise of the chapter.",
+    },
+    {
+      id: "q2",
+      question: "Which of the following describes a key observation or event that unfolds in this passage?",
+      options: [
+        sentences[Math.floor(sentences.length * 0.25)]
+          ? `"${sentences[Math.floor(sentences.length * 0.25)]}"`
+          : "The characters proceed with their plans through direct dialogue and action",
+        "The characters use smartphones to send modern text messages",
+        "The story is immediately resolved in a single unrelated paragraph",
+        "The narrator falls asleep and dreams of intergalactic travel",
+      ],
+      correctIndex: 0,
+      explanation: "The narrative develops through the characters' observed choices and dialogue.",
+    },
+    {
+      id: "q3",
+      question: "What thematic tension or central subject is explored in the middle of this section?",
+      options: [
+        sentences[Math.floor(sentences.length * 0.5)]
+          ? `"${sentences[Math.floor(sentences.length * 0.5)]}"`
+          : "The conflict between personal expectations and external circumstances",
+        "An abrupt shift into a cooking competition",
+        "A technical discussion about modern quantum computing",
+        "A debate concerning 21st-century social media algorithms",
+      ],
+      correctIndex: 0,
+      explanation: "The central section explores the key dramatic focus of this portion of the story.",
+    },
+    {
+      id: "q4",
+      question: "What notable detail or statement occurs toward the later part of this reading?",
+      options: [
+        sentences[Math.floor(sentences.length * 0.75)]
+          ? `"${sentences[Math.floor(sentences.length * 0.75)]}"`
+          : "The characters react to emerging developments and formulate their next response",
+        "An alien spacecraft lands and alters the timeline",
+        "The narrator explicitly states the story has ended permanently",
+        "A random technical formula is inserted into the prose",
+      ],
+      correctIndex: 0,
+      explanation: "This event highlights the escalating momentum leading toward the chapter's continuation.",
+    },
+    {
+      id: "q5",
+      question: "What is the key takeaway or state of affairs as this half-chapter draws to a close?",
+      options: [
+        sentences[sentences.length - 1]
+          ? `"${sentences[sentences.length - 1]}"`
+          : "The passage concludes with momentum leading directly into the subsequent section",
+        "All characters abandon their goals with no resolution or continuation",
+        "The text dissolves into random punctuation symbols",
+        "The author announces that the remainder of the book is cancelled",
+      ],
+      correctIndex: 0,
+      explanation: "The conclusion of this part sets up the necessary progression for the next part.",
+    },
+  ];
+}
+
 export async function generateNovelQuiz(
   userId: string,
   novelId: string,
@@ -350,13 +490,13 @@ export async function generateNovelQuiz(
   half: 1 | 2
 ): Promise<QuizGenerationResult> {
   const halfChapter = await getHalfChapterForNovel(novelId, chapterNumber, half);
-  const textSample = halfChapter.content.slice(0, 3500);
+  const textSample = halfChapter.content.slice(0, 4500);
 
   let rawQuestions: Array<{
     id: string;
     question: string;
     options: string[];
-    correctIndex: number;
+    correctIndex: 0 | 1 | 2 | 3;
     explanation: string;
   }> = [];
 
@@ -377,24 +517,32 @@ Requirements:
 3. Specify the zero-based index of the correct answer (0, 1, 2, or 3).
 4. Provide a 1-sentence concise explanation for the correct answer.`;
 
-      const result = await generateObject({
+      const result = await generateText({
         model: google("gemini-3.5-flash-lite"),
-        schema: z.object({
-          questions: z.array(
-            z.object({
-              id: z.string(),
-              question: z.string().min(10),
-              options: z.array(z.string().min(1)).length(4),
-              correctIndex: z.number().int().min(0).max(3),
-              explanation: z.string().min(5),
-            })
-          ).length(5),
+        output: Output.object({
+          schema: z.object({
+            questions: z.array(
+              z.object({
+                id: z.string(),
+                question: z.string().min(10),
+                options: z.array(z.string().min(1)).length(4),
+                correctIndex: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+                explanation: z.string().min(5),
+              })
+            ).length(5),
+          }),
         }),
         prompt,
       });
 
-      if (result.object?.questions?.length === 5) {
-        rawQuestions = result.object.questions;
+      if (result.output?.questions?.length === 5) {
+        rawQuestions = result.output.questions as Array<{
+          id: string;
+          question: string;
+          options: string[];
+          correctIndex: 0 | 1 | 2 | 3;
+          explanation: string;
+        }>;
       }
     } catch (err) {
       console.warn("[Novel Reader] AI quiz generation fallback", err);
@@ -403,68 +551,7 @@ Requirements:
 
   // Deterministic fallback if AI call is unavailable
   if (rawQuestions.length < 5) {
-    rawQuestions = [
-      {
-        id: "q1",
-        question: `What is the primary setting or central focus presented in ${halfChapter.title}?`,
-        options: [
-          "The developing events and characters described in the passage",
-          "A modern futuristic metropolis with automated technology",
-          "An underwater scientific research station",
-          "A completely unpopulated desolate desert",
-        ],
-        correctIndex: 0,
-        explanation: "The passage establishes the narrative scene and key character interactions.",
-      },
-      {
-        id: "q2",
-        question: "How do the characters navigate the circumstances described in this section?",
-        options: [
-          "Through dialogue, observation, and personal decision-making",
-          "By utilizing contemporary telecommunications",
-          "By immediately turning around and abandoning the plot",
-          "By consulting a digital database",
-        ],
-        correctIndex: 0,
-        explanation: "Character actions and discussions drive the progression of the scene.",
-      },
-      {
-        id: "q3",
-        question: "What mood or narrative tone characterizes this half-chapter?",
-        options: [
-          "A classical literary atmosphere reflecting the period and style",
-          "Humorous parody of modern cinema",
-          "Technical manual instructional syntax",
-          "Nonsensical nursery rhyme wordplay",
-        ],
-        correctIndex: 0,
-        explanation: "The text embodies classic literary storytelling and prose style.",
-      },
-      {
-        id: "q4",
-        question: "What key realization or development occurs by the conclusion of this passage?",
-        options: [
-          "The foundation is set for the subsequent events of the narrative",
-          "The universe spontaneously collapses",
-          "A commercial broadcast interrupts the story",
-          "The narrator forgets all prior events",
-        ],
-        correctIndex: 0,
-        explanation: "The chapter section concludes with clear narrative momentum into the next portion.",
-      },
-      {
-        id: "q5",
-        question: "Which of the following best reflects an attentive reader's takeaway from this text?",
-        options: [
-          "Attentiveness to character tone and descriptive context clarifies the theme",
-          "Ignoring character relationships produces better understanding",
-          "The passage contains zero thematic substance",
-          "Skipping sentences has no impact on comprehension",
-        ],
-        correctIndex: 0,
-        explanation: "Careful reading highlights the thematic subtleties of the author's work.",
-      },
-    ];
+    rawQuestions = buildDeterministicReadingQuiz(halfChapter);
   }
 
   // Encrypt the answer key into an un-tamperable token
@@ -528,11 +615,21 @@ export async function submitNovelQuiz(
   const passed = score >= 3;
   const todayLocalDate = todayIn(userTimezone);
 
+  const fullText = await fetchNovelFullText(novelId);
+  const chapters = splitBookIntoChapters(fullText);
+  const totalChapters = Math.max(1, chapters.length);
+
+  const isFinalHalfOfFinalChapter = decrypted.chapter >= totalChapters && decrypted.half === 2;
+  const isNovelCompleted = passed && isFinalHalfOfFinalChapter;
+
   let nextChapter = decrypted.chapter;
   let nextHalf: 1 | 2 = decrypted.half;
 
   if (passed) {
-    if (decrypted.half === 1) {
+    if (isFinalHalfOfFinalChapter) {
+      nextChapter = decrypted.chapter;
+      nextHalf = 2;
+    } else if (decrypted.half === 1) {
       nextHalf = 2;
     } else {
       nextChapter = decrypted.chapter + 1;
@@ -550,16 +647,20 @@ export async function submitNovelQuiz(
       create: {
         userId,
         novelId,
+        status: isNovelCompleted ? "COMPLETED" : "READING",
         currentChapter: nextChapter,
         currentHalf: nextHalf,
         lastQuizPassedDate: todayLocalDate,
         lastReadAt: new Date(),
+        completedAt: isNovelCompleted ? new Date() : null,
       },
       update: {
+        status: isNovelCompleted ? "COMPLETED" : "READING",
         currentChapter: nextChapter,
         currentHalf: nextHalf,
         lastQuizPassedDate: todayLocalDate,
         lastReadAt: new Date(),
+        completedAt: isNovelCompleted ? new Date() : null,
       },
     });
 
@@ -578,5 +679,13 @@ export async function submitNovelQuiz(
     explanations: decrypted.explanations,
     nextChapter,
     nextHalf,
+    isNovelCompleted,
+    results: correctAnswers.map((correct, idx) => ({
+      questionIndex: idx,
+      userAnswer: userAnswers[idx],
+      correctAnswer: correct,
+      isCorrect: userAnswers[idx] === correct,
+      explanation: decrypted.explanations[idx] || "",
+    })),
   };
 }

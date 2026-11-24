@@ -19,5 +19,5 @@ export async function api<T = unknown>(url: string, init?: RequestInit): Promise
   if (!res.ok) {
     throw new ApiRequestError(j?.error?.message ?? "Request failed", res.status, j?.error?.code, j?.error?.fields);
   }
-  return j.data as T;
+  return (j?.data !== undefined ? j.data : j) as T;
 }

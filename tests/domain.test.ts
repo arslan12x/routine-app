@@ -58,6 +58,8 @@ import {
   stripBookHtmlAndBoilerplate,
   splitBookIntoChapters,
   splitChapterIntoHalves,
+  buildDeterministicReadingQuiz,
+  type ChapterChunk,
 } from "../src/server/services/novel-reader.ts";
 
 const ver = (o: Partial<TaskVersion> = {}): TaskVersion => ({
@@ -1995,5 +1997,132 @@ alamxarslan@gmail.com`;
       const emptyResult = resolveCanonicalActiveReadingSession(noActive);
       expect(emptyResult.canonical).toBeNull();
       expect(emptyResult.stale).toHaveLength(0);
+    });
+
+    it("strips copyright, imprint, colophon, and uncopyright boilerplate before splitting novel into chapters", () => {
+      const sampleSherlockWithImprint = `
+<section id="titlepage">
+  <h1>The Adventures of Sherlock Holmes</h1>
+</section>
+<section id="imprint">
+  <h2>Imprint</h2>
+  <p>The source text and artwork in this ebook are believed to be in the United States public domain; that is, they are believed to be free of copyright restrictions in the United States. Users located outside of the United States must check their local laws before using this ebook. The creators of, and contributors to, this ebook dedicate their contributions to the worldwide public domain via the terms in the CC0 1.0 Universal Public Domain Dedication. For full license information, see the Uncopyright at the end of this ebook.</p>
+  <p>transcription from Project Gutenberg and on digital scans from the Internet Archive.</p>
+</section>
+<nav id="toc">
+  <h2>Table of Contents</h2>
+  <ol><li>A Scandal in Bohemia</li><li>The Red-Headed League</li></ol>
+</nav>
+<section id="chapter-1">
+  <h2>Adventure I. A Scandal in Bohemia</h2>
+  <p>To Sherlock Holmes she is always THE woman. I have seldom heard him mention her under any other name. In his eyes she eclipses and predominates the whole of her sex. It was not that he felt any emotion akin to love for Irene Adler.</p>
+  <p>All emotions, and that one particularly, were abhorrent to his cold, precise but admirably balanced mind. He was, I take it, the most perfect reasoning and observing machine that the world has seen.</p>
+</section>
+<section id="chapter-2">
+  <h2>Adventure II. The Red-Headed League</h2>
+  <p>I had called upon my friend, Mr. Sherlock Holmes, one day in the autumn of last year and found him in deep conversation with a very stout, florid-faced, elderly gentleman with fiery red hair.</p>
+  <p>With an apology for my intrusion, I was about to withdraw when Holmes pulled me abruptly into the room and closed the door behind me.</p>
+</section>
+`;
+
+      const cleaned = stripBookHtmlAndBoilerplate(sampleSherlockWithImprint);
+
+      // Verify boilerplate text is completely stripped
+      expect(cleaned).not.toContain("United States public domain");
+      expect(cleaned).not.toContain("CC0 1.0 Universal");
+      expect(cleaned).not.toContain("Uncopyright at the end of this ebook");
+      expect(cleaned).not.toContain("transcription from Project Gutenberg");
+      expect(cleaned).not.toContain("Table of Contents");
+
+      // Verify splitting chapters begins strictly on the actual narrative
+      const chapters = splitBookIntoChapters(cleaned);
+      expect(chapters.length).toBe(2);
+
+      // Chapter 1 must be the first actual story, NOT Imprint or Table of Contents
+      expect(chapters[0].chapterNumber).toBe(1);
+      expect(chapters[0].title).toBe("Adventure I. A Scandal in Bohemia");
+      expect(chapters[0].content).toContain("To Sherlock Holmes she is always THE woman.");
+
+      // Chapter 2 must be the second story
+      expect(chapters[1].chapterNumber).toBe(2);
+      expect(chapters[1].title).toBe("Adventure II. The Red-Headed League");
+      expect(chapters[1].content).toContain("I had called upon my friend, Mr. Sherlock Holmes");
+    });
+
+    it("evaluates novel half-chapter advancement (Ch 1 Half 1 -> Ch 1 Half 2 -> Ch 2 Half 1) and completion on passing quiz", () => {
+      const chapter1: ChapterChunk = {
+        chapterNumber: 1,
+        title: "Chapter 1",
+        content: `Paragraph one opens the compelling mystery with several notable characters discussing their future plans in great detail.
+Paragraph two expands the dialogue and brings an intriguing revelation that shifts the tone into high adventure.
+Paragraph three deepens the mystery with subtle clues that challenge every assumption made by the investigators.
+Paragraph four concludes the chapter with a cliffhanger that propels the story forward into uncharted territory.`,
+      };
+
+      // Split into halves
+      const half1 = splitChapterIntoHalves(chapter1, 2, 1);
+      const half2 = splitChapterIntoHalves(chapter1, 2, 2);
+
+      expect(half1.chapterNumber).toBe(1);
+      expect(half1.half).toBe(1);
+      expect(half1.title).toBe("Chapter 1 (Part 1 of 2)");
+      expect(half1.content.length).toBeGreaterThan(50);
+
+      expect(half2.chapterNumber).toBe(1);
+      expect(half2.half).toBe(2);
+      expect(half2.title).toBe("Chapter 1 (Part 2 of 2)");
+      expect(half2.content.length).toBeGreaterThan(50);
+
+      // Verify deterministic reading quiz generator provides 5 questions with 4 options each
+      const quiz = buildDeterministicReadingQuiz(half1);
+      expect(quiz).toHaveLength(5);
+      for (const q of quiz) {
+        expect(q.options).toHaveLength(4);
+        expect(q.correctIndex).toBe(0);
+        expect(q.explanation.length).toBeGreaterThan(10);
+      }
+
+      // Advancement State Machine:
+      // Function to compute next state on quiz pass
+      function computeNextReadingState(currentChapter: number, currentHalf: 1 | 2, totalChapters: number, passed: boolean) {
+        if (!passed) {
+          return { nextChapter: currentChapter, nextHalf: currentHalf, isNovelCompleted: false };
+        }
+        if (currentHalf === 1) {
+          return { nextChapter: currentChapter, nextHalf: 2 as const, isNovelCompleted: false };
+        }
+        if (currentChapter >= totalChapters) {
+          return { nextChapter: currentChapter, nextHalf: 2 as const, isNovelCompleted: true };
+        }
+        return { nextChapter: currentChapter + 1, nextHalf: 1 as const, isNovelCompleted: false };
+      }
+
+      // 1. Ch 1 Half 1 -> Pass (>= 3/5) -> Ch 1 Half 2
+      const step1 = computeNextReadingState(1, 1, 2, true);
+      expect(step1.nextChapter).toBe(1);
+      expect(step1.nextHalf).toBe(2);
+      expect(step1.isNovelCompleted).toBe(false);
+
+      // 2. Ch 1 Half 2 -> Pass (>= 3/5) -> Ch 2 Half 1
+      const step2 = computeNextReadingState(1, 2, 2, true);
+      expect(step2.nextChapter).toBe(2);
+      expect(step2.nextHalf).toBe(1);
+      expect(step2.isNovelCompleted).toBe(false);
+
+      // 3. Ch 2 Half 1 -> Pass (>= 3/5) -> Ch 2 Half 2
+      const step3 = computeNextReadingState(2, 1, 2, true);
+      expect(step3.nextChapter).toBe(2);
+      expect(step3.nextHalf).toBe(2);
+      expect(step3.isNovelCompleted).toBe(false);
+
+      // 4. Final Chapter Ch 2 Half 2 -> Pass (>= 3/5) -> isNovelCompleted: true
+      const step4 = computeNextReadingState(2, 2, 2, true);
+      expect(step4.isNovelCompleted).toBe(true);
+
+      // 5. Fail (< 3/5) -> State remains unchanged
+      const failedStep = computeNextReadingState(1, 1, 2, false);
+      expect(failedStep.nextChapter).toBe(1);
+      expect(failedStep.nextHalf).toBe(1);
+      expect(failedStep.isNovelCompleted).toBe(false);
     });
   });

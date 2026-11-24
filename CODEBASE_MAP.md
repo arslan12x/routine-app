@@ -31,7 +31,7 @@
 - **`server/services/resume-parser.ts`**: `cleanDocumentText`, `validateReadableText`, `extractResumeText`
 - **`server/services/email-transport.ts`**: `verifyEmailCredentials`, `isDirectEmailConfigured`, `sendDirectEmail`
 - **`server/services/email-inbox.ts`**: `syncRecruiterRepliesForUser`
-- **`server/services/novel-reader.ts`**: `stripBookHtmlAndBoilerplate`, `splitBookIntoChapters`, `splitChapterIntoHalves`, `fetchNovelFullText`, `getHalfChapterForNovel`, `generateNovelQuiz`, `submitNovelQuiz`
+- **`server/services/novel-reader.ts`**: `stripBookHtmlAndBoilerplate`, `splitBookIntoChapters`, `splitChapterIntoHalves`, `fetchNovelFullText`, `getHalfChapterForNovel`, `generateNovelQuiz`, `submitNovelQuiz`, `buildDeterministicReadingQuiz`
 - **`server/services/novels.ts`**: `listNovels`, `updateReadingSession`, `getUserReadingSessions`, `fetchFromGutendex`, `reconcileActiveReadingSessions`
 - **`server/services/blogs.ts`**: `createBlogPlan`, `listBlogPlans`, `getBlogPlan`, `generateDayContent`, `updateDayMarkdown`, `deleteBlogPlan`
 - **`server/services/duolingo.ts`**: `getDuolingoIntegration`, `upsertDuolingoIntegration`, `syncDuolingo`
